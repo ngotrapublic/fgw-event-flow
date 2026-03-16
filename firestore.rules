@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check roles
+    function hasRole(role) {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    // User Profile: Users can read their own profile
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId; // Or restrict to admin
+    }
+
+    // Events: Authenticated users can read, only Managers/Admins can write
+    match /events/{eventId} {
+      allow read: if request.auth != null;
+      allow write: if hasRole('admin') || hasRole('manager');
+    }
+    
+    // Departments/Locations: Read all, Write Admin/Manager
+    match /departments/{docId} {
+      allow read: if request.auth != null;
+      allow write: if hasRole('admin') || hasRole('manager');
+    }
+    match /locations/{docId} {
+      allow read: if request.auth != null;
+      allow write: if hasRole('admin') || hasRole('manager');
+    }
+
+    // Default catch-all (Optional: tighten this for production)
+    match /{document=**} {
+      allow read, write: if request.auth != null; 
+    }
+  }
+}

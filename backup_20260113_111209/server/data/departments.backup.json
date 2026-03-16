@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Đào tạo",
+    "emails": [
+      "huynt40@fpt.edu.vn"
+    ]
+  },
+  {
+    "name": "CTSV",
+    "emails": [
+      "ctsv@fpt.edu.vn"
+    ]
+  },
+  {
+    "name": "Tuyển sinh",
+    "emails": [
+      "ts@fpt.edu.vn"
+    ]
+  },
+  {
+    "name": "PDP",
+    "emails": [
+      "pdp@fpt.edu.vn"
+    ]
+  },
+  {
+    "name": "QHDN",
+    "emails": [
+      "qhdn@fpt.edu.vn"
+    ]
+  }
+]

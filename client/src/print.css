@@ -1,0 +1,127 @@
+/* ============================================
+   DEDICATED PRINT STYLESHEET
+   This file handles ALL print formatting
+   ============================================ */
+
+@media print {
+
+    /* CRITICAL: Force browser to use zero margins */
+    @page {
+        size: A4 portrait;
+        margin: 0 !important;
+    }
+
+    /* Reset everything */
+    * {
+        box-sizing: border-box !important;
+    }
+
+    html {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 210mm !important;
+    }
+
+    body {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 210mm !important;
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* Hide all UI elements */
+    aside,
+    nav,
+    header:not([class*="print"]),
+    footer:not([class*="print"]),
+    button,
+    .print\:hidden,
+    [role="navigation"],
+    [class*="sidebar"],
+    [class*="toolbar"] {
+        display: none !important;
+    }
+
+    /* Force full width for content containers */
+    #root,
+    #root>div,
+    [id*="print"],
+    [class*="print"] {
+        width: 210mm !important;
+        max-width: 210mm !important;
+        min-width: 210mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Override ALL centering and width constraints */
+    [class*="max-w"],
+    [class*="mx-auto"],
+    [style*="maxWidth"],
+    [style*="margin"] {
+        max-width: 210mm !important;
+        width: 210mm !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    /* Remove ALL padding from containers */
+    [class*="px-"],
+    [style*="padding-left"],
+    [style*="padding-right"] {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    /* Specific template overrides */
+    #letter-of-undertaking,
+    [id*="template"],
+    [class*="template"] {
+        width: 210mm !important;
+        max-width: 210mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Page breaks */
+    .print-break-before,
+    [class*="break-before"] {
+        page-break-before: always !important;
+        break-before: page !important;
+    }
+
+    .print-break-after,
+    [class*="break-after"] {
+        page-break-after: always !important;
+        break-after: page !important;
+    }
+
+    /* Prevent breaks inside */
+    table,
+    figure,
+    img,
+    .no-break {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+
+    /* Ensure images don't get cut off */
+    img {
+        max-width: 100% !important;
+        page-break-inside: avoid !important;
+    }
+
+    /* Force all text to print */
+    * {
+        color: black !important;
+        background: transparent !important;
+    }
+
+    /* Preserve backgrounds that are needed */
+    [style*="background: white"],
+    [class*="bg-white"] {
+        background: white !important;
+    }
+}

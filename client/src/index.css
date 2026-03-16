@@ -1,0 +1,150 @@
+/* Be Vietnam Pro - Optimized for Vietnamese text */
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-indigo-500 selection:text-white aurora-bg;
+    font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-bold tracking-tight text-slate-900;
+    font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .aurora-bg {
+    background-color: #f8fafc;
+    background-image:
+      radial-gradient(ellipse 80% 80% at 50% -20%, rgba(129, 140, 248, 0.15), transparent),
+      radial-gradient(ellipse 50% 50% at 80% 50%, rgba(192, 132, 252, 0.15), transparent),
+      radial-gradient(ellipse 50% 50% at 20% 80%, rgba(244, 114, 182, 0.15), transparent);
+    background-attachment: fixed;
+  }
+
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/60;
+    box-shadow:
+      0 4px 6px -1px rgba(0, 0, 0, 0.02),
+      0 2px 4px -1px rgba(0, 0, 0, 0.02),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  }
+
+  .glass-hover {
+    @apply hover:bg-white/80 hover:border-white/80 transition-all duration-300;
+  }
+
+  .glass-hover:hover {
+    box-shadow:
+      0 10px 15px -3px rgba(0, 0, 0, 0.05),
+      0 4px 6px -2px rgba(0, 0, 0, 0.025),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    transform: translateY(-2px);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full transition-colors;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
+}
+
+/* ============================================
+   GLOBAL PRINT STYLES - Override ALL templates
+   ============================================ */
+@media print {
+
+  /* Reset page margins - let content control its own margins */
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  /* Hide non-printable elements */
+  .print\:hidden,
+  header:not(.print-visible),
+  nav,
+  aside,
+  footer:not(.print-visible),
+  button,
+  [role="navigation"] {
+    display: none !important;
+  }
+
+  /* Reset body */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 
+   * CRITICAL FIX: Override Tailwind max-w-* and mx-auto classes
+   * These classes on templates cause the left margin issue
+   */
+  [class*="max-w-"] {
+    max-width: 100% !important;
+  }
+
+  [class*="mx-auto"] {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  /* Override px-8 (32px padding) - reduce to reasonable print margin */
+  [class*="px-8"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Ensure all content containers expand to full width */
+  .a4-page,
+  .a4-page>*,
+  #print-content,
+  #print-content>* {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Force page breaks between forms */
+  .a4-page {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  /* Prevent breaks inside important elements */
+  table,
+  figure,
+  img,
+  .no-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}

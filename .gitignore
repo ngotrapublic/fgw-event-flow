@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables
+.env
+server/.env
+
+# IDE
+.vscode/
+.idea/
+
+# Build output
+client/dist/
+client/build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase Admin SDK (if downloaded)
+server/serviceAccountKey.json
+
+# Old backup files
+server/*.backup.js
+server/*.old.js
+server/*.temp.js
+
+# Old JSON data files (migrated to Firestore)
+server/data/*.json
+server/data/*.backup.json

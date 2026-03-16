@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:AllowPNG/>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <![endif]-->
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, Helvetica, sans-serif;
+            background: #1F2937;
+            -webkit-font-smoothing: antialiased;
+        }
+       table { border-collapse: collapse; }
+        img { border: 0; display: block; }
+        
+        /* Container */
+        .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        /* GRADIENTS (Modern Clients) */
+        .gradient-header {
+            background: linear-gradient(135deg, #14B8A6 0%, #06B6D4 100%);
+        }
+        .gradient-date {
+            background: linear-gradient(135deg, #F97316 0%, #EF4444 100%);
+        }
+        .gradient-time {
+            background: linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+        }
+        .gradient-location {
+            background: linear-gradient(135deg, #14B8A6 0%, #10B981 100%);
+        }
+        .gradient-setup {
+            background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+        }
+        
+        /* Typography */
+        .dept-label {
+            color: rgba(255,255,255,0.9);
+            font-size: 11px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .title-text {
+            color: #000000;
+            font-size: 48px;
+            font-weight: 900;
+            line-height: 1.1;
+            text-transform: uppercase;
+            letter-spacing: -1px;
+        }
+        .label-text {
+            color: rgba(255,255,255,0.95);
+            font-size: 14px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            font-weight: 900;
+        }
+        .value-text {
+            color: #FFFFFF;
+            font-size: 32px;
+            font-weight: 900;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+        .day-text {
+            color: rgba(255,255,255,0.9);
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        
+        /* Setup Section */
+        .setup-title {
+            color: #FFFFFF;
+            font-size: 18px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            padding: 25px 40px;
+        }
+        .facility-pill {
+            background: rgba(255,255,255,0.95);
+            padding: 15px 25px;
+            margin: 8px 0;
+            border-radius: 50px;
+            display: inline-block;
+        }
+        .facility-text {
+            color: #1F2937;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .facility-check {
+            color: #F97316;
+            font-weight: 900;
+            margin-right: 10px;
+        }
+        
+        /* Notes */
+        .notes-section {
+            padding: 30px 40px;
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.9);
+            line-height: 1.6;
+        }
+        
+        /* Mobile */
+        @media (max-width: 600px) {
+            .title-text { font-size: 36px !important; }
+            .value-text { font-size: 24px !important; }
+            .setup-title,
+            .notes-section { 
+                padding-left: 20px !important; 
+                padding-right: 20px !important; 
+            }
+        }
+    </style>
+</head>
+<body style="margin:0; padding:0; background:#1F2937;">
+    
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#1F2937;">
+        <tr>
+            <td align="center" style="padding:20px 10px;">
+                
+                <!-- Email Container -->
+                <table class="email-wrapper" width="600" cellpadding="0" cellspacing="0" border="0">
+                    
+                    <!-- HEADER: Teal-Cyan Gradient -->
+                    <tr>
+                        <td class="gradient-header" style="padding:50px 40px; text-align:left; background:linear-gradient(135deg, #14B8A6 0%, #06B6D4 100%);">
+                            <!--[if mso]>
+                            <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fillcolor="#14B8A6" stroke="f" style="width:520px;height:auto;">
+                            <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:true">
+                            <![endif]-->
+                            <div class="dept-label" style="color:rgba(255,255,255,0.9); font-size:11px; letter-spacing:3px; text-transform:uppercase; font-weight:700; margin-bottom:8px;">
+                                Phòng Đào Tạo
+                            </div>
+                            <div class="title-text" style="color:#000000; font-size:48px; font-weight:900; line-height:1.1; text-transform:uppercase;">
+                                OUTLOOK DESKTOP TEST
+                            </div>
+                            <!--[if mso]>
+                            </v:textbox>
+                            </v:rect>
+                            <![endif]-->
+                        </td>
+                    </tr>
+                    
+                    <!-- DATE: Orange-Red Gradient -->
+                    <tr>
+                        <td class="gradient-date" style="padding:30px 40px; background:linear-gradient(135deg, #F97316 0%, #EF4444 100%);">
+                            <!--[if mso]>
+                            <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fillcolor="#F97316" stroke="f" style="width:520px;height:auto;">
+                            <v:textbox inset="0,0,0,0">
+                            <![endif]-->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td width="25%" style="vertical-align:middle;">
+                                        <div class="label-text" style="color:rgba(255,255,255,0.95); font-size:14px; letter-spacing:4px; text-transform:uppercase; font-weight:900;">
+                                            DATE
+                                        </div>
+                                    </td>
+                                    <td width="75%" style="vertical-align:middle; text-align:right;">
+                                        <div class="value-text" style="color:#FFFFFF; font-size:32px; font-weight:900; text-transform:uppercase;">
+                                            2026-01-27
+                                        </div>
+                                        <div class="day-text" style="color:rgba(255,255,255,0.9); font-size:18px; font-weight:700; margin-top:8px;">Monday</div>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!--[if mso]>
+                            </v:textbox>
+                            </v:rect>
+                            <![endif]-->
+                        </td>
+                    </tr>
+                    
+                    <!-- TIME: Purple-Pink Gradient -->
+                    <tr>
+                        <td class="gradient-time" style="padding:30px 40px; background:linear-gradient(135deg, #A855F7 0%, #EC4899 100%);">
+                            <!--[if mso]>
+                            <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fillcolor="#A855F7" stroke="f" style="width:520px;height:auto;">
+                            <v:textbox inset="0,0,0,0">
+                            <![endif]-->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td width="25%" style="vertical-align:middle;">
+                                        <div class="label-text" style="color:rgba(255,255,255,0.95); font-size:14px; letter-spacing:4px; text-transform:uppercase; font-weight:900;">
+                                            TIME
+                                        </div>
+                                    </td>
+                                    <td width="75%" style="vertical-align:middle; text-align:right;">
+                                        <div class="value-text" style="color:#FFFFFF; font-size:32px; font-weight:900; text-transform:uppercase;">
+                                            09:00 - 17:00
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!--[if mso]>
+                            </v:textbox>
+                            </v:rect>
+                            <![endif]-->
+                        </td>
+                    </tr>
+                    
+                    <!-- LOCATION: Teal-Green Gradient -->
+                    <tr>
+                        <td class="gradient-location" style="padding:35px 40px; text-align:center; background:linear-gradient(135deg, #14B8A6 0%, #10B981 100%);">
+                            <!--[if mso]>
+                            <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fillcolor="#14B8A6" stroke="f" style="width:520px;height:auto;">
+                            <v:textbox inset="0,0,0,0">
+                            <![endif]-->
+                            <div class="label-text" style="color:rgba(255,255,255,0.95); font-size:14px; letter-spacing:4px; text-transform:uppercase; font-weight:900; margin-bottom:12px;">
+                                LOCATION
+                            </div>
+                            <div class="value-text" style="color:#FFFFFF; font-size:32px; font-weight:900; text-transform:uppercase;">
+                                Conference Room A
+                            </div>
+                            <!--[if mso]>
+                            </v:textbox>
+                            </v:rect>
+                            <![endif]-->
+                        </td>
+                    </tr>
+                    
+                    
+                    <!-- NOTES -->
+                    <tr>
+                        <td class="notes-section" style="padding:30px 40px; background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.9); line-height:1.6;">
+                            This is a test email for Outlook Desktop 365 compatibility.
+                        </td>
+                    </tr>
+                    
+                    
+                    
+                    <!-- SETUP REQUIREMENTS: Orange Gradient -->
+                    <tr>
+                        <td style="background:#F97316; padding:0;">
+                            <!-- No VML wrapper - just pure HTML tables -->
+                            
+                            <!-- Title -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:25px 40px;">
+                                        <span style="color:#FFFFFF; font-size:18px; font-weight:900; text-transform:uppercase; letter-spacing:3px;">
+                                            📋 YÊU CẦU SETUP
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Facility Items - Ultra Simple -->
+                            
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:4px 40px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF">
+                                            <tr>
+                                                <td style="background:#FFFFFF; padding:15px 25px;">
+                                                    <span style="color:#F97316; font-weight:900; font-size:16px;">✓</span>
+                                                    <span style="color:#1F2937; font-size:15px; font-weight:700;"> Item 1: Projector</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:4px 40px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF">
+                                            <tr>
+                                                <td style="background:#FFFFFF; padding:15px 25px;">
+                                                    <span style="color:#F97316; font-weight:900; font-size:16px;">✓</span>
+                                                    <span style="color:#1F2937; font-size:15px; font-weight:700;"> Item 2: Sound System</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:4px 40px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF">
+                                            <tr>
+                                                <td style="background:#FFFFFF; padding:15px 25px;">
+                                                    <span style="color:#F97316; font-weight:900; font-size:16px;">✓</span>
+                                                    <span style="color:#1F2937; font-size:15px; font-weight:700;"> Item 3: Microphone</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:4px 40px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF">
+                                            <tr>
+                                                <td style="background:#FFFFFF; padding:15px 25px;">
+                                                    <span style="color:#F97316; font-weight:900; font-size:16px;">✓</span>
+                                                    <span style="color:#1F2937; font-size:15px; font-weight:700;"> Item 4: Whiteboard</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:4px 40px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF">
+                                            <tr>
+                                                <td style="background:#FFFFFF; padding:15px 25px;">
+                                                    <span style="color:#F97316; font-weight:900; font-size:16px;">✓</span>
+                                                    <span style="color:#1F2937; font-size:15px; font-weight:700;"> Item 5: Chairs</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            
+                            <!-- Bottom Spacing -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:0 0 20px 0;"></td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    
+                </table>
+                
+            </td>
+        </tr>
+    </table>
+    
+</body>
+</html>

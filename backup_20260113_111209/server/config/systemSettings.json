@@ -1,0 +1,51 @@
+{
+  "channels": {
+    "email": true,
+    "slack": false,
+    "zalo": false,
+    "sms": false
+  },
+  "templates": [
+    {
+      "id": "welcome",
+      "name": "Event Registration Confirmation",
+      "subject": "🎟️ Ticket Confirmed: {{eventName}}",
+      "active": true
+    },
+    {
+      "id": "updated",
+      "name": "Event Update Notification",
+      "subject": "⚠️ Update: {{eventName}}",
+      "active": true
+    },
+    {
+      "id": "reminder",
+      "name": "Event Reminder (24h)",
+      "subject": "⏰ Reminder: {{eventName}} is tomorrow",
+      "active": true
+    },
+    {
+      "id": "approval",
+      "name": "Request Approval",
+      "subject": "Action Required: Approve event {{eventName}}",
+      "active": true
+    },
+    {
+      "id": "reject",
+      "name": "Request Rejection",
+      "subject": "Update on your event request",
+      "active": true
+    }
+  ],
+  "smtp": {
+    "host": "smtp.office365.com",
+    "port": 587,
+    "user": "huynt40@fe.edu.vn",
+    "pass": "10d3dbd0d47f5d08ea4de750fe19f295:2d93e2c10e685ff5aa17c127c8aa9a3935ebd50184de51a5ad2fe87be05622c4",
+    "secure": false,
+    "isConfigured": true
+  },
+  "retention": {
+    "period": 12
+  }
+}

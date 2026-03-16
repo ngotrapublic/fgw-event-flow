@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, sans-serif;
+            background: #E5E5E5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background: white;
+        }
+        
+        /* Header Block - Teal with diagonal cut */
+        .header-block {
+            background: #14B8A6;
+            padding: 60px 50px 60px 50px;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 60px) 0, 100% 100%, 0 100%);
+        }
+        .header-label {
+            color: white;
+            font-size: 14px;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }
+        .header-title {
+            color: black;
+            font-size: 48px;
+            font-weight: 900;
+            line-height: 1.1;
+            text-transform: uppercase;
+        }
+        
+        /* Info Row - Colored left, white right with diagonal */
+        .info-row {
+            display: table;
+            width: 100%;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .info-colored {
+            display: table-cell;
+            width: 45%;
+            padding: 25px 30px;
+            vertical-align: middle;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 100%, 0 100%);
+        }
+        .info-white {
+            display: table-cell;
+            width: 55%;
+            padding: 25px 30px;
+            background: white;
+            vertical-align: middle;
+        }
+        
+        /* Colors */
+        .orange { background: #F97316; }
+        .purple { background: #A855F7; }
+        .teal { background: #14B8A6; }
+        
+        /* Text Styles */
+        .label {
+            color: white;
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .value {
+            color: black;
+            font-size: 32px;
+            font-weight: 900;
+            line-height: 1;
+        }
+        .day {
+            color: black;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        /* Location - Full width teal */
+        .location-block {
+            background: #14B8A6;
+            padding: 25px 50px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .location-block .label {
+            color: white;
+            text-align: center;
+        }
+        .location-block .value {
+            color: black;
+            text-align: center;
+            background: white;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        
+        /* Notes */
+        .notes {
+            padding: 30px 50px;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        /* Facilities & Equipment Section */  
+        .facilities-section {
+            padding: 30px 50px;
+            background: #F8FAFC;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: 900;
+            color: #14B8A6;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #14B8A6;
+        }
+        .item-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .item-list li {
+            padding: 12px 15px;
+            margin: 8px 0;
+            background: white;
+            border-left: 4px solid #F97316;
+            font-size: 14px;
+            color: #333;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .item-list li strong {
+            color: #F97316;
+            margin-right: 8px;
+        }
+        
+        /* Mobile */
+        @media (max-width: 600px) {
+            .header-block, .info-colored, .info-white, .location-block, .notes, .facilities-section {
+                padding-left: 20px !important;
+                padding-right: 20px !important;
+            }
+            .header-title { font-size: 32px !important; }
+            .value { font-size: 24px !important; }
+           }
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <!-- HEADER: Teal Diagonal -->
+        <div class="header-block">
+            <div class="header-label">PHÒNG ĐÀO TẠO</div>
+            <div class="header-title">Leadership Summit 2024</div>
+        </div>
+        
+        <!-- DATE ROW: Orange left, White right -->
+        <div class="info-row">
+            <div class="info-colored orange">
+                <div class="label">DATE</div>
+            </div>
+            <div class="info-white">
+                <div class="value">2026-01-21</div>
+                <div class="day">Thứ Ba</div>
+            </div>
+        </div>
+        
+        <!-- TIME ROW: Purple left, White right -->
+        <div class="info-row">
+            <div class="info-colored purple">
+                <div class="label">TIME</div>
+            </div>
+            <div class="info-white">
+                <div class="value">07:00 - 11:30</div>
+            </div>
+        </div>
+        
+        <!-- LOCATION: Full width -->
+        <div class="location-block">
+            <div class="label">LOCATION</div>
+            <div class="value">Sảnh Tầng 2</div>
+        </div>
+        
+        
+        
+        <!-- FACILITIES & EQUIPMENT SECTION -->
+        
+        <div class="facilities-section">
+            
+            
+            <div class="section-title">📋 YÊU CẦU SETUP</div>
+            <ul class="item-list">
+                
+                    <li><strong>✓</strong> Projector & Screen</li>
+                
+                    <li><strong>✓</strong> Sound System</li>
+                
+                    <li><strong>✓</strong> Microphone x2</li>
+                
+                    <li><strong>✓</strong> Tables & Chairs (50 seats)</li>
+                
+            </ul>
+            
+            
+            
+            <div class="section-title" style="margin-top: 25px;">🔧 THIẾT BỊ IN/OUT</div>
+            <ul class="item-list">
+                <li><strong>•</strong> Laptop Dell XPS (2)</li><li><strong>•</strong> Camera Canon EOS (1)</li>
+            </ul>
+            
+            
+            
+            <div class="section-title" style="margin-top: 25px;">👷 NHÂN SỰ THI CÔNG</div>
+            <ul class="item-list">
+                
+                    <li><strong>•</strong> Nguyễn Văn A</li>
+                
+                    <li><strong>•</strong> Trần Thị B</li>
+                
+            </ul>
+            
+            
+        </div>
+        
+        
+    </div>
+</body>
+</html>

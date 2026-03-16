@@ -1,0 +1,295 @@
+[
+  {
+    "id": 1763785682871,
+    "eventName": "Workshop: Brand Flow",
+    "registrantEmail": "huynt40@fpt.edu.vn",
+    "eventDate": "2025-11-24",
+    "eventEndDate": "2025-11-24",
+    "startTime": "08:00",
+    "endTime": "11:30",
+    "location": "Khu vực sảnh",
+    "department": "Đào tạo",
+    "content": "Workshop: Brand Flow",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "Màn hình LED (1), Loa / Âm thanh (1), Tivi (1)",
+    "facilitiesChecklist": {
+      "led": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      },
+      "loa": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      },
+      "tivi": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      }
+    },
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Sáng",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  },
+  {
+    "id": 1763786385647,
+    "eventName": "Toast Test",
+    "registrantEmail": "huynt40@fpt.edu.vn",
+    "eventDate": "2025-11-24",
+    "eventEndDate": "2025-11-24",
+    "startTime": "08:00",
+    "endTime": "11:30",
+    "location": "Hội trường Alpha",
+    "department": "Đào tạo",
+    "content": "Workshop: Brand Flow",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "Standee (1)",
+    "facilitiesChecklist": {
+      "standee": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      }
+    },
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Sáng",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  },
+  {
+    "id": 1763786635606,
+    "eventName": "Persistence Test",
+    "registrantEmail": "huynt40@fpt.edu.vn",
+    "eventDate": "2025-11-25",
+    "eventEndDate": "2025-11-25",
+    "startTime": "08:00",
+    "endTime": "11:30",
+    "location": "Hội trường Beta",
+    "department": "Đào tạo",
+    "content": "Persistence Test",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "Loa / Âm thanh (1), Ghế (1), Micro (1)",
+    "facilitiesChecklist": {
+      "loa": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      },
+      "ghe": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      },
+      "mic": {
+        "checked": true,
+        "quantity": 1,
+        "isExtended": false
+      }
+    },
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Sáng",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  },
+  {
+    "id": 1763787777422,
+    "eventName": "Test Firebase Sync",
+    "registrantEmail": "huynt40@fpt.edu.vn",
+    "eventDate": "2025-11-22",
+    "eventEndDate": "2025-11-22",
+    "startTime": "12:00",
+    "endTime": "15:30",
+    "location": "Sân bóng đá",
+    "department": "Đào tạo",
+    "content": "Test Firebase Sync",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "",
+    "facilitiesChecklist": {},
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Chiều",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  },
+  {
+    "id": 1763787781586,
+    "eventName": "Test Firebase Sync",
+    "registrantEmail": "huynt40@fpt.edu.vn",
+    "eventDate": "2025-11-22",
+    "eventEndDate": "2025-11-22",
+    "startTime": "12:00",
+    "endTime": "15:30",
+    "location": "Sân bóng đá",
+    "department": "Đào tạo",
+    "content": "Test Firebase Sync",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "",
+    "facilitiesChecklist": {},
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Chiều",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  }
+]

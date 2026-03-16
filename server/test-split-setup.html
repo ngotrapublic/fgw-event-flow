@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, sans-serif;
+            background: #E5E5E5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background: white;
+        }
+        
+        /* Header Block - Teal with diagonal cut */
+        .header-block {
+            background: #14B8A6;
+            padding: 60px 50px 60px 50px;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 60px) 0, 100% 100%, 0 100%);
+        }
+        .header-label {
+            color: white;
+            font-size: 14px;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }
+        .header-title {
+            color: black;
+            font-size: 48px;
+            font-weight: 900;
+            line-height: 1.1;
+            text-transform: uppercase;
+        }
+        
+        /* Info Row - Colored left, white right with diagonal */
+        .info-row {
+            display: table;
+            width: 100%;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .info-colored {
+            display: table-cell;
+            width: 45%;
+            padding: 25px 30px;
+            vertical-align: middle;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 100%, 0 100%);
+        }
+        .info-white {
+            display: table-cell;
+            width: 55%;
+            padding: 25px 30px;
+            background: white;
+            vertical-align: middle;
+        }
+        
+        /* Colors */
+        .orange { background: #F97316; }
+        .purple { background: #A855F7; }
+        .teal { background: #14B8A6; }
+        
+        /* Text Styles */
+        .label {
+            color: white;
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .value {
+            color: black;
+            font-size: 32px;
+            font-weight: 900;
+            line-height: 1;
+        }
+        .day {
+            color: black;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        /* Location - Full width teal */
+        .location-block {
+            background: #14B8A6;
+            padding: 25px 50px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .location-block .label {
+            color: white;
+            text-align: center;
+        }
+        .location-block .value {
+            color: black;
+            text-align: center;
+            background: white;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        
+        /* Notes */
+        .notes {
+            padding: 30px 50px;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        /* Setup Requirements Section - Diagonal Style */
+        .setup-section {
+            padding: 30px 50px;
+            background: white;
+        }
+        .setup-header {
+            background: #F97316;
+            padding: 20px 30px;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 40px) 0, 100% 100%, 0 100%);
+            margin-bottom: 15px;
+        }
+        .setup-title {
+            color: white;
+            font-size: 14px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .setup-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .setup-item {
+            display: table;
+            width: 100%;
+            margin: 10px 0;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+        .setup-check {
+            display: table-cell;
+            width: 60px;
+            background: #14B8A6;
+            padding: 15px;
+            vertical-align: middle;
+            text-align: center;
+            font-size: 20px;
+        }
+        .setup-text {
+            display: table-cell;
+            padding: 15px 20px;
+            background: white;
+            border: 2px solid #E5E5E5;
+            border-left: none;
+            vertical-align: middle;
+            font-size: 15px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        /* Mobile */
+        @media (max-width: 600px) {
+            .header-block, .info-colored, .info-white, .location-block, .notes, .setup-section {
+                padding-left: 20px !important;
+                padding-right: 20px !important;
+            }
+            .header-title { font-size: 32px !important; }
+            .value { font-size: 24px !important; }
+            .setup-check { width: 50px !important; padding: 12px !important; }
+           }
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <!-- HEADER: Teal Diagonal -->
+        <div class="header-block">
+            <div class="header-label">PHÒNG ĐÀO TẠO</div>
+            <div class="header-title">Leadership Summit 2024</div>
+        </div>
+        
+        <!-- DATE ROW: Orange left, White right -->
+        <div class="info-row">
+            <div class="info-colored orange">
+                <div class="label">DATE</div>
+            </div>
+            <div class="info-white">
+                <div class="value">2026-01-21</div>
+                <div class="day">Thứ Ba</div>
+            </div>
+        </div>
+        
+        <!-- TIME ROW: Purple left, White right -->
+        <div class="info-row">
+            <div class="info-colored purple">
+                <div class="label">TIME</div>
+            </div>
+            <div class="info-white">
+                <div class="value">07:00 - 11:30</div>
+            </div>
+        </div>
+        
+        <!-- LOCATION: Full width -->
+        <div class="location-block">
+            <div class="label">LOCATION</div>
+            <div class="value">Sảnh Tầng 2</div>
+        </div>
+        
+        <div class="notes">Vui lòng mang theo laptop và tài liệu cần thiết.</div>
+        
+        <!-- SETUP REQUIREMENTS SECTION -->
+        
+        <div class="setup-section">
+            <div class="setup-header">
+                <div class="setup-title">📋 YÊU CẦU SETUP</div>
+            </div>
+            <ul class="setup-list">
+                
+                <div class="setup-item">
+                    <div class="setup-check">✓</div>
+                    <div class="setup-text">Projector & Screen (HD Quality)</div>
+                </div>
+                
+                <div class="setup-item">
+                    <div class="setup-check">✓</div>
+                    <div class="setup-text">Sound System với Microphone x2</div>
+                </div>
+                
+                <div class="setup-item">
+                    <div class="setup-check">✓</div>
+                    <div class="setup-text">Tables & Chairs (50 seats)</div>
+                </div>
+                
+                <div class="setup-item">
+                    <div class="setup-check">✓</div>
+                    <div class="setup-text">Wifi High-Speed Internet</div>
+                </div>
+                
+                <div class="setup-item">
+                    <div class="setup-check">✓</div>
+                    <div class="setup-text">Whiteboard & Markers</div>
+                </div>
+                
+            </ul>
+        </div>
+        
+        
+    </div>
+</body>
+</html>

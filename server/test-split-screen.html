@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <style>
+        /* Reset */
+        body, table, td, p { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        img { border: 0; outline: none; text-decoration: none; display: block; }
+        table { border-collapse: collapse; }
+        
+        /* Container */
+        .email-container { max-width: 600px; margin: 0 auto; background: #FFFFFF; }
+        
+        /* Diagonal Block Style */
+        .diagonal-block {
+            position: relative;
+            padding: 20px 30px;
+            margin: 10px 0;
+            clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 100%, 0 100%);
+        }
+        
+        .diagonal-label {
+            font-size: 14px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #FFFFFF;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .diagonal-value {
+            font-size: 28px;
+            font-weight: 900;
+            color: #000000;
+            line-height: 1.2;
+        }
+        
+        /* Colors */
+        .bg-teal { background: #14B8A6; }
+        .bg-orange { background: #F97316; }
+        .bg-purple { background: #A855F7; }
+        
+        /* Header */
+        .split-header {
+            background: #14B8A6;
+            padding: 60px 40px;
+            position: relative;
+            clip-path: polygon(0 0, calc(100% - 50px) 0, 100% 100%, 0 100%);
+        }
+        
+        .split-header-label {
+            font-size: 16px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 10px;
+        }
+        
+        .split-header-title {
+            font-size: 42px;
+            font-weight: 900;
+            color: #000000;
+            text-transform: uppercase;
+            line-height: 1.1;
+        }
+        
+        /* Content */
+        .content-wrapper {
+            padding: 30px 40px;
+        }
+        
+        /* Footer */
+        .footer {
+            background: #F0FDFA;
+            padding: 30px 40px;
+            text-align: center;
+            font-size: 13px;
+            color: #64748B;
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background: #F5F5F5;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: #F5F5F5; padding: 40px 0;">
+        <tr>
+            <td align="center">
+                <table class="email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="background: #FFFFFF;">
+                    
+                    <!-- HEADER: Large Teal Block with Diagonal Cut -->
+                    <tr>
+                        <td class="split-header">
+                            <div class="split-header-label">PHÒNG ĐÀO TẠO</div>
+                            <div class="split-header-title">Leadership Summit 2024</div>
+                        </td>
+                    </tr>
+                    
+                    <!-- CONTENT: Diagonal Colored Blocks -->
+                    <tr>
+                        <td class="content-wrapper">
+                            
+                            <!-- DATE Block (Orange) -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td class="diagonal-block bg-orange" style="background: #F97316; padding: 20px 30px; margin: 10px 0; clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 100%, 0 100%);">
+                                        <div class="diagonal-label" style="font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: #FFFFFF; font-weight: 600; margin-bottom: 5px;">DATE</div>
+                                        <div class="diagonal-value" style="font-size: 28px; font-weight: 900; color: #000000; line-height: 1.2;">
+                                            2026-01-21
+                                            <span style="font-size: 18px; margin-left: 15px; font-weight: 600;">Thứ Ba</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- TIME Block (Purple) -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td class="diagonal-block bg-purple" style="background: #A855F7; padding: 20px 30px; margin: 10px 0; clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 100%, 0 100%);">
+                                        <div class="diagonal-label" style="font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: #FFFFFF; font-weight: 600; margin-bottom: 5px;">TIME</div>
+                                        <div class="diagonal-value" style="font-size: 28px; font-weight: 900; color: #000000; line-height: 1.2;">07:00 - 11:30</div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- LOCATION Block (Teal) -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td class="diagonal-block bg-teal" style="background: #14B8A6; padding: 20px 30px; margin: 10px 0;">
+                                        <div class="diagonal-label" style="font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: #FFFFFF; font-weight: 600; margin-bottom: 5px;">LOCATION</div>
+                                        <div class="diagonal-value" style="font-size: 28px; font-weight: 900; color: #000000; line-height: 1.2;">Sảnh Tầng 2</div>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            
+                            
+                        </td>
+                    </tr>
+                    
+                    <!-- FOOTER -->
+                    <tr>
+                        <td class="footer" style="background: #F0FDFA; padding: 30px 40px; text-align: center; font-size: 13px; color: #64748B;">
+                            <p style="margin: 0;">Phòng Đào Tạo - Training Department</p>
+                            <p style="margin: 5px 0 0 0;">© 2026 All rights reserved</p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

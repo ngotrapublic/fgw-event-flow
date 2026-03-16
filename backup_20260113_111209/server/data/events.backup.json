@@ -1,0 +1,53 @@
+[
+  {
+    "id": 1763720059612,
+    "eventName": "Toast Test",
+    "registrantEmail": "test@test.com",
+    "eventDate": "2025-11-22",
+    "eventEndDate": "",
+    "startTime": "07:00",
+    "endTime": "11:30",
+    "location": "Hội trường Alpha",
+    "department": "Đào tạo",
+    "content": "",
+    "setup": "",
+    "equipmentInOut": [
+      {
+        "value": ""
+      }
+    ],
+    "constructionPersonnel": [
+      {
+        "name": "",
+        "idCard": ""
+      }
+    ],
+    "externalPersonnel": [
+      {
+        "value": ""
+      }
+    ],
+    "layoutPlan": "",
+    "rooms": [
+      {
+        "name": "",
+        "seats": ""
+      }
+    ],
+    "services": {
+      "ac": false,
+      "security": false,
+      "cleaning": false
+    },
+    "notes": "",
+    "facilitiesSummary": "",
+    "facilitiesChecklist": {},
+    "contactEmail": "huynt40@fpt.edu.vn",
+    "eventSession": "Sáng",
+    "dayOfWeek": "",
+    "remindersSent": {
+      "oneDay": false,
+      "oneHour": false
+    }
+  }
+]
