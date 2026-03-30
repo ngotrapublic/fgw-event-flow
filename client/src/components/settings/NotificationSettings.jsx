@@ -9,6 +9,8 @@ import { cn } from '../../lib/utils';
 import { useToast } from '../Toast';
 import EmailTemplateSettings from './EmailTemplateSettings';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 // Sample event data for preview
 const SAMPLE_EVENT_DATA = {
     eventName: 'Annual Tech Conference 2026',
@@ -73,7 +75,7 @@ const NotificationSettings = () => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/settings');
+                const response = await fetch(`${API_BASE}/settings`);
                 if (response.ok) {
                     const data = await response.json();
                     setChannels({
@@ -112,7 +114,7 @@ const NotificationSettings = () => {
     useEffect(() => {
         const loadDesignTemplates = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/settings/email-templates');
+                const response = await fetch(`${API_BASE}/settings/email-templates`);
                 if (response.ok) {
                     const data = await response.json();
                     setEmailDesignTemplates(data);
@@ -133,7 +135,7 @@ const NotificationSettings = () => {
     // Handle template selection from gallery
     const handleSelectDesignTemplate = async (templateId) => {
         try {
-            const response = await fetch(`http://localhost:5000/api/settings/templates/${editingType}/assign`, {
+            const response = await fetch(`${API_BASE}/settings/templates/${editingType}/assign`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ templateId })
@@ -163,7 +165,7 @@ const NotificationSettings = () => {
                 templates,
                 smtp: smtp
             };
-            const response = await fetch('http://localhost:5000/api/settings', {
+            const response = await fetch(`${API_BASE}/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
@@ -760,7 +762,7 @@ const NotificationSettings = () => {
                         {/* Email Preview Content - Iframe with Rendered HTML */}
                         <div className="relative bg-slate-50" style={{ height: '600px' }}>
                             <iframe
-                                src={`http://localhost:5000/api/settings/preview/email?type=${previewTemplate.id}`}
+                                src={`${API_BASE}/settings/preview/email?type=${previewTemplate.id}`}
                                 className="w-full h-full border-0"
                                 title="Email Preview"
                                 sandbox="allow-same-origin"

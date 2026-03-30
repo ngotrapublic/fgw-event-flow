@@ -3,6 +3,8 @@ import { Palette, Check, Loader2 } from 'lucide-react';
 import { useToast } from '../Toast';
 import './EmailTemplateSettings.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 const EmailTemplateSettings = () => {
     const { addToast } = useToast();
     const [templates, setTemplates] = useState([]);
@@ -24,12 +26,12 @@ const EmailTemplateSettings = () => {
         const loadData = async () => {
             try {
                 // Load available templates
-                const templatesRes = await fetch('http://localhost:5000/api/settings/email-templates');
+                const templatesRes = await fetch(`${API_BASE}/settings/email-templates`);
                 const templatesData = await templatesRes.json();
                 setTemplates(templatesData);
 
                 // Load current assignments from settings
-                const settingsRes = await fetch('http://localhost:5000/api/settings');
+                const settingsRes = await fetch(`${API_BASE}/settings`);
                 const settingsData = await settingsRes.json();
 
                 const assignments = {};
@@ -66,7 +68,7 @@ const EmailTemplateSettings = () => {
     const handleSelectTemplate = async (templateId) => {
         setIsSaving(true);
         try {
-            const response = await fetch(`http://localhost:5000/api/settings/templates/${editingType}/assign`, {
+            const response = await fetch(`${API_BASE}/settings/templates/${editingType}/assign`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ templateId })

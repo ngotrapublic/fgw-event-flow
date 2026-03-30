@@ -4,8 +4,10 @@ client/node_modules/
 server/node_modules/
 
 # Environment variables
+# Chỉ ignore file .env gốc (chứa secrets), KHÔNG ignore .env.production
 .env
 server/.env
+# .env.production files are SAFE to commit (chỉ chứa API URL, không có secrets)
 
 # IDE
 .vscode/
