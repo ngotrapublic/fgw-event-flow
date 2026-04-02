@@ -217,7 +217,7 @@ const ResourceManager = () => {
                                 className="group relative bg-white rounded-xl p-4 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all duration-150 cursor-pointer"
                             >
                                 {/* Action Buttons */}
-                                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                <div className="absolute top-3 right-3 flex gap-2">
                                     <button
                                         onClick={() => startEdit(item)}
                                         className="p-2 bg-blue-100 text-blue-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-200 transition-colors"
