@@ -214,7 +214,7 @@ const ResourceManager = () => {
                         return (
                             <div
                                 key={item.id}
-                                className="group bg-white rounded-xl p-4 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all duration-150 cursor-pointer"
+                                className="group relative bg-white rounded-xl p-4 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all duration-150 cursor-pointer"
                             >
                                 {/* Action Buttons */}
                                 <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
