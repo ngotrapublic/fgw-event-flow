@@ -617,7 +617,7 @@ const EventDashboard = () => {
     // cursorStack[0] = null (first page), cursorStack[1] = lastId from page 1, etc.
     const [cursorStack, setCursorStack] = useState([null]);
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 12; // Events per page
+    const itemsPerPage = 9; // Events per page
 
     // Search & Filter states
     const [searchTerm, setSearchTerm] = useState('');

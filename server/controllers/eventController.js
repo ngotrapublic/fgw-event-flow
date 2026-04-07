@@ -37,18 +37,20 @@ exports.getAllEvents = async (req, res, next) => {
                 .orderBy('eventDate', 'desc');
         }
 
+        let paginatedQuery = baseQuery;
+
         // Apply cursor (both modes share the same cursor logic)
         if (lastDocId) {
             const lastDoc = await eventsCollection.doc(lastDocId).get();
             if (lastDoc.exists) {
-                baseQuery = baseQuery.startAfter(lastDoc);
+                paginatedQuery = paginatedQuery.startAfter(lastDoc);
             }
         }
 
         // Fetch one extra doc to determine if there are more pages
         // AND fetch the actual total count matching the query (performant aggregation)
         const [snapshot, countSnapshot] = await Promise.all([
-            baseQuery.limit(parsedLimit + 1).get(),
+            paginatedQuery.limit(parsedLimit + 1).get(),
             baseQuery.count().get()
         ]);
 
@@ -180,18 +182,23 @@ exports.createEvent = async (req, res, next) => {
             datesToCreate = dates;
         }
 
-        // Check for conflicts for ALL dates
-        for (const dateStr of datesToCreate) {
-            const tempEvent = { ...eventData, eventDate: dateStr };
-            const conflict = await conflictService.checkConflict(tempEvent);
-            if (conflict) {
-                return res.status(409).json({
-                    error: 'Conflict detected',
-                    message: `This event conflicts with an existing schedule on ${dateStr}.`,
-                    conflictingEvent: conflict
-                });
+        // Check for conflicts for ALL dates (skip if user explicitly confirmed)
+        if (!eventData.skipConflictCheck) {
+            for (const dateStr of datesToCreate) {
+                const tempEvent = { ...eventData, eventDate: dateStr };
+                const conflict = await conflictService.checkConflict(tempEvent);
+                if (conflict) {
+                    return res.status(409).json({
+                        error: 'Conflict detected',
+                        message: `This event conflicts with an existing schedule on ${dateStr}.`,
+                        conflictingEvent: conflict
+                    });
+                }
             }
         }
+
+        // Clean up the flag before saving to database
+        delete eventData.skipConflictCheck;
 
         const groupId = isSeries ? randomUUID() : null;
         const createdDocs = [];

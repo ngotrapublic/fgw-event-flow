@@ -5,7 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Save, Plus, Trash2, Calendar, MapPin, Users, Box, Hammer,
-    Info, FileText, ChevronDown, Map, X, Clock, Check, Download, Upload, FileSpreadsheet, Loader2
+    Info, FileText, ChevronDown, Map, X, Clock, Check, Download, Upload, FileSpreadsheet, Loader2,
+    AlertTriangle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import api from '../services/api';
@@ -72,6 +73,8 @@ const EventForm = () => {
     const [deptEmails, setDeptEmails] = useState([]);
     const [isEmailDropdownOpen, setIsEmailDropdownOpen] = useState(false);
     const { showSuccess, showError } = useToast();
+    const [showConflictConfirm, setShowConflictConfirm] = useState(false);
+    const [pendingSubmitData, setPendingSubmitData] = useState(null);
     const [isMapOpen, setIsMapOpen] = useState(false);
 
     useEffect(() => {
@@ -298,24 +301,17 @@ const EventForm = () => {
         }
     };
 
-    const onSubmit = async (data) => {
-        if (conflictWarning) {
-            showError('Không thể tạo sự kiện! Vui lòng chọn thời gian hoặc địa điểm khác.');
-            return;
-        }
-
+    const prepareSubmitData = (data) => {
         if (data.registrantEmail) {
             localStorage.setItem('userEmail', data.registrantEmail);
         }
 
         let summaryParts = [];
-        // Enrich facilitiesChecklist with labels before saving
         if (data.facilitiesChecklist) {
             Object.entries(data.facilitiesChecklist).forEach(([key, value]) => {
                 if (value.checked) {
                     const equipmentInfo = dynamicEquipment.find(opt => opt.id === key);
                     const label = equipmentInfo?.label || key;
-                    // Save label into the data so EventDashboard can read it
                     data.facilitiesChecklist[key].label = label;
                     data.facilitiesChecklist[key].icon = equipmentInfo?.icon || 'Box';
                     let detail = label;
@@ -332,14 +328,17 @@ const EventForm = () => {
         else if (startH < 18) sessionName = 'Chiều';
         else sessionName = 'Tối';
 
-        const finalData = { ...data, eventSession: sessionName, dayOfWeek, facilitiesSummary: generatedSummary || data.facilitiesSummary };
+        return { ...data, eventSession: sessionName, dayOfWeek, facilitiesSummary: generatedSummary || data.facilitiesSummary };
+    };
 
+    const submitEvent = async (finalData, skipConflict = false) => {
         try {
+            const payload = skipConflict ? { ...finalData, skipConflictCheck: true } : finalData;
             if (id) {
-                await api.put(`/events/${id}`, finalData);
+                await api.put(`/events/${id}`, payload);
                 showSuccess('Cập nhật sự kiện thành công!');
             } else {
-                await api.post('/events', finalData);
+                await api.post('/events', payload);
                 showSuccess('Tạo sự kiện mới thành công!');
             }
             navigate('/');
@@ -347,6 +346,32 @@ const EventForm = () => {
             console.error('Error saving event:', error);
             showError(id ? 'Không thể cập nhật sự kiện' : 'Không thể tạo sự kiện');
         }
+    };
+
+    const onSubmit = async (data) => {
+        const finalData = prepareSubmitData(data);
+
+        if (conflictWarning) {
+            // Show confirmation dialog instead of blocking
+            setPendingSubmitData(finalData);
+            setShowConflictConfirm(true);
+            return;
+        }
+
+        await submitEvent(finalData);
+    };
+
+    const handleConflictConfirm = async () => {
+        setShowConflictConfirm(false);
+        if (pendingSubmitData) {
+            await submitEvent(pendingSubmitData, true);
+            setPendingSubmitData(null);
+        }
+    };
+
+    const handleConflictCancel = () => {
+        setShowConflictConfirm(false);
+        setPendingSubmitData(null);
     };
 
     return (
@@ -843,6 +868,70 @@ const EventForm = () => {
                     selectedLocation={watch('location')}
                     bookedLocations={[]}
                 />
+
+                {/* Conflict Confirmation Dialog */}
+                <AnimatePresence>
+                    {showConflictConfirm && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+                            {/* Backdrop */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                                onClick={handleConflictCancel}
+                            />
+                            {/* Dialog */}
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                                transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
+                                className="relative w-full max-w-md mx-4 bg-white border-2 border-black rounded-2xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
+                            >
+                                {/* Header */}
+                                <div className="bg-amber-400 border-b-2 border-black px-6 py-4 flex items-center gap-3">
+                                    <div className="p-2 bg-white border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                        <AlertTriangle size={20} className="text-amber-600" />
+                                    </div>
+                                    <h3 className="text-lg font-black text-black">Phát hiện trùng lịch!</h3>
+                                </div>
+
+                                {/* Body */}
+                                <div className="px-6 py-5 space-y-4">
+                                    <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                                        {conflictWarning}
+                                    </p>
+                                    <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-3">
+                                        <p className="text-xs text-amber-800 font-bold">
+                                            Bạn có chắc chắn muốn tạo sự kiện này dù trùng lịch không?
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="px-6 pb-5 flex gap-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleConflictCancel}
+                                        className="flex-1 border-2 border-black rounded-lg shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all font-bold"
+                                    >
+                                        Huỷ bỏ
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        onClick={handleConflictConfirm}
+                                        className="flex-1 bg-amber-500 hover:bg-amber-600 text-black border-2 border-black rounded-lg shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all font-bold gap-2"
+                                    >
+                                        <Check size={16} />
+                                        Tôi hiểu, vẫn tạo
+                                    </Button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );
