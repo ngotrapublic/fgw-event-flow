@@ -800,46 +800,8 @@ const EventDashboard = () => {
         return true;
     }), [events, debouncedSearch, filterMode, filterDepartment, filterLocation, filterDate]);
 
-    const groupedFilteredEvents = useMemo(() => {
-        // Group events by groupId, picking the EARLIEST (isSeriesStart) representative
-        const groupMap = new Map();
-        filteredEvents.forEach(event => {
-            if (event.groupId) {
-                const existing = groupMap.get(event.groupId);
-                if (!existing) {
-                    groupMap.set(event.groupId, event);
-                } else {
-                    // Prefer the isSeriesStart event, or the one with the earlier eventDate
-                    const currentIsStart = event.isSeriesStart;
-                    const existingIsStart = existing.isSeriesStart;
-                    if (currentIsStart && !existingIsStart) {
-                        groupMap.set(event.groupId, event);
-                    } else if (!existingIsStart && event.eventDate < existing.eventDate) {
-                        groupMap.set(event.groupId, event);
-                    }
-                }
-            }
-        });
-
-        const result = [];
-        const seenGroups = new Set();
-        filteredEvents.forEach(event => {
-            if (event.groupId) {
-                if (!seenGroups.has(event.groupId)) {
-                    seenGroups.add(event.groupId);
-                    // Use the best representative (earliest/isSeriesStart)
-                    result.push(groupMap.get(event.groupId));
-                }
-            } else {
-                result.push(event);
-            }
-        });
-        return result;
-    }, [filteredEvents]);
-
-    // Pagination is handled by server, but we group them visually
-    const currentEvents = groupedFilteredEvents;
-    const totalPages = pagination.totalPages;
+    // Server already deduplicates series events, so use filteredEvents directly
+    const currentEvents = filteredEvents;
 
     const paginate = (pageNumber) => {
         setCurrentPage(pageNumber);
