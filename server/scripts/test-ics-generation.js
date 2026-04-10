@@ -29,7 +29,7 @@ async function testGeneration() {
         // Check for DTSTART with date part, ignore time part for flexibility or check generic format
         const hasStartDate = /DTSTART:\d{8}T/.test(icsContent);
         const hasUid = icsContent.includes('UID:test-event-123@antigravity.system');
-        const hasMethod = icsContent.includes('METHOD:REQUEST');
+        const hasMethod = icsContent.includes('METHOD:PUBLISH');
 
         if (hasCalendarStart && hasSummary && hasStartDate && hasUid && hasMethod) {
             console.log('✅ Verification PASSED: ICS structure looks correct.');
