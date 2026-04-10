@@ -344,7 +344,17 @@ const EventForm = () => {
             navigate('/');
         } catch (error) {
             console.error('Error saving event:', error);
-            showError(id ? 'Không thể cập nhật sự kiện' : 'Không thể tạo sự kiện');
+            const serverData = error.response?.data;
+            
+            if (serverData && serverData.error === 'Conflict detected') {
+                const ce = serverData.conflictingEvent;
+                const locs = Array.isArray(ce.location) ? ce.location.join(', ') : ce.location;
+                showError(`⚠️ Bị trùng lịch: Địa điểm đã có sự kiện "${ce.eventName}" vào ngày ${ce.eventDate} (${ce.startTime} - ${ce.endTime}). Vui lòng đổi giờ hoặc địa điểm khác.`);
+            } else if (serverData?.message || serverData?.error) {
+                showError(serverData.message || serverData.error);
+            } else {
+                showError(id ? 'Không thể cập nhật sự kiện' : 'Không thể tạo sự kiện');
+            }
         }
     };
 
