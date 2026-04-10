@@ -349,7 +349,11 @@ const EventForm = () => {
             if (serverData && serverData.error === 'Conflict detected') {
                 const ce = serverData.conflictingEvent;
                 const locs = Array.isArray(ce.location) ? ce.location.join(', ') : ce.location;
-                showError(`⚠️ Bị trùng lịch: Địa điểm đã có sự kiện "${ce.eventName}" vào ngày ${ce.eventDate} (${ce.startTime} - ${ce.endTime}). Vui lòng đổi giờ hoặc địa điểm khác.`);
+                
+                // Thay vì hiển thị thông báo lỗi chặn đứng, thì hiển thị hộp thoại xác nhận cho phép bỏ qua
+                setConflictWarning(`⚠️ Bị trùng lịch: Địa điểm đang chọn đã có sự kiện "${ce.eventName}" diễn ra vào ngày ${ce.eventDate} (${ce.startTime} - ${ce.endTime}). Bạn có chắc chắn muốn bỏ qua cảnh báo và tiếp tục lưu không?`);
+                setPendingSubmitData(finalData);
+                setShowConflictConfirm(true);
             } else if (serverData?.message || serverData?.error) {
                 showError(serverData.message || serverData.error);
             } else {
