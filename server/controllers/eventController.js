@@ -647,15 +647,8 @@ exports.exportEventsCsv = async (req, res, next) => {
             });
         }
 
-        // Sort by Date then Time
-        events.sort((a, b) => {
-            if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
-            return a.startTime.localeCompare(b.startTime);
-        });
-
         // Headers
         const headers = ['STT', 'THỨ', 'NGÀY', 'THỜI GIAN', 'TÊN SỰ KIỆN', 'ĐỊA ĐIỂM TỔ CHỨC', 'PHỤ TRÁCH', 'CSVC CẦN SỬ DỤNG', 'GHI CHÚ'];
-
         let csvContent = headers.join(',') + '\n';
 
         // Helper: Convert YYYY-MM-DD to DD/MM/YYYY
@@ -677,6 +670,48 @@ exports.exportEventsCsv = async (req, res, next) => {
                 const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
                 return days[date.getDay()] || '';
             } catch (e) { return ''; }
+        };
+
+        // GROUPING LOGIC (For Management Report)
+        const groupedEventsMap = {};
+        const groupedEventsList = [];
+
+        events.forEach(e => {
+            if (e.groupId) {
+                if (!groupedEventsMap[e.groupId]) {
+                    const copy = { ...e, startDateMap: e.eventDate, endDateMap: e.eventDate };
+                    groupedEventsMap[e.groupId] = copy;
+                    groupedEventsList.push(copy);
+                } else {
+                    const existing = groupedEventsMap[e.groupId];
+                    if (e.eventDate < existing.startDateMap) existing.startDateMap = e.eventDate;
+                    if (e.eventDate > existing.endDateMap) existing.endDateMap = e.eventDate;
+                }
+            } else {
+                const copy = { ...e, startDateMap: e.eventDate, endDateMap: e.eventDate };
+                groupedEventsList.push(copy);
+            }
+        });
+
+        // Sort grouped events by Start Date then Time
+        groupedEventsList.sort((a, b) => {
+            if (a.startDateMap !== b.startDateMap) return a.startDateMap.localeCompare(b.startDateMap);
+            return (a.startTime || '').localeCompare(b.startTime || '');
+        });
+
+        // Range Helpers
+        const getDateRange = (event) => {
+            if (event.startDateMap && event.endDateMap && event.startDateMap !== event.endDateMap) {
+                return `${formatDate(event.startDateMap)} - ${formatDate(event.endDateMap)}`;
+            }
+            return formatDate(event.startDateMap);
+        };
+
+        const getDayOfWeekRange = (event) => {
+            if (event.startDateMap && event.endDateMap && event.startDateMap !== event.endDateMap) {
+                return `${getDayOfWeek(event.startDateMap)} - ${getDayOfWeek(event.endDateMap)}`;
+            }
+            return getDayOfWeek(event.startDateMap);
         };
 
         // Helper: Format Time
@@ -761,11 +796,11 @@ exports.exportEventsCsv = async (req, res, next) => {
             return safeStr;
         };
 
-        events.forEach((event, index) => {
+        groupedEventsList.forEach((event, index) => {
             const row = [
                 index + 1,
-                getDayOfWeek(event.eventDate),
-                formatDate(event.eventDate),
+                getDayOfWeekRange(event),
+                getDateRange(event),
                 formatTime(event.startTime, event.endTime),
                 event.eventName,
                 event.location,
