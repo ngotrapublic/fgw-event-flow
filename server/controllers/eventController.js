@@ -1,4 +1,5 @@
 const { eventsCollection, db, resourcesCollection } = require('../config/firebase');
+const admin = require('firebase-admin');
 const emailService = require('../services/emailService');
 const conflictService = require('../services/conflictService');
 const auditService = require('../services/auditService');
@@ -105,13 +106,13 @@ exports.getAllEvents = async (req, res, next) => {
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ACCURATE TOTAL: use native Firebase .count()
-        // Super cheap! 1 read per 1000 items. 
+        // ACCURATE TOTAL: Fetch from Global Metadata Counter
+        // Zero Reads Limit: Instantly fetches the exact unique count
         // ──────────────────────────────────────────────────────────────
         let totalUnique;
         try {
-            const countSnapshot = await baseQuery.count().get();
-            totalUnique = countSnapshot.data().count;
+            const statsDoc = await db.collection('metadata').doc('stats').get();
+            totalUnique = statsDoc.exists ? statsDoc.data().totalUniqueEvents || 0 : 0;
         } catch (countErr) {
             console.error('[getAllEvents] Count fallback:', countErr.message);
             totalUnique = finalEvents.length;
@@ -275,6 +276,15 @@ exports.createEvent = async (req, res, next) => {
 
         await batch.commit();
         const firstDoc = createdDocs[0];
+
+        // [METADATA COUNTER] Add exactly 1 to global unique event count
+        try {
+            await db.collection('metadata').doc('stats').set({
+                totalUniqueEvents: admin.firestore.FieldValue.increment(1)
+            }, { merge: true });
+        } catch (counterErr) {
+            console.error('[COUNTER] Failed to increment', counterErr);
+        }
 
         // [NEW] Send In-App Notification
         try {
@@ -561,6 +571,15 @@ exports.deleteEvent = async (req, res, next) => {
             console.log(`[DELETE] Deleted ${seriesSnapshot.size} events in series group: ${deletedEvent.groupId}`);
         } else {
             await eventsCollection.doc(id).delete();
+        }
+
+        // [METADATA COUNTER] Subtract exactly 1 from global unique event count
+        try {
+            await db.collection('metadata').doc('stats').set({
+                totalUniqueEvents: admin.firestore.FieldValue.increment(-1)
+            }, { merge: true });
+        } catch (counterErr) {
+            console.error('[COUNTER] Failed to decrement', counterErr);
         }
 
         // LOGGING

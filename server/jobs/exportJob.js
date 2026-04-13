@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { eventsCollection, resourcesCollection } = require('../config/firebase');
+const { eventsCollection, resourcesCollection, db } = require('../config/firebase');
 
 async function run() {
     console.log('[Nightly Export] Starting CSV generation...');
@@ -11,6 +11,22 @@ async function run() {
         ]);
 
         const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // [METADATA COUNTER] Tally and fix global unique event count
+        const seenGroups = new Set();
+        let uniqueCount = 0;
+        events.forEach(data => {
+            if (data.groupId) {
+                if (!seenGroups.has(data.groupId)) {
+                    seenGroups.add(data.groupId);
+                    uniqueCount++;
+                }
+            } else {
+                uniqueCount++;
+            }
+        });
+        await db.collection('metadata').doc('stats').set({ totalUniqueEvents: uniqueCount }, { merge: true });
+        console.log(`[Nightly Export] Re-verified Counter: ${uniqueCount} actual events.`);
 
         // Create Resource Map (ID -> Label)
         const resourceMap = {};
