@@ -9,7 +9,7 @@ class EmailQueueWorker {
     constructor() {
         this.intervalId = null;
         this.isProcessing = false;
-        this.processInterval = 10000; // 10 seconds
+        this.processInterval = 60000; // 60 seconds
     }
 
     /**
@@ -21,8 +21,8 @@ class EmailQueueWorker {
             return;
         }
 
-        console.log('[EMAIL QUEUE WORKER] Starting... (interval: 10s)');
-        console.log('[EMAIL QUEUE WORKER] Will process pending emails every 10 seconds');
+        console.log('[EMAIL QUEUE WORKER] Starting... (interval: 60s)');
+        console.log('[EMAIL QUEUE WORKER] Will process pending emails every 60 seconds');
 
         // Process immediately on start
         console.log('[EMAIL QUEUE WORKER] Running initial process...');
@@ -31,7 +31,7 @@ class EmailQueueWorker {
             console.error('[EMAIL QUEUE WORKER] Stack:', err.stack);
         });
 
-        // Then process every 10 seconds
+        // Then process every 60 seconds
         this.intervalId = setInterval(() => {
             this.process().catch(err => {
                 console.error('[EMAIL QUEUE WORKER] Process error:', err);
