@@ -203,13 +203,21 @@ const CalendarView = ({ events }) => {
     const [view, setView] = useState('month');
 
     const calendarEvents = useMemo(() => {
-        return (events || []).map(event => ({
-            id: event.id,
-            title: event.eventName,
-            start: new Date(`${event.eventDate}T${event.startTime || '00:00'}`),
-            end: new Date(`${event.eventDate}T${event.endTime || '23:59'}`),
-            resource: event
-        }));
+        return (events || []).map(event => {
+            const startDate = event.eventDate;
+            // For multi-day series: use seriesEndDate so the event spans across all days
+            const endDate = (event.seriesEndDate && event.seriesEndDate !== event.eventDate)
+                ? event.seriesEndDate
+                : event.eventDate;
+            
+            return {
+                id: event.id,
+                title: event.eventName,
+                start: new Date(`${startDate}T${event.startTime || '00:00'}`),
+                end: new Date(`${endDate}T${event.endTime || '23:59'}`),
+                resource: event
+            };
+        });
     }, [events]);
 
     const handleSelectEvent = useCallback((event) => setPreviewEvent(event.resource), []);

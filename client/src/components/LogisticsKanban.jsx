@@ -40,24 +40,25 @@ const LogisticsKanban = () => {
 
     const fetchLogistics = useCallback(async () => {
         try {
-            const rawEvents = response.data;
-            const groupedFilteredData = [];
-            const seenGroups = new Set();
-            rawEvents.forEach(event => {
-                if (event.groupId) {
-                    if (!seenGroups.has(event.groupId)) {
-                        seenGroups.add(event.groupId);
-                        groupedFilteredData.push(event);
-                    }
-                } else {
-                    groupedFilteredData.push(event);
-                }
-            });
-            setOperationalEvents(groupedFilteredData);
+            // Fetch events within ±24h operational window
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            const startDate = yesterday.toISOString().split('T')[0];
+            const endDate = tomorrow.toISOString().split('T')[0];
+            
+            const response = await api.get(`/events?startDate=${startDate}&endDate=${endDate}&limit=50`);
+            const rawEvents = response.data?.events || response.data || [];
+            
+            // Server already deduplicates series events, use directly
+            setOperationalEvents(rawEvents);
             setIsLoading(false);
         } catch (error) {
             console.error('[Kanban] Fetch error:', error);
-            // Non-blocking error
+            setIsLoading(false);
         }
     }, []);
 
