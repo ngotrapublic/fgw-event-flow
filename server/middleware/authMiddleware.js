@@ -25,15 +25,27 @@ const requireRole = (allowedRoles) => {
         try {
             const { uid } = req.user;
 
-            // Check Firestore for authoritative role
-            const userDoc = await db.collection('users').doc(uid).get();
+            // 1. Try to get role from Custom claims (0 reads)
+            let userRole = req.user.role;
 
-            if (!userDoc.exists) {
-                return res.status(403).json({ error: 'Forbidden: User profile not found' });
+            // 2. Fallback (Lazy Migration / First time read)
+            if (!userRole) {
+                console.log(`[AUTH] Custom claims missing for ${uid}, fetching from DB and setting claims...`);
+                const userDoc = await db.collection('users').doc(uid).get();
+                
+                if (!userDoc.exists) {
+                    return res.status(403).json({ error: 'Forbidden: User profile not found' });
+                }
+                
+                userRole = userDoc.data().role || 'user';
+                
+                // Backfill the custom claims so next time it's 0 reads
+                try {
+                    await admin.auth().setCustomUserClaims(uid, { role: userRole });
+                } catch (claimErr) {
+                    console.error('[AUTH] Failed to set fallback claim:', claimErr);
+                }
             }
-
-            const userData = userDoc.data();
-            const userRole = userData.role || 'user';
 
             // Ensure allowedRoles is an array
             const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];

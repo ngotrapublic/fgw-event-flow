@@ -22,12 +22,14 @@ const createUser = async (req, res) => {
     }
 
     try {
-        // 1. Create user in Firebase Authentication
         const userRecord = await admin.auth().createUser({
             email,
             password,
             displayName: name,
         });
+
+        // [OPTIMIZATION] Set Custom User Claims for Auth N+1 prevention
+        await admin.auth().setCustomUserClaims(userRecord.uid, { role: role || 'user' });
 
         // 2. Create user profile in Firestore
         await db.collection('users').doc(userRecord.uid).set({
@@ -77,6 +79,10 @@ const updateUserRole = async (req, res) => {
 
     try {
         await db.collection('users').doc(id).update({ role });
+
+        // [OPTIMIZATION] Set Custom User Claims to sync with Firestore
+        await admin.auth().setCustomUserClaims(id, { role });
+
         res.status(200).json({ message: 'User role updated successfully' });
     } catch (error) {
         console.error('Error updating role:', error);
