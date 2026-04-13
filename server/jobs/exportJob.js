@@ -1,0 +1,181 @@
+const fs = require('fs');
+const path = require('path');
+const { eventsCollection, resourcesCollection } = require('../config/firebase');
+
+async function run() {
+    console.log('[Nightly Export] Starting CSV generation...');
+    try {
+        const [eventsSnapshot, resourcesSnapshot] = await Promise.all([
+            eventsCollection.get(),
+            resourcesCollection.get()
+        ]);
+
+        const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Create Resource Map (ID -> Label)
+        const resourceMap = {};
+        if (!resourcesSnapshot.empty) {
+            resourcesSnapshot.forEach(doc => {
+                const data = doc.data();
+                resourceMap[doc.id] = data.label || data.name || doc.id;
+            });
+        }
+
+        // Sort by Date then Time
+        events.sort((a, b) => {
+            if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
+            return (a.startTime || '').localeCompare(b.startTime || '');
+        });
+
+        // Headers
+        const headers = ['STT', 'THỨ', 'NGÀY', 'THỜI GIAN', 'TÊN SỰ KIỆN', 'ĐỊA ĐIỂM TỔ CHỨC', 'PHỤ TRÁCH', 'CSVC CẦN SỬ DỤNG', 'GHI CHÚ'];
+
+        let csvContent = headers.join(',') + '\n';
+
+        // Helper: Convert YYYY-MM-DD to DD/MM/YYYY
+        const formatDate = (isoDate) => {
+            if (!isoDate || typeof isoDate !== 'string') return '';
+            try {
+                const parts = isoDate.split('-');
+                if (parts.length !== 3) return isoDate;
+                const [y, m, d] = parts;
+                return `${d}/${m}/${y}`;
+            } catch (e) { return isoDate; }
+        };
+
+        // Helper: Get Day of Week
+        const getDayOfWeek = (isoDate) => {
+            if (!isoDate) return '';
+            try {
+                const date = new Date(isoDate);
+                const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+                return days[date.getDay()] || '';
+            } catch (e) { return ''; }
+        };
+
+        // Helper: Format Time
+        const formatTime = (start, end) => {
+            if (!start || !end) return '';
+            try {
+                const startHour = parseInt(start.split(':')[0]);
+                if (isNaN(startHour)) return `${start} - ${end}`;
+
+                let period = 'Sáng';
+                if (startHour >= 12 && startHour < 18) period = 'Chiều';
+                if (startHour >= 18) period = 'Tối';
+                return `${period} (${start} - ${end})`;
+            } catch (e) { return `${start} - ${end}`; }
+        };
+
+        // Helper: Format Resources
+        const formatResources = (event) => {
+            if (event.facilitiesChecklist && Object.keys(event.facilitiesChecklist).length > 0) {
+                const locationMap = {};
+
+                Object.entries(event.facilitiesChecklist).forEach(([key, value]) => {
+                    if (value.checked) {
+                        const name = resourceMap[key] || key;
+                        const total = value.quantity || 0;
+
+                        if (value.distribution && Object.keys(value.distribution).length > 0) {
+                            Object.entries(value.distribution).forEach(([loc, qty]) => {
+                                if (parseInt(qty) > 0) {
+                                    if (!locationMap[loc]) locationMap[loc] = [];
+                                    locationMap[loc].push(`${name} (${qty})`);
+                                }
+                            });
+                        } else {
+                            let targetLoc = 'Chung';
+                            if (event.location && !Array.isArray(event.location)) {
+                                targetLoc = event.location;
+                            } else if (Array.isArray(event.location) && event.location.length === 1) {
+                                targetLoc = event.location[0];
+                            } else if (Array.isArray(event.location) && event.location.length > 1) {
+                                targetLoc = event.location.join(', ');
+                            }
+
+                            if (!locationMap[targetLoc]) locationMap[targetLoc] = [];
+                            locationMap[targetLoc].push(`${name} (${total})`);
+                        }
+                    }
+                });
+
+                const parts = [];
+                Object.entries(locationMap).forEach(([loc, items]) => {
+                    if (items.length > 0) {
+                        parts.push(`${loc}:\n${items.join('; ')}`);
+                    }
+                });
+                return parts.join('\n\n');
+            }
+
+            if (Array.isArray(event.resources)) {
+                return event.resources.map(r => r.name || r).join('; ');
+            }
+            return event.facilitiesSummary || '';
+        };
+
+        // Escape CSV fields
+        const escapeCsv = (str) => {
+            if (!str) return '';
+            const safeStr = String(str);
+            if (/[,"\n]/.test(safeStr)) {
+                return `"${safeStr.replace(/"/g, '""')}"`;
+            }
+            return safeStr;
+        };
+
+        events.forEach((event, index) => {
+            const row = [
+                index + 1,
+                getDayOfWeek(event.eventDate),
+                formatDate(event.eventDate),
+                formatTime(event.startTime, event.endTime),
+                event.eventName,
+                event.location,
+                event.department,
+                formatResources(event),
+                event.notes || ''
+            ];
+
+            csvContent += row.map(escapeCsv).join(',') + '\n';
+        });
+
+        // Ensure directory exists
+        const exportDir = path.join(__dirname, '..', 'public', 'exports');
+        if (!fs.existsSync(exportDir)) {
+            fs.mkdirSync(exportDir, { recursive: true });
+        }
+
+        // Write file with BOM
+        const filePath = path.join(exportDir, 'events_archive.csv');
+        fs.writeFileSync(filePath, '\uFEFF' + csvContent, 'utf8');
+
+        console.log(`[Nightly Export] Successfully generated ${filePath} with ${events.length} events.`);
+
+    } catch (error) {
+        console.error('[Nightly Export] Job Error:', error);
+    }
+}
+
+// Start Scheduler
+let intervalId = null;
+
+function start() {
+    console.log('[Nightly Export] Scheduler initialized.');
+    
+    // Run immediately once on startup so the file exists for the user to download!
+    run();
+
+    // Schedule to run every 24 hours (86400000 ms)
+    intervalId = setInterval(run, 24 * 60 * 60 * 1000);
+}
+
+function stop() {
+    if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+    }
+}
+
+module.exports = { start, stop, run };

@@ -17,16 +17,19 @@ const { verifyToken } = require('./middleware/authMiddleware');
 const reminderJob = require('./jobs/reminderJob');
 const emailQueueWorker = require('./jobs/emailQueueWorker');
 const notificationCleanupJob = require('./jobs/notificationCleanupJob');
+const exportJob = require('./jobs/exportJob'); // ✅ NEW
 
 // Services (for /api/notify endpoint)
 const retentionService = require('./services/retentionService');
 const emailService = require('./services/emailService');
+const path = require('path'); // ✅ NEW
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Initialize Scheduler
+// Initialize Schedulers
 retentionService.startScheduler();
+exportJob.start(); // ✅ NEW
 
 // CORS — only allow configured origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -46,6 +49,9 @@ app.use(cors({
 // Body parsers — 10mb is sufficient for PDF generation
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Serve static exports folder
+app.use('/exports', express.static(path.join(__dirname, 'public', 'exports')));
 
 console.log('🔥 Using Firebase Firestore for data storage');
 

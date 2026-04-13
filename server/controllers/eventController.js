@@ -105,26 +105,13 @@ exports.getAllEvents = async (req, res, next) => {
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ACCURATE TOTAL: count unique events (deduplicate series)
-        // For small-to-medium collections this is fast & accurate.
+        // ACCURATE TOTAL: use native Firebase .count()
+        // Super cheap! 1 read per 1000 items. 
         // ──────────────────────────────────────────────────────────────
         let totalUnique;
         try {
-            const allDocs = await baseQuery.select('groupId').get();
-            const countedGroups = new Set();
-            let uniqueCount = 0;
-            allDocs.docs.forEach(d => {
-                const gid = d.data().groupId;
-                if (gid) {
-                    if (!countedGroups.has(gid)) {
-                        countedGroups.add(gid);
-                        uniqueCount++;
-                    }
-                } else {
-                    uniqueCount++;
-                }
-            });
-            totalUnique = uniqueCount;
+            const countSnapshot = await baseQuery.count().get();
+            totalUnique = countSnapshot.data().count;
         } catch (countErr) {
             console.error('[getAllEvents] Count fallback:', countErr.message);
             totalUnique = finalEvents.length;
@@ -604,9 +591,29 @@ exports.deleteEvent = async (req, res, next) => {
  */
 exports.exportEventsCsv = async (req, res, next) => {
     try {
+        const { days } = req.query;
+        let query = eventsCollection;
+
+        if (days) {
+            const numDays = parseInt(days);
+            if (numDays > 31) {
+                return res.status(400).json({ error: 'Export date range cannot exceed 31 days to protect Quota. For full history, please use the Nightly Archive.' });
+            }
+            
+            const end = new Date();
+            const start = new Date();
+            start.setDate(end.getDate() - numDays);
+            const startDateStr = start.toISOString().split('T')[0];
+            
+            query = query.where('eventDate', '>=', startDateStr).orderBy('eventDate', 'desc');
+        } else {
+            // Block unbounded live exports
+            return res.status(400).json({ error: 'Missing ?days= parameter. Live exports are limited to recent days. Use Nightly Archive for full data.' });
+        }
+
         // Fetch events and resources in parallel
         const [eventsSnapshot, resourcesSnapshot] = await Promise.all([
-            eventsCollection.get(),
+            query.get(),
             resourcesCollection.get()
         ]);
 

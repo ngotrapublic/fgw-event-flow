@@ -43,7 +43,7 @@ const DataRetention = () => {
 
     const handleExportCsv = () => {
         setIsExporting(true);
-        api.get('/events/export-csv', { responseType: 'blob' })
+        api.get('/events/export-csv?days=30', { responseType: 'blob' })
             .then((response) => {
                 const url = window.URL.createObjectURL(new Blob([response.data]));
                 const link = document.createElement('a');
@@ -193,21 +193,40 @@ const DataRetention = () => {
                     </div>
 
                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Export CSV Card */}
+                        {/* Live Export CSV Card (Hot) */}
                         <div
                             onClick={handleExportCsv}
                             className="p-4 rounded-lg border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer group flex items-center justify-between"
                         >
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-blue-300 group-hover:border-black group-hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all">
+                                <div className="w-10 h-10 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-orange-300 group-hover:border-black group-hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all">
                                     <FileText size={18} strokeWidth={2.5} />
                                 </div>
                                 <div>
-                                    <span className="font-black text-black block">Export Events (CSV)</span>
-                                    <span className="text-xs text-slate-500 font-medium">Download all events data</span>
+                                    <span className="font-black text-black block">Tháng Này (Live Report)</span>
+                                    <span className="text-xs text-slate-500 font-medium">Xuất 30 ngày gần đây</span>
                                 </div>
                             </div>
-                            <div className="w-9 h-9 rounded-lg bg-slate-100 border-2 border-slate-200 flex items-center justify-center group-hover:bg-blue-500 group-hover:border-black group-hover:text-white transition-all">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100 border-2 border-slate-200 flex items-center justify-center group-hover:bg-orange-500 group-hover:border-black group-hover:text-white transition-all">
+                                <Download size={16} strokeWidth={2.5} />
+                            </div>
+                        </div>
+
+                        {/* Nightly Archive Export Card (Cold) */}
+                        <div
+                            onClick={() => window.open('http://localhost:5000/exports/events_archive.csv', '_blank')}
+                            className="p-4 rounded-lg bg-slate-50 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer group flex items-center justify-between"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-blue-300 group-hover:border-black group-hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all">
+                                    <Database size={18} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <span className="font-black text-black block">Lịch sử (Nightly Backup)</span>
+                                    <span className="text-xs text-slate-500 font-medium">0đ Quota - file dump 3:00 Sáng</span>
+                                </div>
+                            </div>
+                            <div className="w-9 h-9 rounded-lg bg-white border-2 border-slate-200 flex items-center justify-center group-hover:bg-blue-500 group-hover:border-black group-hover:text-white transition-all">
                                 <Download size={16} strokeWidth={2.5} />
                             </div>
                         </div>
