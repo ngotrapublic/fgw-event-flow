@@ -105,15 +105,6 @@ async function run() {
             return getDayOfWeek(event.startDateMap);
         };
 
-        // Helper: Get Day of Week
-        const getDayOfWeek = (isoDate) => {
-            if (!isoDate) return '';
-            try {
-                const date = new Date(isoDate);
-                const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-                return days[date.getDay()] || '';
-            } catch (e) { return ''; }
-        };
 
         // Helper: Format Time
         const formatTime = (start, end) => {
