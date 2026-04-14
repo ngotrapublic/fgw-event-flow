@@ -148,7 +148,6 @@ exports.getLogisticsEvents = async (req, res, next) => {
 /**
  * Get dashboard stats: today, tomorrow, next 7 days, happening now.
  * Queries DB directly — not affected by pagination.
- * Cost: ~3 Firestore count() reads + 1 small fetch for "happening now".
  */
 exports.getStats = async (req, res, next) => {
     try {
@@ -165,35 +164,34 @@ exports.getStats = async (req, res, next) => {
         const nextWeekLocal = new Date(todayLocal.getTime() + 7 * 24 * 60 * 60 * 1000);
         const nextWeekStr = nextWeekLocal.toISOString().split('T')[0];
 
-        // Run all 3 count queries in parallel
-        const [todaySnap, tomorrowSnap, weekSnap, todayEventsSnap] = await Promise.all([
+        console.log(`[STATS] todayStr=${todayStr}, tomorrowStr=${tomorrowStr}, nextWeekStr=${nextWeekStr}`);
+
+        // Run all queries in parallel using .get() (more reliable than count())
+        const [todaySnap, tomorrowSnap, weekSnap] = await Promise.all([
             eventsCollection
                 .where('isUniqueEvent', '==', true)
                 .where('eventDate', '==', todayStr)
-                .count().get(),
+                .get(),
             eventsCollection
                 .where('isUniqueEvent', '==', true)
                 .where('eventDate', '==', tomorrowStr)
-                .count().get(),
+                .get(),
             eventsCollection
                 .where('isUniqueEvent', '==', true)
                 .where('eventDate', '>=', todayStr)
                 .where('eventDate', '<=', nextWeekStr)
-                .count().get(),
-            // Fetch full docs for today only (to check happening now)
-            eventsCollection
-                .where('isUniqueEvent', '==', true)
-                .where('eventDate', '==', todayStr)
                 .get()
         ]);
 
-        // Calculate "Happening Now"
+        console.log(`[STATS] today=${todaySnap.size}, tomorrow=${tomorrowSnap.size}, week=${weekSnap.size}`);
+
+        // Calculate "Happening Now" from today's events
         const currentHour = todayLocal.getUTCHours();
         const currentMin = todayLocal.getUTCMinutes();
         const nowVal = currentHour * 60 + currentMin;
 
         let happeningNow = 0;
-        todayEventsSnap.docs.forEach(doc => {
+        todaySnap.docs.forEach(doc => {
             const e = doc.data();
             try {
                 const [startH, startM] = (e.startTime || '').split(':').map(Number);
@@ -207,16 +205,16 @@ exports.getStats = async (req, res, next) => {
         });
 
         res.json({
-            today: todaySnap.data().count,
-            tomorrow: tomorrowSnap.data().count,
-            week: weekSnap.data().count,
+            today: todaySnap.size,
+            tomorrow: tomorrowSnap.size,
+            week: weekSnap.size,
             happeningNow
         });
     } catch (error) {
+        console.error('[STATS] Error:', error.message);
         next(error);
     }
 };
-
 /**
  * Check for event conflicts
  */
