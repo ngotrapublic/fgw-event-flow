@@ -1,4 +1,6 @@
 import React, { useMemo, useState, useCallback, memo, useEffect } from 'react';
+import api from '../services/api';
+import { useToast } from './Toast';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -198,8 +200,6 @@ const WeekEvent = memo(({ event }) => {
 WeekEvent.displayName = 'WeekEvent';
 
 
-import api from '../lib/api';
-import { useToast } from '../hooks/useToast';
 
 const CalendarView = ({ searchTerm, filterDepartment, filterLocation }) => {
     const [previewEvent, setPreviewEvent] = useState(null);
@@ -238,9 +238,25 @@ const CalendarView = ({ searchTerm, filterDepartment, filterLocation }) => {
         }
     }, [monthKey]);
 
-    // Apply dashboard filters locally
+    // Apply dashboard filters & Deduplicate Series locally to prevent overlapping pills
     const calendarEvents = useMemo(() => {
-        return rawEvents
+        // Step 1: Deduplicate by groupId
+        const uniqueGroups = new Map();
+        rawEvents.forEach(event => {
+            const key = event.groupId || event.id; // Single-day events use id as key constraint
+            if (!uniqueGroups.has(key)) {
+                uniqueGroups.set(key, event);
+            } else {
+                // Determine the earliest representation within our window
+                const existing = uniqueGroups.get(key);
+                if (new Date(event.eventDate) < new Date(existing.eventDate)) {
+                    uniqueGroups.set(key, event);
+                }
+            }
+        });
+
+        // Step 2: Filter and Map
+        return Array.from(uniqueGroups.values())
             .filter(event => {
                 if (searchTerm) {
                     const term = searchTerm.toLowerCase();
