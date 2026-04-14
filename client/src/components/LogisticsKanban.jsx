@@ -50,7 +50,8 @@ const LogisticsKanban = () => {
             const startDate = yesterday.toISOString().split('T')[0];
             const endDate = tomorrow.toISOString().split('T')[0];
             
-            const response = await api.get(`/events?startDate=${startDate}&endDate=${endDate}&limit=50`);
+            // Hit dedicated logistics endpoint that bypasses uniqueEvent filter
+            const response = await api.get(`/events/logistics`);
             const rawEvents = response.data?.events || response.data || [];
             
             // Server already deduplicates series events, use directly

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, memo } from 'react';
+import React, { useMemo, useState, useCallback, memo, useEffect } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -198,27 +198,79 @@ const WeekEvent = memo(({ event }) => {
 WeekEvent.displayName = 'WeekEvent';
 
 
-const CalendarView = ({ events }) => {
+import api from '../lib/api';
+import { useToast } from '../hooks/useToast';
+
+const CalendarView = ({ searchTerm, filterDepartment, filterLocation }) => {
     const [previewEvent, setPreviewEvent] = useState(null);
     const [view, setView] = useState('month');
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [monthKey, setMonthKey] = useState(format(new Date(), 'yyyy-MM'));
+    const [rawEvents, setRawEvents] = useState([]);
+    const { showError } = useToast();
 
+    // Fetch data locally based on current month window (+/- 1 month)
+    useEffect(() => {
+        const fetchCalendarData = async () => {
+            try {
+                const [year, month] = monthKey.split('-');
+                // prev month 1st day
+                const fetchStart = format(new Date(year, parseInt(month) - 2, 1), 'yyyy-MM-dd'); 
+                // next month last day
+                const fetchEnd = format(new Date(year, parseInt(month) + 1, 0), 'yyyy-MM-dd'); 
+
+                const response = await api.get(`/events/calendar?startDate=${fetchStart}&endDate=${fetchEnd}`);
+                setRawEvents(response.data);
+            } catch (err) {
+                console.error('Error fetching calendar events:', err);
+                showError('Không thể tải dữ liệu lưới Lịch.');
+            }
+        };
+        fetchCalendarData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [monthKey]);
+
+    const handleNavigate = useCallback((newDate) => {
+        setCurrentDate(newDate);
+        const newMonthKey = format(newDate, 'yyyy-MM');
+        if (newMonthKey !== monthKey) {
+            setMonthKey(newMonthKey);
+        }
+    }, [monthKey]);
+
+    // Apply dashboard filters locally
     const calendarEvents = useMemo(() => {
-        return (events || []).map(event => {
-            const startDate = event.eventDate;
-            // For multi-day series: use seriesEndDate so the event spans across all days
-            const endDate = (event.seriesEndDate && event.seriesEndDate !== event.eventDate)
-                ? event.seriesEndDate
-                : event.eventDate;
-            
-            return {
-                id: event.id,
-                title: event.eventName,
-                start: new Date(`${startDate}T${event.startTime || '00:00'}`),
-                end: new Date(`${endDate}T${event.endTime || '23:59'}`),
-                resource: event
-            };
-        });
-    }, [events]);
+        return rawEvents
+            .filter(event => {
+                if (searchTerm) {
+                    const term = searchTerm.toLowerCase();
+                    const titleMatch = event.eventName?.toLowerCase().includes(term);
+                    const locationMatch = event.location?.toLowerCase().includes(term);
+                    if (!titleMatch && !locationMatch) return false;
+                }
+                if (filterDepartment && filterDepartment !== 'all') {
+                    if (event.department !== filterDepartment) return false;
+                }
+                if (filterLocation && filterLocation !== 'all') {
+                    if (event.location !== filterLocation) return false;
+                }
+                return true;
+            })
+            .map(event => {
+                const startDate = event.eventDate;
+                const endDate = (event.seriesEndDate && event.seriesEndDate !== event.eventDate)
+                    ? event.seriesEndDate
+                    : event.eventDate;
+                
+                return {
+                    id: event.id,
+                    title: event.eventName,
+                    start: new Date(`${startDate}T${event.startTime || '00:00'}`),
+                    end: new Date(`${endDate}T${event.endTime || '23:59'}`),
+                    resource: event
+                };
+            });
+    }, [rawEvents, searchTerm, filterDepartment, filterLocation]);
 
     const handleSelectEvent = useCallback((event) => setPreviewEvent(event.resource), []);
 
@@ -344,6 +396,8 @@ const CalendarView = ({ events }) => {
                 views={['month', 'week', 'day', 'agenda']}
                 view={view}
                 onView={setView}
+                date={currentDate}
+                onNavigate={handleNavigate}
                 popup
                 className="font-sans"
             />

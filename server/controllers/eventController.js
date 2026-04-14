@@ -217,6 +217,36 @@ exports.getStats = async (req, res, next) => {
         res.json({ today: 0, tomorrow: 0, week: 0, happeningNow: 0 });
     }
 };
+
+/**
+ * Get all events within a specific month/range for Calendar View.
+ * Does NOT filter by `isUniqueEvent` (retrieves all days of a series).
+ * Does NOT paginate.
+ */
+exports.getCalendarEvents = async (req, res, next) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ error: 'Missing startDate or endDate' });
+        }
+
+        // Fetch all events strictly within the requested timeframe limits
+        // Since eventDate is automatically indexed, this requires no composite index.
+        const snapshot = await eventsCollection
+            .where('eventDate', '>=', startDate)
+            .where('eventDate', '<=', endDate)
+            .limit(200) // generous safe limit for a single month's events
+            .get();
+
+        const events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        res.json(events);
+    } catch (error) {
+        console.error('[CALENDAR API] Error:', error.message);
+        next(error);
+    }
+};
 /**
  * Check for event conflicts
  */

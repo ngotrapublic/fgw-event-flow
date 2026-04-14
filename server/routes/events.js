@@ -13,6 +13,9 @@ router.get('/', eventController.getAllEvents);
 // Get events for Logistics Kanban (3-day window)
 router.get('/logistics', eventController.getLogisticsEvents);
 
+// Get events exclusively for Calendar View without pagination limit
+router.get('/calendar', eventController.getCalendarEvents);
+
 // Dashboard Stats (must be before /:id)
 router.get('/stats', eventController.getStats);
 

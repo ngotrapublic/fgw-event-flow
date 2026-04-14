@@ -1042,7 +1042,7 @@ const EventDashboard = () => {
                 {viewMode === 'calendar' && (
                     <div className="animate-in fade-in zoom-in-95 duration-300">
                         <Suspense fallback={<ViewSkeleton />}>
-                            <CalendarView events={filteredEvents} />
+                            <CalendarView searchTerm={searchTerm} filterDepartment={filterDepartment} filterLocation={filterLocation} />
                         </Suspense>
                     </div>
                 )}
