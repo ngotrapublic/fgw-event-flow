@@ -79,7 +79,7 @@ const DepartmentGalaxy = () => {
 
     // Analytics data from API
     const [analyticsData, setAnalyticsData] = useState({
-        stats: [], totalEvents: 0, eventsThisMonth: 0, upcomingEvents: 0,
+        stats: [], totalEvents: 0, eventsThisMonth: 0, upcomingEvents: 0, eventsToday: 0,
         monthlyTrend: 0, topDepartment: null, monthlyChartData: [],
         insights: [], heatmapData: [], pieData: [],
         securityStats: { totalToday: 0, watchList: [] }, contactStats: [],
@@ -121,6 +121,8 @@ const DepartmentGalaxy = () => {
                 totalEvents: data.totalEvents,
                 eventsThisMonth: data.eventsThisMonth,
                 upcomingEvents: data.upcomingEvents,
+                eventsToday: data.eventsToday || 0,
+                eventsNextWeek: data.eventsNextWeek || 0,
                 monthlyTrend: data.monthlyTrend,
                 topDepartment: data.topDepartment,
                 monthlyChartData: (data.trendData || []).slice(-6).map(d => ({ month: d.date.slice(5, 10), events: d.count })),
@@ -155,34 +157,14 @@ const DepartmentGalaxy = () => {
         });
     }, []);
 
-    const { stats, totalEvents, eventsThisMonth, upcomingEvents, monthlyTrend, topDepartment, topLocation, monthlyChartData, heatmapData, pieData, securityStats, contactStats, equipmentUsage, locationsUsage, hourlyDistribution, deptContacts } = analyticsData;
+    const { stats, totalEvents, eventsThisMonth, upcomingEvents, eventsToday, monthlyTrend, topDepartment, topLocation, monthlyChartData, heatmapData, pieData, securityStats, contactStats, equipmentUsage, locationsUsage, hourlyDistribution, deptContacts } = analyticsData;
 
-    // [NEW] Computed values for KPI cards
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayEvents = (contactStats || []).filter(e => e.eventDate === todayStr).length;
-
-    // Calculate next week events
-    const nextWeekEvents = React.useMemo(() => {
-        const today = new Date();
-        const nextWeekStart = new Date(today);
-        nextWeekStart.setDate(today.getDate() + 7 - today.getDay()); // Next Monday
-        const nextWeekEnd = new Date(nextWeekStart);
-        nextWeekEnd.setDate(nextWeekStart.getDate() + 6); // Next Sunday
-
-        const startStr = nextWeekStart.toISOString().split('T')[0];
-        const endStr = nextWeekEnd.toISOString().split('T')[0];
-
-        return (contactStats || []).filter(e => e.eventDate >= startStr && e.eventDate <= endStr).length;
-    }, [contactStats]);
+    // KPI cards — sourced directly from backend (not from limited contactStats)
+    const todayEvents = eventsToday;
+    const nextWeekEvents = analyticsData.eventsNextWeek || 0;
 
     // [NEW] Fixed Insights: Địa điểm HOT, Phòng ban dẫn đầu, Tổng quan hôm nay
     const insights = React.useMemo(() => {
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-
-        // Count events happening today from contactStats
-        const todayEvents = (contactStats || []).filter(e => e.eventDate === todayStr).length;
-
         const list = [];
 
         // 1. Địa điểm HOT
@@ -228,7 +210,7 @@ const DepartmentGalaxy = () => {
             });
         }
 
-        // 3. Tổng quan hôm nay
+        // 3. Tổng quan hôm nay (uses server-side todayEvents, not contactStats)
         list.push({
             type: 'today',
             icon: Calendar,
@@ -239,7 +221,7 @@ const DepartmentGalaxy = () => {
         });
 
         return list;
-    }, [locationsUsage, topDepartment, contactStats]);
+    }, [locationsUsage, topDepartment, todayEvents]);
     // Standardized Section Wrapper - Refactored for Tabs
     const DashboardSection = ({ icon: Icon, title, subtitle, badge, gradient, children, className, height = "auto", tabs = [], activeTab, onTabChange }) => (
         <div className={cn(
@@ -337,10 +319,28 @@ const DepartmentGalaxy = () => {
                             <p className="text-slate-500 font-bold text-sm">Event performance & department insights</p>
                         </div>
                     </div>
-                    <span className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 font-bold text-xs rounded-full border-2 border-emerald-300">
-                        <Activity size={12} strokeWidth={3} className="animate-pulse" />
-                        LIVE
-                    </span>
+                    <div className="flex items-center gap-3">
+                        <div className="flex bg-slate-100 p-1 rounded-xl border-2 border-black/5">
+                            {TIME_PERIODS.map(p => (
+                                <button
+                                    key={p.value}
+                                    onClick={() => setTimePeriod(p.value)}
+                                    className={cn(
+                                        "px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                                        timePeriod === p.value
+                                            ? "bg-black text-white shadow-sm"
+                                            : "text-slate-400 hover:text-black hover:bg-white"
+                                    )}
+                                >
+                                    {p.label}
+                                </button>
+                            ))}
+                        </div>
+                        <span className="flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 font-bold text-xs rounded-full border-2 border-emerald-300">
+                            <Activity size={12} strokeWidth={3} className="animate-pulse" />
+                            LIVE
+                        </span>
+                    </div>
                 </div>
             </div>
 

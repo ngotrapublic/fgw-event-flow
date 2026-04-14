@@ -44,7 +44,18 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .limit(500)
             .get();
 
-        const analyticsEvents = analyticsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const allAnalyticsEvents = analyticsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Deduplicate series for aggregate stats (totalEvents, byDepartment, equipment, etc.)
+        // A 5-day series should count as 1 event, not 5.
+        const uniqueEventsMap = new Map();
+        allAnalyticsEvents.forEach(event => {
+            const key = event.groupId || event.id;
+            if (!uniqueEventsMap.has(key)) {
+                uniqueEventsMap.set(key, event);
+            }
+        });
+        const uniqueAnalyticsEvents = Array.from(uniqueEventsMap.values());
 
         // ===== QUERY 2: Operational Events (always upcoming 30 days) =====
         const thirtyDaysLater = new Date(today);
@@ -59,11 +70,13 @@ exports.getAnalyticsSummary = async (req, res, next) => {
 
         const operationalEvents = operationalSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // ===== ANALYTICS DATA (from filtered events) =====
+        // ===== ANALYTICS DATA =====
+        // Use `uniqueAnalyticsEvents` for aggregate counts (total, department breakdown, equipment)
+        // Use `allAnalyticsEvents` for per-day metrics (heatmap, daily trend chart)
 
-        // 1. By Department
+        // 1. By Department (from unique events only)
         const byDepartment = {};
-        analyticsEvents.forEach(event => {
+        uniqueAnalyticsEvents.forEach(event => {
             let dept = event.department || 'Other';
             dept = dept.replace('Phòng ', '').replace('Ban ', '');
             byDepartment[dept] = (byDepartment[dept] || 0) + 1;
@@ -73,13 +86,13 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .map(([name, count]) => ({
                 name,
                 count,
-                percent: analyticsEvents.length > 0 ? Math.round((count / analyticsEvents.length) * 100) : 0
+                percent: uniqueAnalyticsEvents.length > 0 ? Math.round((count / uniqueAnalyticsEvents.length) * 100) : 0
             }))
             .sort((a, b) => b.count - a.count);
 
-        // 2. Daily Trend (for Area Chart)
+        // 2. Daily Trend (for Area Chart) — uses ALL docs to show activity per day
         const dailyTrend = {};
-        analyticsEvents.forEach(event => {
+        allAnalyticsEvents.forEach(event => {
             const key = event.eventDate;
             dailyTrend[key] = (dailyTrend[key] || 0) + 1;
         });
@@ -88,7 +101,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        // 3. Heatmap Data (flat array of dates for current month)
+        // 3. Heatmap Data (flat array of dates for current month) — per-day including series days
         const heatmapData = [];
         const currentMonth = today.getMonth();
         const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -99,14 +112,14 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             heatmapData.push({ date: dateStr, count });
         }
 
-        // 4. Monthly Comparison (Trend Insight) - from filtered events
-        const thisMonth = analyticsEvents.filter(e => {
+        // 4. Monthly Comparison (Trend Insight) — from unique events to avoid inflation
+        const thisMonth = uniqueAnalyticsEvents.filter(e => {
             const d = new Date(e.eventDate);
             return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
         }).length;
 
         const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const lastMonth = analyticsEvents.filter(e => {
+        const lastMonth = uniqueAnalyticsEvents.filter(e => {
             const d = new Date(e.eventDate);
             return d.getMonth() === lastMonthDate.getMonth() && d.getFullYear() === lastMonthDate.getFullYear();
         }).length;
@@ -115,12 +128,13 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100)
             : (thisMonth > 0 ? 100 : 0);
 
-        // 5. Upcoming Events Count (from filtered events that are in future)
-        const upcomingInRange = analyticsEvents.filter(e => new Date(e.eventDate) >= today).length;
+        // 5. Upcoming Events Count (unique events that are in future)
+        const upcomingInRange = uniqueAnalyticsEvents.filter(e => new Date(e.eventDate) >= today).length;
+
 
         // 6. Top Location (most used location)
         const byLocation = {};
-        analyticsEvents.forEach(event => {
+        uniqueAnalyticsEvents.forEach(event => {
             const locations = Array.isArray(event.location) ? event.location : [event.location || 'Chưa xác định'];
             locations.forEach(loc => {
                 if (loc) {
@@ -133,7 +147,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .map(([name, count]) => ({
                 name,
                 count,
-                percent: analyticsEvents.length > 0 ? Math.round((count / analyticsEvents.length) * 100) : 0
+                percent: uniqueAnalyticsEvents.length > 0 ? Math.round((count / uniqueAnalyticsEvents.length) * 100) : 0
             }))
             .sort((a, b) => b.count - a.count);
 
@@ -198,12 +212,34 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .sort((a, b) => new Date(a.eventDate) - new Date(b.eventDate))
             .slice(0, 10);
 
+        // Compute today's unique event count for KPI
+        const uniqueOperationalMap = new Map();
+        operationalEvents.forEach(e => {
+            const key = e.groupId || e.id;
+            if (!uniqueOperationalMap.has(key)) uniqueOperationalMap.set(key, e);
+        });
+        const todayCount = Array.from(uniqueOperationalMap.values())
+            .filter(e => e.eventDate === todayStr).length;
+
+        // Next week count (Mon-Sun of next week)
+        const todayObj = new Date();
+        const nextMonday = new Date(todayObj);
+        nextMonday.setDate(todayObj.getDate() + (7 - todayObj.getDay() + 1) % 7 || 7);
+        const nextSunday = new Date(nextMonday);
+        nextSunday.setDate(nextMonday.getDate() + 6);
+        const nextMondayStr = nextMonday.toISOString().split('T')[0];
+        const nextSundayStr = nextSunday.toISOString().split('T')[0];
+        const nextWeekCount = Array.from(uniqueOperationalMap.values())
+            .filter(e => e.eventDate >= nextMondayStr && e.eventDate <= nextSundayStr).length;
+
         // ===== RESPONSE =====
         res.json({
             // Analytics data (filtered by date range)
-            totalEvents: analyticsEvents.length,
+            totalEvents: uniqueAnalyticsEvents.length,
             upcomingEvents: upcomingInRange,
             eventsThisMonth: thisMonth,
+            eventsToday: todayCount,
+            eventsNextWeek: nextWeekCount,
             monthlyTrend,
             byDepartment: sortedDepartments,
             byLocation: sortedLocations, // ADDED: Full locations array for frontend locationsUsage
@@ -216,7 +252,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             // 7. Equipment Usage (Aggregation from facilitiesChecklist)
             equipmentUsage: (() => {
                 const equipment = {};
-                analyticsEvents.forEach(event => {
+                uniqueAnalyticsEvents.forEach(event => {
                     // facilitiesChecklist is an object, not an array
                     // Structure: { mic: { checked: true, quantity: 2, label: 'Micro' }, ... }
                     const checklist = event.facilitiesChecklist || {};
@@ -240,7 +276,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             hourlyDistribution: (() => {
                 const hourMap = {};
                 for (let i = 0; i < 24; i++) hourMap[i] = 0;
-                analyticsEvents.forEach(event => {
+                uniqueAnalyticsEvents.forEach(event => {
                     if (event.startTime) {
                         const hour = parseInt(event.startTime.split(':')[0]);
                         if (!isNaN(hour)) hourMap[hour]++;
