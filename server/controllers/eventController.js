@@ -146,6 +146,78 @@ exports.getLogisticsEvents = async (req, res, next) => {
 };
 
 /**
+ * Get dashboard stats: today, tomorrow, next 7 days, happening now.
+ * Queries DB directly — not affected by pagination.
+ * Cost: ~3 Firestore count() reads + 1 small fetch for "happening now".
+ */
+exports.getStats = async (req, res, next) => {
+    try {
+        const now = new Date();
+        const tzOffset = 7 * 60 * 60 * 1000; // UTC+7
+
+        // Today in local timezone as YYYY-MM-DD
+        const todayLocal = new Date(now.getTime() + tzOffset);
+        const todayStr = todayLocal.toISOString().split('T')[0];
+
+        const tomorrowLocal = new Date(todayLocal.getTime() + 24 * 60 * 60 * 1000);
+        const tomorrowStr = tomorrowLocal.toISOString().split('T')[0];
+
+        const nextWeekLocal = new Date(todayLocal.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const nextWeekStr = nextWeekLocal.toISOString().split('T')[0];
+
+        // Run all 3 count queries in parallel
+        const [todaySnap, tomorrowSnap, weekSnap, todayEventsSnap] = await Promise.all([
+            eventsCollection
+                .where('isUniqueEvent', '==', true)
+                .where('eventDate', '==', todayStr)
+                .count().get(),
+            eventsCollection
+                .where('isUniqueEvent', '==', true)
+                .where('eventDate', '==', tomorrowStr)
+                .count().get(),
+            eventsCollection
+                .where('isUniqueEvent', '==', true)
+                .where('eventDate', '>=', todayStr)
+                .where('eventDate', '<=', nextWeekStr)
+                .count().get(),
+            // Fetch full docs for today only (to check happening now)
+            eventsCollection
+                .where('isUniqueEvent', '==', true)
+                .where('eventDate', '==', todayStr)
+                .get()
+        ]);
+
+        // Calculate "Happening Now"
+        const currentHour = todayLocal.getUTCHours();
+        const currentMin = todayLocal.getUTCMinutes();
+        const nowVal = currentHour * 60 + currentMin;
+
+        let happeningNow = 0;
+        todayEventsSnap.docs.forEach(doc => {
+            const e = doc.data();
+            try {
+                const [startH, startM] = (e.startTime || '').split(':').map(Number);
+                const [endH, endM] = (e.endTime || '').split(':').map(Number);
+                if (!isNaN(startH) && !isNaN(endH)) {
+                    if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
+                        happeningNow++;
+                    }
+                }
+            } catch (_) {}
+        });
+
+        res.json({
+            today: todaySnap.data().count,
+            tomorrow: tomorrowSnap.data().count,
+            week: weekSnap.data().count,
+            happeningNow
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Check for event conflicts
  */
 exports.checkConflict = async (req, res, next) => {

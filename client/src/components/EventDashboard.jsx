@@ -606,6 +606,9 @@ const EventDashboard = () => {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const { user } = useAuth();
 
+    // Dashboard Stats from dedicated API (not affected by pagination)
+    const [dashboardStats, setDashboardStats] = useState({ today: 0, tomorrow: 0, week: 0, happeningNow: 0 });
+
     // --- Cursor-based pagination state ---
     const [pagination, setPagination] = useState({
         hasMore: false,
@@ -702,11 +705,24 @@ const EventDashboard = () => {
         }
     };
 
+    const fetchStats = async () => {
+        try {
+            const res = await api.get('/events/stats');
+            setDashboardStats(res.data);
+        } catch (err) {
+            console.error('Error fetching stats:', err);
+        }
+    };
+
     useEffect(() => {
         fetchEvents(null);
         fetchDepartments();
         fetchLocations();
         fetchResources();
+        fetchStats();
+        // Refresh stats every 5 minutes
+        const statsInterval = setInterval(fetchStats, 5 * 60 * 1000);
+        return () => clearInterval(statsInterval);
     }, []);  // Load once on mount
 
     const handleDelete = useCallback(async (id) => {
@@ -851,10 +867,10 @@ const EventDashboard = () => {
 
                         return (
                             <>
-                                <StatCard title="Today" value={eventsToday.length} icon={CalendarIcon} color="bg-blue-50" labelColor="text-blue-600" />
-                                <StatCard title="Tomorrow" value={eventsTomorrow.length} icon={Clock} color="bg-indigo-50" labelColor="text-indigo-600" />
-                                <StatCard title="Next 7 Days" value={eventsWeek.length} icon={CalendarIcon} color="bg-purple-50" labelColor="text-purple-600" />
-                                <StatCard title="Happening Now" value={eventsOngoing.length} icon={BarChart2} color="bg-emerald-50" labelColor="text-emerald-600" trend={eventsOngoing.length > 0 ? "LIVE" : null} />
+                                <StatCard title="Today" value={dashboardStats.today} icon={CalendarIcon} color="bg-blue-50" labelColor="text-blue-600" />
+                                <StatCard title="Tomorrow" value={dashboardStats.tomorrow} icon={Clock} color="bg-indigo-50" labelColor="text-indigo-600" />
+                                <StatCard title="Next 7 Days" value={dashboardStats.week} icon={CalendarIcon} color="bg-purple-50" labelColor="text-purple-600" />
+                                <StatCard title="Happening Now" value={dashboardStats.happeningNow} icon={BarChart2} color="bg-emerald-50" labelColor="text-emerald-600" trend={dashboardStats.happeningNow > 0 ? "LIVE" : null} />
                             </>
                         );
                     } else {

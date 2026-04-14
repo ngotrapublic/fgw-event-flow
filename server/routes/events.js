@@ -13,6 +13,9 @@ router.get('/', eventController.getAllEvents);
 // Get events for Logistics Kanban (3-day window)
 router.get('/logistics', eventController.getLogisticsEvents);
 
+// Dashboard Stats (must be before /:id)
+router.get('/stats', eventController.getStats);
+
 // Export CSV (Must be before /:id)
 router.get('/export-csv', eventController.exportEventsCsv);
 
