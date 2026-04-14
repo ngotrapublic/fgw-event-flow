@@ -108,8 +108,18 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             monthlyTrendMap[key] = new Set(); // store unique groups
         }
+        const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
+        const sixMonthsAgoStr = sixMonthsAgo.toISOString().split('T')[0];
+        const endOfThisMonthStr = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+        
+        const trendSnapshot = await eventsCollection
+            .where('eventDate', '>=', sixMonthsAgoStr)
+            .where('eventDate', '<=', endOfThisMonthStr)
+            .get();
+        
+        const trendDocs = trendSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        allAnalyticsEvents.forEach(e => {
+        trendDocs.forEach(e => {
             const d = new Date(e.eventDate);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             if (monthlyTrendMap[key]) {
