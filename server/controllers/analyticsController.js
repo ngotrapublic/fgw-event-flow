@@ -172,11 +172,20 @@ exports.getAnalyticsSummary = async (req, res, next) => {
         const sevenDaysLater = new Date(today);
         sevenDaysLater.setDate(today.getDate() + 7);
 
-        const contactList = operationalEvents
+        const uniqueContacts = new Map();
+        operationalEvents
             .filter(e => {
                 const d = new Date(e.eventDate);
                 return d >= today && d <= sevenDaysLater;
             })
+            .forEach(e => {
+                const key = e.groupId || e.id;
+                if (!uniqueContacts.has(key)) {
+                    uniqueContacts.set(key, e);
+                }
+            });
+
+        const contactList = Array.from(uniqueContacts.values())
             .map(e => ({
                 id: e.id,
                 eventName: e.eventName,

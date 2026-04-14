@@ -177,16 +177,20 @@ exports.getStats = async (req, res, next) => {
         const currentHour = todayLocal.getUTCHours();
         const currentMin = todayLocal.getUTCMinutes();
         const nowVal = currentHour * 60 + currentMin;
+        
+        const uniqueGroups = new Set();
 
         snap.docs.forEach(doc => {
             const data = doc.data();
+            const key = data.groupId || doc.id;
 
-            // Only count unique events
-            if (data.isUniqueEvent !== true) return;
+            // Deduplicate for week count so a 5-day event only counts as 1 event this week
+            if (!uniqueGroups.has(key)) {
+                uniqueGroups.add(key);
+                weekCount++;
+            }
 
-            // Increment week count since all fetched docs are within the week window
-            weekCount++;
-
+            // We do NOT check isUniqueEvent here because we want to know if it is happening TODAY!
             if (data.eventDate === todayStr) {
                 todayCount++;
 
