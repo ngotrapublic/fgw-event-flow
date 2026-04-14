@@ -125,7 +125,12 @@ const DepartmentGalaxy = () => {
                 eventsNextWeek: data.eventsNextWeek || 0,
                 monthlyTrend: data.monthlyTrend,
                 topDepartment: data.topDepartment,
-                monthlyChartData: (data.trendData || []).slice(-6).map(d => ({ month: d.date.slice(5, 10), events: d.count })),
+                monthlyChartData: data.monthlyTrendData 
+                    ? data.monthlyTrendData.map(d => {
+                        const [, month] = d.month.split('-');
+                        return { month: `Tháng ${parseInt(month)}`, events: d.count };
+                    })
+                    : (data.trendData || []).slice(-6).map(d => ({ month: d.date.slice(5, 10), events: d.count })),
                 heatmapData: data.heatmapData || [],
                 pieData,
                 securityStats: data.securityStats || { totalToday: 0, watchList: [] },

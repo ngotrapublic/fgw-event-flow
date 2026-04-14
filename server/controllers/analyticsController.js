@@ -101,6 +101,26 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date) - new Date(b.date));
 
+        // 2.5 Monthly Trend Data (for Last 6 months Area Chart)
+        const monthlyTrendMap = {};
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            monthlyTrendMap[key] = new Set(); // store unique groups
+        }
+
+        allAnalyticsEvents.forEach(e => {
+            const d = new Date(e.eventDate);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (monthlyTrendMap[key]) {
+                monthlyTrendMap[key].add(e.groupId || e.id);
+            }
+        });
+
+        const monthlyTrendData = Object.entries(monthlyTrendMap)
+            .map(([month, groupSet]) => ({ month, count: groupSet.size }))
+            .sort((a, b) => a.month.localeCompare(b.month));
+
         // 3. Heatmap Data (flat array of dates for current month) — per-day including series days
         const heatmapData = [];
         const currentMonth = today.getMonth();
@@ -264,6 +284,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             byDepartment: sortedDepartments,
             byLocation: sortedLocations, // ADDED: Full locations array for frontend locationsUsage
             trendData,
+            monthlyTrendData,
             heatmapData,
             topDepartment: sortedDepartments[0] || null,
             topLocation,
