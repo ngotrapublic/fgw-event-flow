@@ -28,26 +28,25 @@ exports.getAllEvents = async (req, res, next) => {
         const { startDate, endDate, limit = 12, lastDocId } = req.query;
         const parsedLimit = Math.min(parseInt(limit) || 12, 100);
 
-        let baseQuery = eventsCollection.orderBy('eventDate', 'desc');
+        // ──────────────────────────────────────────────────────────────
+        // OPTIMIZED QUERY: Use isUniqueEvent index to fetch exactly N
+        // unique events with zero over-fetching. Cost: parsedLimit + 1 reads.
+        // ──────────────────────────────────────────────────────────────
+        let baseQuery = eventsCollection
+            .where('isUniqueEvent', '==', true)
+            .orderBy('eventDate', 'desc');
 
-        // MODE 1: Date-range query
+        // MODE 1: Optional Date-range filter
         if (startDate && endDate) {
             baseQuery = eventsCollection
+                .where('isUniqueEvent', '==', true)
                 .where('eventDate', '>=', startDate)
                 .where('eventDate', '<=', endDate)
                 .orderBy('eventDate', 'desc');
         }
 
-        // ──────────────────────────────────────────────────────────────
-        // SERIES-AWARE PAGINATION
-        // Multi-day series events store one Firestore doc per day.
-        // We need to deduplicate them so each unique event = 1 item.
-        // Strategy: over-fetch, deduplicate by groupId, then trim to limit.
-        // ──────────────────────────────────────────────────────────────
-
-        const overFetchMultiplier = 5; // fetch extra to account for series docs
+        // Cursor-based pagination
         let paginatedQuery = baseQuery;
-
         if (lastDocId) {
             const lastDoc = await eventsCollection.doc(lastDocId).get();
             if (lastDoc.exists) {
@@ -55,55 +54,13 @@ exports.getAllEvents = async (req, res, next) => {
             }
         }
 
-        // Over-fetch to ensure we get enough unique events after dedup
-        const snapshot = await paginatedQuery.limit(parsedLimit * overFetchMultiplier + 1).get();
+        // Fetch exactly limit + 1 to detect hasMore (no over-fetch needed)
+        const snapshot = await paginatedQuery.limit(parsedLimit + 1).get();
+        const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // Deduplicate: keep one representative per groupId (prefer isSeriesStart or earliest)
-        const seenGroups = new Set();
-        const uniqueEvents = [];
-        let lastScannedDoc = null; // track the last raw Firestore doc scanned for cursor
-
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
-            const event = { id: doc.id, ...data };
-            lastScannedDoc = doc; // always track last scanned position
-
-            if (event.groupId) {
-                if (seenGroups.has(event.groupId)) {
-                    continue; // skip duplicate series doc
-                }
-                seenGroups.add(event.groupId);
-            }
-
-            uniqueEvents.push(event);
-
-            if (uniqueEvents.length > parsedLimit) {
-                break; // we have enough + 1 extra to check hasMore
-            }
-        }
-
-        const hasMore = uniqueEvents.length > parsedLimit;
-        const finalEvents = hasMore ? uniqueEvents.slice(0, parsedLimit) : uniqueEvents;
-
-        // For cursor: use the raw Firestore doc of the last event we're returning
-        // This ensures startAfter will skip past all series siblings
-        let cursorDoc = null;
-        if (finalEvents.length > 0) {
-            const lastEvent = finalEvents[finalEvents.length - 1];
-            // If this is a series event, we need to find the LAST sibling doc in the snapshot
-            // to avoid re-serving siblings on the next page
-            if (lastEvent.groupId) {
-                for (let i = snapshot.docs.length - 1; i >= 0; i--) {
-                    if (snapshot.docs[i].data().groupId === lastEvent.groupId) {
-                        cursorDoc = snapshot.docs[i];
-                        break;
-                    }
-                }
-            }
-            if (!cursorDoc) {
-                cursorDoc = snapshot.docs.find(d => d.id === lastEvent.id);
-            }
-        }
+        const hasMore = allDocs.length > parsedLimit;
+        const finalEvents = hasMore ? allDocs.slice(0, parsedLimit) : allDocs;
+        const lastReturnedDoc = snapshot.docs[finalEvents.length - 1] || null;
 
         // ──────────────────────────────────────────────────────────────
         // ACCURATE TOTAL: Fetch from Global Metadata Counter
@@ -121,7 +78,7 @@ exports.getAllEvents = async (req, res, next) => {
         const meta = {
             total: totalUnique,
             count: finalEvents.length,
-            lastId: cursorDoc ? cursorDoc.id : null,
+            lastId: lastReturnedDoc ? lastReturnedDoc.id : null,
             hasMore
         };
 
@@ -267,6 +224,9 @@ exports.createEvent = async (req, res, next) => {
                 newEvent.groupId = groupId;
                 newEvent.isSeriesStart = isFirst;
                 newEvent.seriesEndDate = eventData.eventEndDate;
+                newEvent.isUniqueEvent = isFirst; // true only for day 1, false for others
+            } else {
+                newEvent.isUniqueEvent = true; // single-day event is always unique
             }
 
             const docRef = eventsCollection.doc();
@@ -425,7 +385,8 @@ exports.updateEvent = async (req, res, next) => {
                     batch.update(existingMap[dateStr].ref, {
                         ...commonFields,
                         eventDate: dateStr,
-                        isSeriesStart: i === 0
+                        isSeriesStart: i === 0,
+                        isUniqueEvent: i === 0
                     });
                 } else {
                     // Create new doc for this date
@@ -436,6 +397,7 @@ exports.updateEvent = async (req, res, next) => {
                         eventDate: dateStr,
                         groupId,
                         isSeriesStart: i === 0,
+                        isUniqueEvent: i === 0,
                         seriesEndDate: newEndDate,
                         createdAt: oldEvent.createdAt,
                         remindersSent: { oneDay: false, oneHour: false }
