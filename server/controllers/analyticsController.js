@@ -112,24 +112,38 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             heatmapData.push({ date: dateStr, count });
         }
 
-        // 4. Monthly Comparison (Trend Insight) — from unique events to avoid inflation
-        const thisMonth = uniqueAnalyticsEvents.filter(e => {
+        // 4. Monthly Comparison (Trend Insight) — scan all docs then dedup
+        const thisMonthGroups = new Set();
+        allAnalyticsEvents.forEach(e => {
             const d = new Date(e.eventDate);
-            return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-        }).length;
+            if (d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()) {
+                thisMonthGroups.add(e.groupId || e.id);
+            }
+        });
+        const thisMonth = thisMonthGroups.size;
 
         const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const lastMonth = uniqueAnalyticsEvents.filter(e => {
+        const lastMonthGroups = new Set();
+        allAnalyticsEvents.forEach(e => {
             const d = new Date(e.eventDate);
-            return d.getMonth() === lastMonthDate.getMonth() && d.getFullYear() === lastMonthDate.getFullYear();
-        }).length;
+            if (d.getMonth() === lastMonthDate.getMonth() && d.getFullYear() === lastMonthDate.getFullYear()) {
+                lastMonthGroups.add(e.groupId || e.id);
+            }
+        });
+        const lastMonth = lastMonthGroups.size;
 
         const monthlyTrend = lastMonth > 0
             ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100)
             : (thisMonth > 0 ? 100 : 0);
 
-        // 5. Upcoming Events Count (unique events that are in future)
-        const upcomingInRange = uniqueAnalyticsEvents.filter(e => new Date(e.eventDate) >= today).length;
+        // 5. Upcoming Events Count (Đang & sắp tới) — events having any date >= today
+        const upcomingGroups = new Set();
+        allAnalyticsEvents.forEach(e => {
+            if (e.eventDate >= todayStr) {
+                upcomingGroups.add(e.groupId || e.id);
+            }
+        });
+        const upcomingInRange = upcomingGroups.size;
 
 
         // 6. Top Location (most used location)
