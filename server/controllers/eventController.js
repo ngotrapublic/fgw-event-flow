@@ -147,72 +147,74 @@ exports.getLogisticsEvents = async (req, res, next) => {
 
 /**
  * Get dashboard stats: today, tomorrow, next 7 days, happening now.
- * Queries DB directly — not affected by pagination.
+ * Avoids complex composite index by querying `eventDate` directly using IN.
  */
 exports.getStats = async (req, res, next) => {
     try {
         const now = new Date();
         const tzOffset = 7 * 60 * 60 * 1000; // UTC+7
-
-        // Today in local timezone as YYYY-MM-DD
         const todayLocal = new Date(now.getTime() + tzOffset);
-        const todayStr = todayLocal.toISOString().split('T')[0];
 
-        const tomorrowLocal = new Date(todayLocal.getTime() + 24 * 60 * 60 * 1000);
-        const tomorrowStr = tomorrowLocal.toISOString().split('T')[0];
+        // Generate dates for today + next 7 days (total 8 days)
+        const weekDates = [];
+        for (let i = 0; i <= 7; i++) {
+            const d = new Date(todayLocal.getTime() + i * 24 * 60 * 60 * 1000);
+            weekDates.push(d.toISOString().split('T')[0]);
+        }
+        const todayStr = weekDates[0];
+        const tomorrowStr = weekDates[1];
 
-        const nextWeekLocal = new Date(todayLocal.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const nextWeekStr = nextWeekLocal.toISOString().split('T')[0];
+        // Only query by eventDate (which is automatically indexed by Firestore)
+        const snap = await eventsCollection
+            .where('eventDate', 'in', weekDates)
+            .get();
 
-        console.log(`[STATS] todayStr=${todayStr}, tomorrowStr=${tomorrowStr}, nextWeekStr=${nextWeekStr}`);
+        let todayCount = 0;
+        let tomorrowCount = 0;
+        let weekCount = 0;
+        let happeningNow = 0;
 
-        // Run all queries in parallel using .get() (more reliable than count())
-        const [todaySnap, tomorrowSnap, weekSnap] = await Promise.all([
-            eventsCollection
-                .where('isUniqueEvent', '==', true)
-                .where('eventDate', '==', todayStr)
-                .get(),
-            eventsCollection
-                .where('isUniqueEvent', '==', true)
-                .where('eventDate', '==', tomorrowStr)
-                .get(),
-            eventsCollection
-                .where('isUniqueEvent', '==', true)
-                .where('eventDate', '>=', todayStr)
-                .where('eventDate', '<=', nextWeekStr)
-                .get()
-        ]);
-
-        console.log(`[STATS] today=${todaySnap.size}, tomorrow=${tomorrowSnap.size}, week=${weekSnap.size}`);
-
-        // Calculate "Happening Now" from today's events
         const currentHour = todayLocal.getUTCHours();
         const currentMin = todayLocal.getUTCMinutes();
         const nowVal = currentHour * 60 + currentMin;
 
-        let happeningNow = 0;
-        todaySnap.docs.forEach(doc => {
-            const e = doc.data();
-            try {
-                const [startH, startM] = (e.startTime || '').split(':').map(Number);
-                const [endH, endM] = (e.endTime || '').split(':').map(Number);
-                if (!isNaN(startH) && !isNaN(endH)) {
-                    if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
-                        happeningNow++;
+        snap.docs.forEach(doc => {
+            const data = doc.data();
+
+            // Only count unique events
+            if (data.isUniqueEvent !== true) return;
+
+            // Increment week count since all fetched docs are within the week window
+            weekCount++;
+
+            if (data.eventDate === todayStr) {
+                todayCount++;
+
+                // Check happening now
+                try {
+                    const [startH, startM] = (data.startTime || '').split(':').map(Number);
+                    const [endH, endM] = (data.endTime || '').split(':').map(Number);
+                    if (!isNaN(startH) && !isNaN(endH)) {
+                        if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
+                            happeningNow++;
+                        }
                     }
-                }
-            } catch (_) {}
+                } catch (_) {}
+            } else if (data.eventDate === tomorrowStr) {
+                tomorrowCount++;
+            }
         });
 
         res.json({
-            today: todaySnap.size,
-            tomorrow: tomorrowSnap.size,
-            week: weekSnap.size,
+            today: todayCount,
+            tomorrow: tomorrowCount,
+            week: weekCount,
             happeningNow
         });
     } catch (error) {
         console.error('[STATS] Error:', error.message);
-        next(error);
+        // Default to zero rather than crashing the route if anything weird happens
+        res.json({ today: 0, tomorrow: 0, week: 0, happeningNow: 0 });
     }
 };
 /**
