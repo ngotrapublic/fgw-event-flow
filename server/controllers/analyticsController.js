@@ -213,13 +213,14 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             .slice(0, 10);
 
         // Compute today's unique event count for KPI
-        const uniqueOperationalMap = new Map();
+        // Scan ALL docs (not deduplicated) to find groups active today, then deduplicate
+        const todayGroups = new Set();
         operationalEvents.forEach(e => {
-            const key = e.groupId || e.id;
-            if (!uniqueOperationalMap.has(key)) uniqueOperationalMap.set(key, e);
+            if (e.eventDate === todayStr) {
+                todayGroups.add(e.groupId || e.id);
+            }
         });
-        const todayCount = Array.from(uniqueOperationalMap.values())
-            .filter(e => e.eventDate === todayStr).length;
+        const todayCount = todayGroups.size;
 
         // Next week count (Mon-Sun of next week)
         const todayObj = new Date();
@@ -229,8 +230,13 @@ exports.getAnalyticsSummary = async (req, res, next) => {
         nextSunday.setDate(nextMonday.getDate() + 6);
         const nextMondayStr = nextMonday.toISOString().split('T')[0];
         const nextSundayStr = nextSunday.toISOString().split('T')[0];
-        const nextWeekCount = Array.from(uniqueOperationalMap.values())
-            .filter(e => e.eventDate >= nextMondayStr && e.eventDate <= nextSundayStr).length;
+        const nextWeekGroups = new Set();
+        operationalEvents.forEach(e => {
+            if (e.eventDate >= nextMondayStr && e.eventDate <= nextSundayStr) {
+                nextWeekGroups.add(e.groupId || e.id);
+            }
+        });
+        const nextWeekCount = nextWeekGroups.size;
 
         // ===== RESPONSE =====
         res.json({
