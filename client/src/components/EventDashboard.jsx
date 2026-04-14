@@ -210,11 +210,12 @@ const EventCard = memo(({ event, onDelete, onEmail, onToggleSign, resources = []
     const { user } = useAuth();
     const { showSuccess } = useToast();
 
-    // Calculate if event is in the past
-    const eventDate = new Date(event.eventDate);
+    // Calculate if event is in the past taking multi-day into account
+    const compareDateStr = event.eventEndDate || event.eventDate;
+    const compareDate = new Date(compareDateStr);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const isPast = eventDate < today;
+    const isPast = compareDate < today;
 
     const isOwner = user?.uid === event.createdBy;
     const isAdmin = user?.role === 'admin' || user?.role === 'manager';
