@@ -118,29 +118,32 @@ exports.getEventById = async (req, res, next) => {
  */
 exports.getLogisticsEvents = async (req, res, next) => {
     try {
-        const today = new Date();
-        const formatDate = (d) => d.toISOString().split('T')[0];
+        const result = await cacheService.getOrFetch('logistics', async () => {
+            const today = new Date();
+            const formatDate = (d) => d.toISOString().split('T')[0];
 
-        const current = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+            const current = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
 
-        const yesterday = new Date(current);
-        yesterday.setUTCDate(current.getUTCDate() - 1);
+            const yesterday = new Date(current);
+            yesterday.setUTCDate(current.getUTCDate() - 1);
 
-        const tomorrow = new Date(current);
-        tomorrow.setUTCDate(current.getUTCDate() + 1);
+            const tomorrow = new Date(current);
+            tomorrow.setUTCDate(current.getUTCDate() + 1);
 
-        const dateRange = [formatDate(yesterday), formatDate(current), formatDate(tomorrow)];
+            const dateRange = [formatDate(yesterday), formatDate(current), formatDate(tomorrow)];
 
-        const snapshot = await eventsCollection
-            .where('eventDate', 'in', dateRange)
-            .limit(50) // Performance Guardrail
-            .get();
+            const snapshot = await eventsCollection
+                .where('eventDate', 'in', dateRange)
+                .limit(50) // Performance Guardrail
+                .get();
 
-        const events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        console.log(`[Kanban API] Served ${events.length} events for ${dateRange.join(', ')}`);
+            console.log(`[Kanban API - FRESH] Served ${events.length} events for ${dateRange.join(', ')}`);
+            return events;
+        }, 5); // Cache for 5 minutes
 
-        res.json(events);
+        res.json(result);
     } catch (error) {
         next(error);
     }
@@ -240,17 +243,20 @@ exports.getCalendarEvents = async (req, res, next) => {
             return res.status(400).json({ error: 'Missing startDate or endDate' });
         }
 
-        // Fetch all events strictly within the requested timeframe limits
-        // Since eventDate is automatically indexed, this requires no composite index.
-        const snapshot = await eventsCollection
-            .where('eventDate', '>=', startDate)
-            .where('eventDate', '<=', endDate)
-            .limit(200) // generous safe limit for a single month's events
-            .get();
+        const cacheKey = `calendar_${startDate}_${endDate}`;
+        const result = await cacheService.getOrFetch(cacheKey, async () => {
+            // Fetch all events strictly within the requested timeframe limits
+            // Since eventDate is automatically indexed, this requires no composite index.
+            const snapshot = await eventsCollection
+                .where('eventDate', '>=', startDate)
+                .where('eventDate', '<=', endDate)
+                .limit(200) // generous safe limit for a single month's events
+                .get();
 
-        const events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        }, 15); // Cache for 15 minutes
 
-        res.json(events);
+        res.json(result);
     } catch (error) {
         console.error('[CALENDAR API] Error:', error.message);
         next(error);
@@ -403,7 +409,9 @@ exports.createEvent = async (req, res, next) => {
 
         // [CACHE] Invalidate analytics and stats cache after successful creation
         cacheService.invalidate('stats');
+        cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
+        cacheService.clearEventsCache();
     } catch (error) {
         next(error);
     }
@@ -609,7 +617,9 @@ exports.updateEvent = async (req, res, next) => {
 
         // [CACHE] Invalidate analytics and stats cache after successful update
         cacheService.invalidate('stats');
+        cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
+        cacheService.clearEventsCache();
     } catch (error) {
         next(error);
     }
@@ -684,7 +694,9 @@ exports.deleteEvent = async (req, res, next) => {
 
         // [CACHE] Invalidate analytics and stats cache after successful deletion
         cacheService.invalidate('stats');
+        cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
+        cacheService.clearEventsCache();
     } catch (error) {
         next(error);
     }

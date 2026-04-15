@@ -22,13 +22,13 @@ class CacheService {
 
         // 1. Cache HIT
         if (cached && cached.expiresAt > now) {
-            logger.log(`[CACHE HIT] ${key}`);
+            logger.info(`[CACHE HIT] ${key}`);
             return cached.data;
         }
 
         // 2. Promise Deduplication (Stampede protection)
         if (this.pending.has(key)) {
-            logger.log(`[CACHE DEDUP] Waiting for existing fetch for ${key}`);
+            logger.info(`[CACHE DEDUP] Waiting for existing fetch for ${key}`);
             try {
                 return await this.pending.get(key);
             } catch (err) {
@@ -37,7 +37,7 @@ class CacheService {
         }
 
         // 3. Cache MISS or STALE
-        logger.log(`[CACHE MISS] Fetching fresh data for ${key}`);
+        logger.info(`[CACHE MISS] Fetching fresh data for ${key}`);
         const fetchPromise = (async () => {
             try {
                 const newData = await fetchFn();
@@ -68,7 +68,7 @@ class CacheService {
      * @param {string} key 
      */
     invalidate(key) {
-        logger.log(`[CACHE INVALIDATED] ${key}`);
+        logger.info(`[CACHE INVALIDATED] ${key}`);
         this.cache.delete(key);
     }
 
@@ -78,7 +78,19 @@ class CacheService {
     clearAnalytics() {
         for (const key of this.cache.keys()) {
             if (key.startsWith('analytics_')) {
-                logger.log(`[CACHE INVALIDATED] ${key}`);
+                logger.info(`[CACHE INVALIDATED] ${key}`);
+                this.cache.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Invalidate all events-related dynamic cache keys (calendar, etc.)
+     */
+    clearEventsCache() {
+        for (const key of this.cache.keys()) {
+            if (key.startsWith('calendar_')) {
+                logger.info(`[CACHE INVALIDATED] ${key}`);
                 this.cache.delete(key);
             }
         }
@@ -88,7 +100,7 @@ class CacheService {
      * Clear all cache
      */
     clearAll() {
-        logger.log(`[CACHE] Cleared ALL cache`);
+        logger.info(`[CACHE] Cleared ALL cache`);
         this.cache.clear();
         this.pending.clear();
     }
