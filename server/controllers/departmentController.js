@@ -1,4 +1,5 @@
 const { departmentsCollection } = require('../config/firebase');
+const cacheService = require('../services/cacheService');
 
 /**
  * Get all departments
@@ -32,6 +33,7 @@ exports.createDepartment = async (req, res, next) => {
             defaultEmail: email || '' // Set default if email provided
         };
         const docRef = await departmentsCollection.add(newDept);
+        cacheService.invalidate('metadata');
         res.json({ id: docRef.id, ...newDept });
     } catch (error) {
         next(error);
@@ -90,6 +92,7 @@ exports.updateDepartment = async (req, res, next) => {
         }
 
         const updated = await departmentsCollection.doc(doc.id).get();
+        cacheService.invalidate('metadata');
         res.json({ id: doc.id, ...updated.data() });
     } catch (error) {
         next(error);
@@ -120,6 +123,7 @@ exports.renameDepartment = async (req, res, next) => {
         await departmentsCollection.doc(doc.id).update({ name: newName });
 
         const updated = await departmentsCollection.doc(doc.id).get();
+        cacheService.invalidate('metadata');
         res.json({ id: doc.id, ...updated.data() });
     } catch (error) {
         next(error);
@@ -140,6 +144,7 @@ exports.deleteDepartment = async (req, res, next) => {
 
         const doc = snapshot.docs[0];
         await departmentsCollection.doc(doc.id).delete();
+        cacheService.invalidate('metadata');
 
         res.json({ message: 'Department deleted' });
     } catch (error) {

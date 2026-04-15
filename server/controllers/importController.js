@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const ExcelJS = require('exceljs');
 const { eventsCollection, db } = require('../config/firebase');
+const cacheService = require('../services/cacheService');
 
 /**
  * Get Available Resources (Helper)
@@ -19,27 +20,34 @@ async function getResources() {
  */
 exports.getTemplate = async (req, res, next) => {
     try {
-        // 1. Fetch Dynamic Data
-        const [locationsSnap, deptsSnap, usersSnap, resources] = await Promise.all([
-            db.collection('locations').orderBy('name').get(),
-            db.collection('departments').orderBy('name').get(),
-            db.collection('users').get(),
-            getResources()
-        ]);
+        // [OPTIMIZATION] Use cache for template metadata (locations, departments, users, resources)
+        const templateData = await cacheService.getOrFetch('import_template_data', async () => {
+            const [locationsSnap, deptsSnap, usersSnap, resources] = await Promise.all([
+                db.collection('locations').orderBy('name').get(),
+                db.collection('departments').orderBy('name').get(),
+                db.collection('users').get(),
+                getResources()
+            ]);
+            return {
+                locations: locationsSnap.docs.map(doc => doc.data().name).filter(Boolean),
+                deptsSnap: deptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+                usersSnap: usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+                resources
+            };
+        }, 60); // Cache for 60 minutes
 
-        const locations = locationsSnap.docs.map(doc => doc.data().name).filter(Boolean);
+        const { locations, deptsSnap: rawDepts, usersSnap: rawUsers, resources } = templateData;
+
         const departments = [];
 
         const deptMap = {};
 
-        deptsSnap.forEach(doc => {
-            const d = doc.data();
+        rawDepts.forEach(d => {
             deptMap[d.name] = new Set(d.emails || []);
             if (d.defaultEmail) deptMap[d.name].add(d.defaultEmail);
         });
 
-        usersSnap.forEach(doc => {
-            const u = doc.data();
+        rawUsers.forEach(u => {
             if (u.department && deptMap[u.department]) {
                 deptMap[u.department].add(u.email);
             }

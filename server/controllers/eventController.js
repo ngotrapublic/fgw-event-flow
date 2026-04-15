@@ -5,6 +5,7 @@ const conflictService = require('../services/conflictService');
 const auditService = require('../services/auditService');
 const { logAction } = require('../controllers/auditLogController');
 const { randomUUID } = require('crypto');
+const cacheService = require('../services/cacheService');
 
 // Helper: Check if user can modify event
 const canModifyEvent = (user, event) => {
@@ -151,70 +152,74 @@ exports.getLogisticsEvents = async (req, res, next) => {
  */
 exports.getStats = async (req, res, next) => {
     try {
-        const now = new Date();
-        const tzOffset = 7 * 60 * 60 * 1000; // UTC+7
-        const todayLocal = new Date(now.getTime() + tzOffset);
+        const result = await cacheService.getOrFetch('stats', async () => {
+            const now = new Date();
+            const tzOffset = 7 * 60 * 60 * 1000; // UTC+7
+            const todayLocal = new Date(now.getTime() + tzOffset);
 
-        // Generate dates for today + next 7 days (total 8 days)
-        const weekDates = [];
-        for (let i = 0; i <= 7; i++) {
-            const d = new Date(todayLocal.getTime() + i * 24 * 60 * 60 * 1000);
-            weekDates.push(d.toISOString().split('T')[0]);
-        }
-        const todayStr = weekDates[0];
-        const tomorrowStr = weekDates[1];
-
-        // Only query by eventDate (which is automatically indexed by Firestore)
-        const snap = await eventsCollection
-            .where('eventDate', 'in', weekDates)
-            .get();
-
-        let todayCount = 0;
-        let tomorrowCount = 0;
-        let weekCount = 0;
-        let happeningNow = 0;
-
-        const currentHour = todayLocal.getUTCHours();
-        const currentMin = todayLocal.getUTCMinutes();
-        const nowVal = currentHour * 60 + currentMin;
-        
-        const uniqueGroups = new Set();
-
-        snap.docs.forEach(doc => {
-            const data = doc.data();
-            const key = data.groupId || doc.id;
-
-            // Deduplicate for week count so a 5-day event only counts as 1 event this week
-            if (!uniqueGroups.has(key)) {
-                uniqueGroups.add(key);
-                weekCount++;
+            // Generate dates for today + next 7 days (total 8 days)
+            const weekDates = [];
+            for (let i = 0; i <= 7; i++) {
+                const d = new Date(todayLocal.getTime() + i * 24 * 60 * 60 * 1000);
+                weekDates.push(d.toISOString().split('T')[0]);
             }
+            const todayStr = weekDates[0];
+            const tomorrowStr = weekDates[1];
 
-            // We do NOT check isUniqueEvent here because we want to know if it is happening TODAY!
-            if (data.eventDate === todayStr) {
-                todayCount++;
+            // Only query by eventDate (which is automatically indexed by Firestore)
+            const snap = await eventsCollection
+                .where('eventDate', 'in', weekDates)
+                .get();
 
-                // Check happening now
-                try {
-                    const [startH, startM] = (data.startTime || '').split(':').map(Number);
-                    const [endH, endM] = (data.endTime || '').split(':').map(Number);
-                    if (!isNaN(startH) && !isNaN(endH)) {
-                        if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
-                            happeningNow++;
+            let todayCount = 0;
+            let tomorrowCount = 0;
+            let weekCount = 0;
+            let happeningNow = 0;
+
+            const currentHour = todayLocal.getUTCHours();
+            const currentMin = todayLocal.getUTCMinutes();
+            const nowVal = currentHour * 60 + currentMin;
+            
+            const uniqueGroups = new Set();
+
+            snap.docs.forEach(doc => {
+                const data = doc.data();
+                const key = data.groupId || doc.id;
+
+                // Deduplicate for week count so a 5-day event only counts as 1 event this week
+                if (!uniqueGroups.has(key)) {
+                    uniqueGroups.add(key);
+                    weekCount++;
+                }
+
+                // We do NOT check isUniqueEvent here because we want to know if it is happening TODAY!
+                if (data.eventDate === todayStr) {
+                    todayCount++;
+
+                    // Check happening now
+                    try {
+                        const [startH, startM] = (data.startTime || '').split(':').map(Number);
+                        const [endH, endM] = (data.endTime || '').split(':').map(Number);
+                        if (!isNaN(startH) && !isNaN(endH)) {
+                            if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
+                                happeningNow++;
+                            }
                         }
-                    }
-                } catch (_) {}
-            } else if (data.eventDate === tomorrowStr) {
-                tomorrowCount++;
-            }
-        });
+                    } catch (_) {}
+                } else if (data.eventDate === tomorrowStr) {
+                    tomorrowCount++;
+                }
+            });
 
-        res.json({
-            today: todayCount,
-            tomorrow: tomorrowCount,
-            week: weekCount,
-            happeningNow
-        });
+            return {
+                today: todayCount,
+                tomorrow: tomorrowCount,
+                week: weekCount,
+                happeningNow
+            };
+        }, 2); // Cache for 2 minutes
+
+        res.json(result);
     } catch (error) {
         console.error('[STATS] Error:', error.message);
         // Default to zero rather than crashing the route if anything weird happens
@@ -395,6 +400,10 @@ exports.createEvent = async (req, res, next) => {
         }
 
         res.status(201).json(firstDoc);
+
+        // [CACHE] Invalidate analytics and stats cache after successful creation
+        cacheService.invalidate('stats');
+        cacheService.clearAnalytics();
     } catch (error) {
         next(error);
     }
@@ -597,6 +606,10 @@ exports.updateEvent = async (req, res, next) => {
         }
 
         res.json({ id, ...updatedEvent });
+
+        // [CACHE] Invalidate analytics and stats cache after successful update
+        cacheService.invalidate('stats');
+        cacheService.clearAnalytics();
     } catch (error) {
         next(error);
     }
@@ -668,6 +681,10 @@ exports.deleteEvent = async (req, res, next) => {
 
         console.log(`[DELETE] Successfully deleted event: ${deletedEvent.eventName}`);
         res.json({ message: 'Event deleted successfully' });
+
+        // [CACHE] Invalidate analytics and stats cache after successful deletion
+        cacheService.invalidate('stats');
+        cacheService.clearAnalytics();
     } catch (error) {
         next(error);
     }

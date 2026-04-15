@@ -3,6 +3,8 @@ const path = require('path');
 const { encrypt, decrypt } = require('../utils/encryption');
 const { generateSampleEvent } = require('../utils/sampleData');
 const templateRegistry = require('../templates/emailTemplateRegistry');
+const { db } = require('../config/firebase');
+const cacheService = require('../services/cacheService');
 
 const SETTINGS_PATH = path.join(__dirname, '../config/systemSettings.json');
 
@@ -135,6 +137,32 @@ const updateSettings = (req, res) => {
     } catch (error) {
         console.error('Error saving settings:', error);
         res.status(500).json({ message: 'Failed to save settings' });
+    }
+};
+
+// Batch metadata endpoint for frontend optimization
+const getAppContext = async (req, res, next) => {
+    try {
+        const fetchMetadata = async () => {
+            const [depts, locs, rescs] = await Promise.all([
+                db.collection('departments').orderBy('name').get(),
+                db.collection('locations').orderBy('name').get(),
+                db.collection('resources').get()
+            ]);
+
+            return {
+                departments: depts.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+                locations: locs.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+                resources: rescs.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            };
+        };
+
+        // Cache metadata for 60 minutes. Will be invalidated by other controllers on CRUD operations
+        const metadata = await cacheService.getOrFetch('metadata', fetchMetadata, 60);
+        res.json(metadata);
+    } catch (error) {
+        console.error('[SETTINGS] Error fetching app context:', error);
+        next(error);
     }
 };
 
@@ -286,5 +314,6 @@ module.exports = {
     getDecryptedSmtpSettings,
     getEmailTemplates,
     assignTemplate,
-    previewEmail
+    previewEmail,
+    getAppContext
 };

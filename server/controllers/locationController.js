@@ -1,5 +1,6 @@
 const { db } = require('../config/firebase');
 const locationsCollection = db.collection('locations');
+const cacheService = require('../services/cacheService');
 
 /**
  * Get all locations
@@ -37,6 +38,7 @@ exports.createLocation = async (req, res, next) => {
         };
 
         const docRef = await locationsCollection.add(newLocation);
+        cacheService.invalidate('metadata');
         res.status(201).json({ id: docRef.id, ...newLocation });
     } catch (error) {
         next(error);
@@ -68,6 +70,7 @@ exports.updateLocation = async (req, res, next) => {
 
         await locationsCollection.doc(id).update({ name });
         const updated = await locationsCollection.doc(id).get();
+        cacheService.invalidate('metadata');
 
         res.json({ id, ...updated.data() });
     } catch (error) {
@@ -88,6 +91,7 @@ exports.deleteLocation = async (req, res, next) => {
         }
 
         await locationsCollection.doc(id).delete();
+        cacheService.invalidate('metadata');
         res.json({ message: 'Location deleted successfully' });
     } catch (error) {
         next(error);

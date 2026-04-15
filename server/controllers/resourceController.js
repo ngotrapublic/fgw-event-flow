@@ -1,4 +1,5 @@
 const { resourcesCollection } = require('../config/firebase');
+const cacheService = require('../services/cacheService');
 
 // Default initial resources if DB is empty
 const INITIAL_RESOURCES = [
@@ -58,6 +59,7 @@ const createResource = async (req, res) => {
             actor, role, action: 'CREATE', target: `Resource: ${label}`, details: newResource, ip: req.ip
         });
 
+        cacheService.invalidate('metadata');
         res.status(201).json({ id, ...newResource });
     } catch (error) {
         console.error('Error creating resource:', error);
@@ -81,6 +83,7 @@ const updateResource = async (req, res) => {
             actor, role, action: 'UPDATE', target: `Resource: ${id}`, details: updates, ip: req.ip
         });
 
+        cacheService.invalidate('metadata');
         res.json({ id, ...updates });
     } catch (error) {
         console.error('Error updating resource:', error);
@@ -101,6 +104,7 @@ const deleteResource = async (req, res) => {
             actor, role, action: 'DELETE', target: `Resource: ${id}`, details: {}, ip: req.ip
         });
 
+        cacheService.invalidate('metadata');
         res.json({ message: 'Resource deleted successfully' });
     } catch (error) {
         console.error('Error deleting resource:', error);

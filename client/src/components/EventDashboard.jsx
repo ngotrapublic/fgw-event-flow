@@ -679,30 +679,14 @@ const EventDashboard = () => {
         fetchEvents(prevCursor);
     }, [currentPage, cursorStack, pagination.isLoading, fetchEvents]);
 
-    const fetchDepartments = async () => {
+    const fetchAppContext = async () => {
         try {
-            const response = await api.get('/departments');
-            setDepartments(response.data);
+            const response = await api.get('/settings/app-context');
+            setDepartments(response.data.departments || []);
+            setLocations(response.data.locations || []);
+            setResources(response.data.resources || []);
         } catch (error) {
-            console.error('Error fetching departments:', error);
-        }
-    };
-
-    const fetchLocations = async () => {
-        try {
-            const response = await api.get('/locations');
-            setLocations(response.data);
-        } catch (error) {
-            console.error('Error fetching locations:', error);
-        }
-    };
-
-    const fetchResources = async () => {
-        try {
-            const response = await api.get('/resources');
-            setResources(response.data);
-        } catch (error) {
-            console.error('Error fetching resources:', error);
+            console.error('Error fetching app context:', error);
         }
     };
 
@@ -717,9 +701,7 @@ const EventDashboard = () => {
 
     useEffect(() => {
         fetchEvents(null);
-        fetchDepartments();
-        fetchLocations();
-        fetchResources();
+        fetchAppContext();
         fetchStats();
         // Refresh stats every 5 minutes
         const statsInterval = setInterval(fetchStats, 5 * 60 * 1000);

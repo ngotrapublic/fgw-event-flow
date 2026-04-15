@@ -5,8 +5,16 @@ const { eventsCollection, resourcesCollection, db } = require('../config/firebas
 async function run() {
     console.log('[Nightly Export] Starting CSV generation...');
     try {
+        // [OPTIMIZATION] Only fetch current year events instead of entire collection
+        const currentYear = new Date().getFullYear();
+        const yearStart = `${currentYear}-01-01`;
+        const yearEnd = `${currentYear}-12-31`;
+
         const [eventsSnapshot, resourcesSnapshot] = await Promise.all([
-            eventsCollection.get(),
+            eventsCollection
+                .where('eventDate', '>=', yearStart)
+                .where('eventDate', '<=', yearEnd)
+                .get(),
             resourcesCollection.get()
         ]);
 

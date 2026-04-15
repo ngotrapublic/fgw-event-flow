@@ -1,4 +1,5 @@
 const { eventsCollection } = require('../config/firebase');
+const cacheService = require('../services/cacheService');
 
 /**
  * Analytics Controller - Phase 3 Step 3B (Updated)
@@ -36,6 +37,10 @@ exports.getAnalyticsSummary = async (req, res, next) => {
         const currentYear = today.getFullYear();
         const end = endDate || `${currentYear}-12-31`;
         const start = startDate || `${currentYear}-01-01`;
+
+        // Use cache with key based on date range (TTL 30 minutes, invalidated on event CRUD)
+        const cacheKey = `analytics_${start}_${end}`;
+        const result = await cacheService.getOrFetch(cacheKey, async () => {
 
         // ===== QUERY 1: Analytics Events (filtered by date range) =====
         const analyticsSnapshot = await eventsCollection
@@ -283,7 +288,7 @@ exports.getAnalyticsSummary = async (req, res, next) => {
         const nextWeekCount = nextWeekGroups.size;
 
         // ===== RESPONSE =====
-        res.json({
+        return {
             // Analytics data (filtered by date range)
             totalEvents: uniqueAnalyticsEvents.length,
             upcomingEvents: upcomingInRange,
@@ -292,20 +297,17 @@ exports.getAnalyticsSummary = async (req, res, next) => {
             eventsNextWeek: nextWeekCount,
             monthlyTrend,
             byDepartment: sortedDepartments,
-            byLocation: sortedLocations, // ADDED: Full locations array for frontend locationsUsage
+            byLocation: sortedLocations,
             trendData,
             monthlyTrendData,
             heatmapData,
             topDepartment: sortedDepartments[0] || null,
             topLocation,
 
-
             // 7. Equipment Usage (Aggregation from facilitiesChecklist)
             equipmentUsage: (() => {
                 const equipment = {};
                 uniqueAnalyticsEvents.forEach(event => {
-                    // facilitiesChecklist is an object, not an array
-                    // Structure: { mic: { checked: true, quantity: 2, label: 'Micro' }, ... }
                     const checklist = event.facilitiesChecklist || {};
                     if (typeof checklist === 'object' && !Array.isArray(checklist)) {
                         Object.entries(checklist).forEach(([key, value]) => {
@@ -357,7 +359,11 @@ exports.getAnalyticsSummary = async (req, res, next) => {
                 operationalRange: { startDate: todayStr, endDate: thirtyDaysStr },
                 generatedAt: new Date().toISOString()
             }
-        });
+        };
+
+        }, 30); // Cache for 30 minutes
+
+        res.json(result);
 
     } catch (error) {
         console.error('[analyticsController] Error:', error);

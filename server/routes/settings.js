@@ -3,6 +3,7 @@ const router = express.Router();
 const settingsController = require('../controllers/settingsController');
 
 router.get('/', settingsController.getSettings);
+router.get('/app-context', settingsController.getAppContext);
 router.post('/', settingsController.updateSettings);
 router.put('/', settingsController.updateSettings); // Allow PUT as well
 

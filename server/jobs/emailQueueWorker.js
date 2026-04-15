@@ -9,7 +9,7 @@ class EmailQueueWorker {
     constructor() {
         this.intervalId = null;
         this.isProcessing = false;
-        this.processInterval = 60000; // 60 seconds
+        this.processInterval = 300000; // 5 minutes
     }
 
     /**
@@ -21,8 +21,8 @@ class EmailQueueWorker {
             return;
         }
 
-        console.log('[EMAIL QUEUE WORKER] Starting... (interval: 60s)');
-        console.log('[EMAIL QUEUE WORKER] Will process pending emails every 60 seconds');
+        console.log('[EMAIL QUEUE WORKER] Starting... (interval: 5m)');
+        console.log('[EMAIL QUEUE WORKER] Will process pending emails every 5 minutes');
 
         // Process immediately on start
         console.log('[EMAIL QUEUE WORKER] Running initial process...');

@@ -8,8 +8,8 @@ class ReminderJob {
     }
 
     start() {
-        console.log('[REMINDER JOB] Starting background reminder job... (interval: 5m)');
-        this.intervalId = setInterval(() => this.run(), 300000); // Every 5 minutes
+        console.log('[REMINDER JOB] Starting background reminder job... (interval: 30m)');
+        this.intervalId = setInterval(() => this.run(), 1800000); // Every 30 minutes
     }
 
     stop() {
@@ -25,8 +25,12 @@ class ReminderJob {
         const todayStr = now.toISOString().split('T')[0];
 
         try {
-            // [OPTIMIZATION] Only fetch events from today onwards, greatly reducing snapshot size and database reads
-            const snapshot = await eventsCollection.where('eventDate', '>=', todayStr).get();
+            // [OPTIMIZATION] Only fetch events from today onwards, limit to 100 to avoid huge snapshot reads
+            const snapshot = await eventsCollection
+                .where('eventDate', '>=', todayStr)
+                .orderBy('eventDate', 'asc')
+                .limit(100)
+                .get();
 
             for (const doc of snapshot.docs) {
                 const event = { id: doc.id, ...doc.data() };
