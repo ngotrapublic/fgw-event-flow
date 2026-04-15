@@ -35,7 +35,7 @@ exports.getAllEvents = async (req, res, next) => {
         // ──────────────────────────────────────────────────────────────
         let baseQuery = eventsCollection
             .where('isUniqueEvent', '==', true)
-            .orderBy('eventDate', 'asc');
+            .orderBy('eventDate', 'desc');
 
         // MODE 1: Optional Date-range filter
         if (startDate && endDate) {
@@ -43,7 +43,7 @@ exports.getAllEvents = async (req, res, next) => {
                 .where('isUniqueEvent', '==', true)
                 .where('eventDate', '>=', startDate)
                 .where('eventDate', '<=', endDate)
-                .orderBy('eventDate', 'asc');
+                .orderBy('eventDate', 'desc');
         }
 
         // Cursor-based pagination

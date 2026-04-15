@@ -21,20 +21,12 @@ async function run() {
         const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         // [METADATA COUNTER] Tally and fix global unique event count
-        const seenGroups = new Set();
-        let uniqueCount = 0;
-        events.forEach(data => {
-            if (data.groupId) {
-                if (!seenGroups.has(data.groupId)) {
-                    seenGroups.add(data.groupId);
-                    uniqueCount++;
-                }
-            } else {
-                uniqueCount++;
-            }
-        });
+        // We use the entire collection's isUniqueEvent flag for an accurate global total
+        const totalUniqueSnapshot = await eventsCollection.where('isUniqueEvent', '==', true).get();
+        const uniqueCount = totalUniqueSnapshot.size;
+        
         await db.collection('metadata').doc('stats').set({ totalUniqueEvents: uniqueCount }, { merge: true });
-        console.log(`[Nightly Export] Re-verified Counter: ${uniqueCount} actual events.`);
+        console.log(`[Nightly Export] Re-verified Global Counter: ${uniqueCount} actual events.`);
 
         // Create Resource Map (ID -> Label)
         const resourceMap = {};

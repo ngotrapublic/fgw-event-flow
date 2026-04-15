@@ -403,6 +403,25 @@ exports.importEvents = async (req, res, next) => {
         }
 
         console.log(`✅ Import finished. Success: ${success}, Errors: ${errors.length}`);
+        
+        // [METADATA COUNTER] Update global unique count based on successfully imported logical events
+        if (success > 0) {
+            try {
+                const admin = require('firebase-admin');
+                const uniqueImportedCount = rows.length - errors.length; // Simplified: each row is a unique logical event (series or single)
+                // Actually, for series we committed multiple docs but only 1 unique event at the UI level. 
+                // In importEvents loop, 'success' counts individual docs. We need unique logical events (rows).
+                const logicEventCount = rows.filter((r, i) => !errors.some(e => e.startsWith(`Row ${i + 2}`))).length;
+                
+                await db.collection('metadata').doc('stats').set({
+                    totalUniqueEvents: admin.firestore.FieldValue.increment(logicEventCount)
+                }, { merge: true });
+                console.log(`[COUNTER] Incremented global count by ${logicEventCount}`);
+            } catch (counterErr) {
+                console.error('[IMPORT COUNTER] Failed to update:', counterErr.message);
+            }
+        }
+
         res.json({ message: `Imported ${success} events`, errors: errors.length ? errors : undefined });
 
     } catch (error) {
