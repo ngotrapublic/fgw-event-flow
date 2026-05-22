@@ -26,25 +26,27 @@ const canModifyEvent = (user, event) => {
  */
 exports.getAllEvents = async (req, res, next) => {
     try {
-        const { startDate, endDate, limit = 12, lastDocId } = req.query;
+        const { startDate, endDate, limit = 12, lastDocId, department } = req.query;
         const parsedLimit = Math.min(parseInt(limit) || 12, 100);
 
         // ──────────────────────────────────────────────────────────────
         // OPTIMIZED QUERY: Use isUniqueEvent index to fetch exactly N
         // unique events with zero over-fetching. Cost: parsedLimit + 1 reads.
         // ──────────────────────────────────────────────────────────────
-        let baseQuery = eventsCollection
-            .where('isUniqueEvent', '==', true)
-            .orderBy('eventDate', 'desc');
+        let baseQuery = eventsCollection.where('isUniqueEvent', '==', true);
+
+        if (department) {
+            baseQuery = baseQuery.where('department', '==', department);
+        }
 
         // MODE 1: Optional Date-range filter
         if (startDate && endDate) {
-            baseQuery = eventsCollection
-                .where('isUniqueEvent', '==', true)
+            baseQuery = baseQuery
                 .where('eventDate', '>=', startDate)
-                .where('eventDate', '<=', endDate)
-                .orderBy('eventDate', 'desc');
+                .where('eventDate', '<=', endDate);
         }
+
+        baseQuery = baseQuery.orderBy('eventDate', 'desc');
 
         // Cursor-based pagination
         let paginatedQuery = baseQuery;
@@ -69,8 +71,13 @@ exports.getAllEvents = async (req, res, next) => {
         // ──────────────────────────────────────────────────────────────
         let totalUnique;
         try {
-            const statsDoc = await db.collection('metadata').doc('stats').get();
-            totalUnique = statsDoc.exists ? statsDoc.data().totalUniqueEvents || 0 : 0;
+            if (department) {
+                const countSnapshot = await baseQuery.count().get();
+                totalUnique = countSnapshot.data().count;
+            } else {
+                const statsDoc = await db.collection('metadata').doc('stats').get();
+                totalUnique = statsDoc.exists ? statsDoc.data().totalUniqueEvents || 0 : 0;
+            }
         } catch (countErr) {
             console.error('[getAllEvents] Count fallback:', countErr.message);
             totalUnique = finalEvents.length;
@@ -155,7 +162,9 @@ exports.getLogisticsEvents = async (req, res, next) => {
  */
 exports.getStats = async (req, res, next) => {
     try {
-        const result = await cacheService.getOrFetch('stats', async () => {
+        const { department } = req.query;
+        const cacheKey = department ? `stats_${department}` : 'stats';
+        const result = await cacheService.getOrFetch(cacheKey, async () => {
             const now = new Date();
             const tzOffset = 7 * 60 * 60 * 1000; // UTC+7
             const todayLocal = new Date(now.getTime() + tzOffset);
@@ -187,6 +196,10 @@ exports.getStats = async (req, res, next) => {
 
             snap.docs.forEach(doc => {
                 const data = doc.data();
+                
+                // Filter by department if requested
+                if (department && data.department !== department) return;
+
                 const key = data.groupId || doc.id;
 
                 // Deduplicate for week count so a 5-day event only counts as 1 event this week
@@ -214,7 +227,46 @@ exports.getStats = async (req, res, next) => {
                 }
             });
 
+            let total = 0;
+            let upcoming = 0;
+            let completed = 0;
+            let thisMonthCount = 0;
+
+            const yyyy = todayLocal.getFullYear();
+            const mm = String(todayLocal.getMonth() + 1).padStart(2, '0');
+            const firstDayStr = `${yyyy}-${mm}-01`;
+            const lastDayStr = `${yyyy}-${mm}-31`;
+
+            if (department) {
+                const baseQ = eventsCollection
+                    .where('isUniqueEvent', '==', true)
+                    .where('department', '==', department);
+
+                try {
+                    const [totalSnap, upcomingSnap, completedSnap, monthSnap] = await Promise.all([
+                        baseQ.count().get(),
+                        baseQ.where('eventDate', '>=', todayStr).count().get(),
+                        baseQ.where('eventDate', '<', todayStr).count().get(),
+                        baseQ.where('eventDate', '>=', firstDayStr).where('eventDate', '<=', lastDayStr).count().get()
+                    ]);
+                    
+                    total = totalSnap.data().count;
+                    upcoming = upcomingSnap.data().count;
+                    completed = completedSnap.data().count;
+                    thisMonthCount = monthSnap.data().count;
+                } catch (err) {
+                    console.error('[STATS] Count error:', err.message);
+                }
+            } else {
+                const statsDoc = await db.collection('metadata').doc('stats').get();
+                total = statsDoc.exists ? statsDoc.data().totalUniqueEvents || 0 : 0;
+            }
+
             return {
+                total,
+                upcoming,
+                completed,
+                thisMonthCount,
                 today: todayCount,
                 tomorrow: tomorrowCount,
                 week: weekCount,
@@ -993,3 +1045,441 @@ exports.toggleContractorSign = async (req, res, next) => {
         next(error);
     }
 };
+
+/**
+ * Export events to Calendar Excel
+ */
+exports.exportCalendarExcel = async (req, res, next) => {
+    try {
+        const ExcelJS = require('exceljs');
+        const pad = (n) => n.toString().padStart(2, '0');
+        const toDateStr = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+        // Determine the month
+        const targetMonth = req.query.month || toDateStr(new Date()).substring(0, 7); // YYYY-MM
+        const [year, month] = targetMonth.split('-').map(Number);
+        
+        // Find first day of month
+        const firstDayOfMonth = new Date(year, month - 1, 1);
+        // Find last day of month
+        const lastDayOfMonth = new Date(year, month, 0);
+
+        // Calculate grid start (Monday before or on firstDay)
+        const gridStart = new Date(firstDayOfMonth);
+        const startDayOfWeek = gridStart.getDay() === 0 ? 7 : gridStart.getDay(); // 1 = Mon, 7 = Sun
+        gridStart.setDate(gridStart.getDate() - (startDayOfWeek - 1));
+
+        // Calculate grid end (Sunday after or on lastDay)
+        const gridEnd = new Date(lastDayOfMonth);
+        const endDayOfWeek = gridEnd.getDay() === 0 ? 7 : gridEnd.getDay();
+        gridEnd.setDate(gridEnd.getDate() + (7 - endDayOfWeek));
+
+        const startDateStr = toDateStr(gridStart);
+        const endDateStr = toDateStr(gridEnd);
+
+        // Fetch events in this range
+        const eventsSnapshot = await eventsCollection
+            .where('eventDate', '>=', startDateStr)
+            .where('eventDate', '<=', endDateStr)
+            .get();
+        
+        const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Fetch resources for Logistics Quick-glance
+        const resourcesSnapshot = await resourcesCollection.get();
+        const resourceMap = {};
+        if (!resourcesSnapshot.empty) {
+            resourcesSnapshot.forEach(doc => {
+                const data = doc.data();
+                resourceMap[doc.id] = data.label || data.name || doc.id;
+            });
+        }
+
+        // Helper for flat resources (Calendar grid)
+        const formatFlatResources = (event) => {
+            let items = [];
+            if (event.facilitiesChecklist) {
+                Object.entries(event.facilitiesChecklist).forEach(([k, v]) => {
+                    if (v.checked) {
+                        const name = resourceMap[k] || k;
+                        const qty = v.quantity || 0;
+                        items.push(qty > 0 ? `${name} (${qty})` : name);
+                    }
+                });
+            } else if (Array.isArray(event.resources)) {
+                items = event.resources.map(r => r.name || r);
+            }
+            return items.length > 0 ? items.join(', ') : (event.facilitiesSummary || '');
+        };
+
+        // Helper for detailed resources (Sheet 2)
+        const formatDetailedResources = (event) => {
+            if (event.facilitiesChecklist && Object.keys(event.facilitiesChecklist).length > 0) {
+                const locationMap = {};
+                Object.entries(event.facilitiesChecklist).forEach(([key, value]) => {
+                    if (value.checked) {
+                        const name = resourceMap[key] || key;
+                        const total = value.quantity || 0;
+
+                        if (value.distribution && Object.keys(value.distribution).length > 0) {
+                            Object.entries(value.distribution).forEach(([loc, qty]) => {
+                                if (parseInt(qty) > 0) {
+                                    if (!locationMap[loc]) locationMap[loc] = [];
+                                    locationMap[loc].push(`${name} (${qty})`);
+                                }
+                            });
+                        } else {
+                            let targetLoc = 'Chung';
+                            if (event.location && !Array.isArray(event.location)) {
+                                targetLoc = event.location;
+                            } else if (Array.isArray(event.location) && event.location.length === 1) {
+                                targetLoc = event.location[0];
+                            } else if (Array.isArray(event.location) && event.location.length > 1) {
+                                targetLoc = event.location.join(', ');
+                            }
+
+                            if (!locationMap[targetLoc]) locationMap[targetLoc] = [];
+                            locationMap[targetLoc].push(`${name} (${total})`);
+                        }
+                    }
+                });
+
+                const parts = [];
+                Object.entries(locationMap).forEach(([loc, items]) => {
+                    if (items.length > 0) {
+                        parts.push(`${loc}:\n${items.join('; ')}`);
+                    }
+                });
+                return parts.join('\n\n');
+            }
+            if (Array.isArray(event.resources)) {
+                return event.resources.map(r => r.name || r).join('; ');
+            }
+            return event.facilitiesSummary || '';
+        };
+
+        // Calculate Stats (only for targetMonth)
+        let totalMonthEvents = 0;
+        const deptStats = {};
+        const dailyCounts = {};
+        let peakDayStr = '';
+        let maxEventsPerDay = 0;
+
+        // Map events by date
+        const eventsByDate = {};
+        events.forEach(e => {
+            if (!eventsByDate[e.eventDate]) eventsByDate[e.eventDate] = [];
+            eventsByDate[e.eventDate].push(e);
+
+            if (e.eventDate.startsWith(targetMonth)) {
+                totalMonthEvents++;
+                const dept = e.department || 'Chưa phân bổ';
+                deptStats[dept] = (deptStats[dept] || 0) + 1;
+
+                dailyCounts[e.eventDate] = (dailyCounts[e.eventDate] || 0) + 1;
+                if (dailyCounts[e.eventDate] > maxEventsPerDay) {
+                    maxEventsPerDay = dailyCounts[e.eventDate];
+                    peakDayStr = e.eventDate;
+                }
+            }
+        });
+
+        const formattedPeakDay = peakDayStr ? `${peakDayStr.split('-')[2]}/${peakDayStr.split('-')[1]} (${maxEventsPerDay} SK)` : 'Không có';
+
+        // Initialize Workbook
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet(`Lịch ${targetMonth}`);
+
+        // Set columns (7 columns for Mon-Sun)
+        sheet.columns = [
+            { width: 26 }, { width: 26 }, { width: 26 }, { width: 26 },
+            { width: 26 }, { width: 26 }, { width: 26 }
+        ];
+
+        // Department colors mapping matching frontend
+        const DEPT_COLORS = {
+            'tuyển sinh': 'FF2563EB', // blue-600
+            'đào tạo': 'FF7C3AED', // violet-600
+            'công tác sinh viên': 'FF059669', // emerald-600
+            'quan hệ doanh nghiệp': 'FFF59E0B', // amber-500
+            'hành chính': 'FFE11D48', // rose-600
+            'thư viện': 'FF0891B2', // cyan-600
+            'default': 'FF4F46E5' // indigo-600
+        };
+
+        const getDeptColor = (deptName) => {
+            if (!deptName) return DEPT_COLORS.default;
+            const name = deptName.toLowerCase();
+            for (const key of Object.keys(DEPT_COLORS)) {
+                if (key !== 'default' && name.includes(key)) {
+                    return DEPT_COLORS[key];
+                }
+            }
+            return DEPT_COLORS.default;
+        };
+
+        // Row 1: Title & Stats
+        const titleRow = sheet.addRow([]);
+        sheet.mergeCells('A1:E1');
+        sheet.mergeCells('F1:G1');
+        
+        const titleCell = sheet.getCell('A1');
+        titleCell.value = `LỊCH HOẠT ĐỘNG SỰ KIỆN - THÁNG ${pad(month)}/${year}`;
+        titleCell.font = { name: 'Arial', bold: true, size: 16, color: { argb: 'FF1E293B' } };
+        titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+        
+        const statsCell = sheet.getCell('F1');
+        statsCell.value = `Tổng: ${totalMonthEvents} Sự Kiện | Cao điểm: Ngày ${formattedPeakDay}`;
+        statsCell.font = { name: 'Arial', bold: true, size: 10, color: { argb: 'FFB91C1C' } }; // red-700
+        statsCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        
+        titleRow.height = 40;
+
+        // Row 2: Subtitle
+        const subTitleRow = sheet.addRow([`Ngày trích xuất báo cáo: ${new Date().toLocaleString('vi-VN')}`]);
+        sheet.mergeCells('A2:G2');
+        const subTitleCell = sheet.getCell('A2');
+        subTitleCell.font = { name: 'Arial', italic: true, size: 10, color: { argb: 'FF64748B' } };
+        subTitleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+        // Row 3: Legend
+        const legendRow = sheet.addRow([]);
+        sheet.mergeCells('A3:G3');
+        const legendCell = sheet.getCell('A3');
+        const legendRichText = [ { text: 'Chú giải màu sắc bộ phận:  ', font: { italic: true, size: 10, color: { argb: 'FF475569' } } } ];
+        Object.keys(DEPT_COLORS).forEach(k => {
+            if (k !== 'default') {
+                legendRichText.push({ text: '■ ', font: { color: { argb: DEPT_COLORS[k] }, size: 14 } });
+                legendRichText.push({ text: `${k.charAt(0).toUpperCase() + k.slice(1)}   `, font: { size: 10, bold: true, color: { argb: 'FF334155' } } });
+            }
+        });
+        legendCell.value = { richText: legendRichText };
+        legendCell.alignment = { vertical: 'middle', horizontal: 'left' };
+        legendRow.height = 30;
+
+        // Row 4: Empty separator
+        sheet.addRow([]);
+
+        // Row 5: Calendar Header
+        const headerRow = sheet.addRow(['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật']);
+        headerRow.height = 30;
+        headerRow.eachCell((cell) => {
+            cell.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF1E293B' } // slate-800
+            };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border = {
+                top: { style: 'thin' }, left: { style: 'thin' },
+                bottom: { style: 'thin' }, right: { style: 'thin' }
+            };
+        });
+
+
+
+        // Fill grid
+        let curDate = new Date(gridStart);
+        while (curDate <= gridEnd) {
+            const rowData = [];
+            for (let i = 0; i < 7; i++) {
+                const dateStr = toDateStr(curDate);
+                const dayNum = curDate.getDate();
+                const isCurrentMonth = curDate.getMonth() + 1 === month;
+                const isToday = dateStr === toDateStr(new Date());
+                const isWeekend = (i === 5 || i === 6); // Thứ 7, Chủ Nhật
+                
+                const dayEvents = eventsByDate[dateStr] || [];
+                // Sort dayEvents by time
+                dayEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+
+                const richText = [];
+                // Day number
+                let dayColor = 'FF94A3B8'; // default gray for outside month
+                if (isCurrentMonth) {
+                    if (isToday) dayColor = 'FF2563EB'; // Blue for today
+                    else if (isWeekend) dayColor = 'FFEA580C'; // Orange for weekend
+                    else dayColor = 'FF000000'; // Black for normal day
+                }
+
+                richText.push({
+                    text: `${dayNum}\n`,
+                    font: { bold: true, size: 12, color: { argb: dayColor } }
+                });
+
+                // Events
+                dayEvents.forEach((e, index) => {
+                    const deptColor = getDeptColor(e.department);
+                    
+                    // Format time
+                    let timeStr = '';
+                    if (e.startTime) {
+                        timeStr = e.startTime;
+                        if (e.endTime) timeStr += ` - ${e.endTime}`;
+                    }
+
+                    // Format location
+                    let locationStr = e.location || 'Chưa xếp phòng';
+                    if (Array.isArray(locationStr)) {
+                        locationStr = locationStr.join(', ');
+                    }
+
+                    // Format department
+                    let deptStr = e.department || 'Chưa rõ bộ phận';
+                    
+                    // Format resources (CSVC)
+                    let csvcStr = formatFlatResources(e);
+
+                    // Title + Time
+                    if (isCurrentMonth) {
+                        richText.push({
+                            text: `• [${timeStr}] ${e.eventName}\n`,
+                            font: { size: 10, color: { argb: deptColor }, bold: true }
+                        });
+                        
+                        // Location
+                        richText.push({
+                            text: `   ĐĐ: ${locationStr}\n`,
+                            font: { size: 9, color: { argb: deptColor }, italic: true }
+                        });
+
+                        // Department
+                        richText.push({
+                            text: `   BP: ${deptStr}\n`,
+                            font: { size: 9, color: { argb: deptColor } }
+                        });
+                        
+                        // CSVC
+                        if (csvcStr) {
+                            richText.push({
+                                text: `   ⚙️ CSVC: ${csvcStr}\n`,
+                                font: { size: 9, color: { argb: 'FFD97706' }, italic: true } // amber-600
+                            });
+                        }
+
+                        if (index < dayEvents.length - 1) {
+                            richText.push({
+                                text: `------------------------------------------\n`,
+                                font: { size: 8, color: { argb: 'FFCBD5E1' } }
+                            });
+                        } else {
+                            richText.push({ text: '\n' }); // padding bottom
+                        }
+                    }
+                });
+
+                rowData.push({ richText, isCurrentMonth, isToday, isWeekend });
+                curDate.setDate(curDate.getDate() + 1);
+            }
+
+            const excelRow = sheet.addRow(rowData.map(r => ({ richText: r.richText })));
+            excelRow.height = 180; // Tăng chiều cao để chứa nhiều thông tin hơn
+            excelRow.eachCell((cell, colNumber) => {
+                const cellData = rowData[colNumber - 1];
+                cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+                
+                // Borders
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                };
+
+                // Highlight Today
+                if (cellData.isToday) {
+                    cell.border = {
+                        top: { style: 'thick', color: { argb: 'FF3B82F6' } }, // blue-500
+                        left: { style: 'thick', color: { argb: 'FF3B82F6' } },
+                        bottom: { style: 'thick', color: { argb: 'FF3B82F6' } },
+                        right: { style: 'thick', color: { argb: 'FF3B82F6' } }
+                    };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }; // blue-50
+                } 
+                // Outside month
+                else if (!cellData.isCurrentMonth) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // slate-50
+                } 
+                // Weekend
+                else if (cellData.isWeekend) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } }; // amber-50
+                }
+            });
+        }
+
+        // --- SHEET 2: DANH SÁCH CHI TIẾT ---
+        const sheet2 = workbook.addWorksheet('Danh sách chi tiết');
+        
+        sheet2.addRow(['TỔNG QUAN SỰ KIỆN THÁNG ' + `${pad(month)}/${year}`]).font = { bold: true, size: 14 };
+        sheet2.addRow([`Tổng số sự kiện: ${totalMonthEvents}`]);
+        sheet2.addRow(['Phân bổ theo bộ phận:']).font = { bold: true };
+        Object.entries(deptStats).forEach(([dept, count]) => {
+            sheet2.addRow([` - ${dept}:`, count]);
+        });
+        sheet2.addRow([]);
+
+        // Data Table Headers
+        const dataHeaders = ['STT', 'Ngày', 'Thời gian', 'Tên sự kiện', 'Địa điểm', 'Bộ phận', 'CSVC / Hậu cần', 'Ghi chú'];
+        const dataHeaderRow = sheet2.addRow(dataHeaders);
+        dataHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // slate-800
+        
+        sheet2.columns = [
+            { width: 5 }, { width: 12 }, { width: 15 }, { width: 40 },
+            { width: 25 }, { width: 20 }, { width: 30 }, { width: 25 }
+        ];
+
+        // Filter events for target month only and sort
+        const monthEvents = events.filter(e => e.eventDate.startsWith(targetMonth));
+        monthEvents.sort((a, b) => {
+            if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
+            return (a.startTime || '').localeCompare(b.startTime || '');
+        });
+
+        const formatDateStr = (isoDate) => {
+            if (!isoDate) return '';
+            const p = isoDate.split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : isoDate;
+        };
+
+        monthEvents.forEach((e, idx) => {
+            // CSVC
+            let csvcStr = formatDetailedResources(e);
+
+            let timeStr = '';
+            if (e.startTime) {
+                timeStr = e.startTime;
+                if (e.endTime) timeStr += ` - ${e.endTime}`;
+            }
+
+            let locationStr = e.location || '';
+            if (Array.isArray(locationStr)) locationStr = locationStr.join(', ');
+
+            sheet2.addRow([
+                idx + 1,
+                formatDateStr(e.eventDate),
+                timeStr,
+                e.eventName,
+                locationStr,
+                e.department || '',
+                csvcStr,
+                e.notes || ''
+            ]);
+        });
+
+        // Add AutoFilter
+        sheet2.autoFilter = `A${dataHeaderRow.number}:H${dataHeaderRow.number + monthEvents.length}`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="Events_Calendar_${targetMonth}.xlsx"`);
+        
+        await workbook.xlsx.write(res);
+        res.end();
+
+    } catch (error) {
+        console.error('[EXPORT CALENDAR EXCEL] Error:', error);
+        next(error);
+    }
+};
+

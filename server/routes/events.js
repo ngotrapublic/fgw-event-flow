@@ -22,6 +22,9 @@ router.get('/stats', eventController.getStats);
 // Export CSV (Must be before /:id)
 router.get('/export-csv', eventController.exportEventsCsv);
 
+// Export Calendar Excel (Must be before /:id)
+router.get('/export-calendar-excel', eventController.exportCalendarExcel);
+
 // Get single event
 router.get('/:id', eventController.getEventById);
 

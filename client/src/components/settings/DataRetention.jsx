@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Database, Download, Trash2, AlertTriangle,
-    Save, RefreshCcw, HardDrive, CheckCircle, FileText, Upload, Loader2
+    Save, RefreshCcw, HardDrive, CheckCircle, FileText, Upload, Loader2,
+    ChevronDown, Calendar
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import api from '../../services/api';
@@ -13,7 +14,20 @@ const DataRetention = () => {
     const [retentionPeriod, setRetentionPeriod] = useState(12);
     const [isExporting, setIsExporting] = useState(false);
     const [exportSuccess, setExportSuccess] = useState(false);
+    const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+    const dropdownRef = React.useRef(null);
     const { showSuccess, showError } = useToast();
+
+    // Handle click outside to close dropdown
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsMonthPickerOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -41,22 +55,27 @@ const DataRetention = () => {
         }
     };
 
-    const handleExportCsv = () => {
+    const handleExportCalendar = (e, targetMonth = null) => {
+        if (e) e.stopPropagation();
         setIsExporting(true);
-        api.get('/events/export-csv?days=30', { responseType: 'blob' })
+        setIsMonthPickerOpen(false); // Close dropdown if open
+        
+        const urlParam = targetMonth ? `?month=${targetMonth}` : '';
+        api.get(`/events/export-calendar-excel${urlParam}`, { responseType: 'blob' })
             .then((response) => {
                 const url = window.URL.createObjectURL(new Blob([response.data]));
                 const link = document.createElement('a');
                 link.href = url;
-                link.setAttribute('download', `Events_Export_${new Date().toISOString().split('T')[0]}.csv`);
+                const fileNameMonth = targetMonth || new Date().toISOString().split('T')[0].substring(0, 7);
+                link.setAttribute('download', `Events_Calendar_${fileNameMonth}.xlsx`);
                 document.body.appendChild(link);
                 link.click();
                 link.remove();
-                showSuccess('Exported successfully!');
+                showSuccess('Exported Calendar successfully!');
             })
             .catch((err) => {
                 console.error(err);
-                showError('Failed to export CSV');
+                showError('Failed to export Calendar');
             })
             .finally(() => {
                 setIsExporting(false);
@@ -193,22 +212,69 @@ const DataRetention = () => {
                     </div>
 
                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Live Export CSV Card (Hot) */}
-                        <div
-                            onClick={handleExportCsv}
-                            className="p-4 rounded-lg border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer group flex items-center justify-between"
-                        >
+                        {/* Live Export Calendar Card (Hot) - Split Button */}
+                        <div className="p-4 rounded-lg border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all group flex items-center justify-between bg-white relative">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-orange-300 group-hover:border-black group-hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all">
                                     <FileText size={18} strokeWidth={2.5} />
                                 </div>
                                 <div>
-                                    <span className="font-black text-black block">Tháng Này (Live Report)</span>
-                                    <span className="text-xs text-slate-500 font-medium">Xuất 30 ngày gần đây</span>
+                                    <span className="font-black text-black block">Báo Cáo Lịch Excel</span>
+                                    <span className="text-xs text-slate-500 font-medium">Trích xuất lịch sự kiện theo tháng</span>
                                 </div>
                             </div>
-                            <div className="w-9 h-9 rounded-lg bg-slate-100 border-2 border-slate-200 flex items-center justify-center group-hover:bg-orange-500 group-hover:border-black group-hover:text-white transition-all">
-                                <Download size={16} strokeWidth={2.5} />
+                            
+                            {/* Split Button Container */}
+                            <div className="flex rounded-lg border-2 border-slate-200 group-hover:border-black transition-colors bg-white shadow-sm" ref={dropdownRef}>
+                                {/* Main Action */}
+                                <button
+                                    onClick={(e) => handleExportCalendar(e)}
+                                    disabled={isExporting}
+                                    className="px-3 py-2 bg-slate-50 hover:bg-orange-500 hover:text-white border-r-2 border-slate-200 group-hover:border-black transition-colors flex items-center justify-center gap-2 rounded-l-md disabled:opacity-50"
+                                >
+                                    {isExporting ? <Loader2 size={16} strokeWidth={2.5} className="animate-spin" /> : <Download size={16} strokeWidth={2.5} />}
+                                    <span className="text-sm font-bold">Tháng này</span>
+                                </button>
+                                
+                                {/* Dropdown Toggle */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setIsMonthPickerOpen(!isMonthPickerOpen)}
+                                        disabled={isExporting}
+                                        className="px-2 py-2 bg-slate-50 hover:bg-slate-200 transition-colors flex items-center justify-center h-full rounded-r-md disabled:opacity-50"
+                                    >
+                                        <ChevronDown size={16} strokeWidth={2.5} />
+                                    </button>
+                                    
+                                    {/* Dropdown Menu */}
+                                    {isMonthPickerOpen && (
+                                        <div className="absolute right-0 top-full mt-2 w-48 bg-white border-2 border-black rounded-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-50 overflow-hidden">
+                                            <div className="max-h-64 overflow-y-auto p-1">
+                                                {Array.from({ length: 12 }, (_, i) => {
+                                                    const month = i + 1;
+                                                    const year = new Date().getFullYear();
+                                                    const currentMonth = new Date().getMonth() + 1;
+                                                    const isCurrent = month === currentMonth;
+                                                    const targetMonthStr = `${year}-${month.toString().padStart(2, '0')}`;
+                                                    
+                                                    return (
+                                                        <button
+                                                            key={month}
+                                                            onClick={(e) => handleExportCalendar(e, targetMonthStr)}
+                                                            className={cn(
+                                                                "w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between",
+                                                                isCurrent ? "bg-orange-100 text-orange-700 font-bold" : "hover:bg-slate-100 font-medium text-slate-700"
+                                                            )}
+                                                        >
+                                                            <span>Tháng {month}</span>
+                                                            {isCurrent && <span className="text-[10px] uppercase tracking-wider">Hiện tại</span>}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 

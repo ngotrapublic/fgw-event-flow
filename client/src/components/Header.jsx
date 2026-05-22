@@ -7,7 +7,7 @@ const Header = () => {
 
     const displayName = user?.name || user?.email?.split('@')[0] || 'User';
     const initials = displayName.substring(0, 2).toUpperCase();
-    const roleLabel = user?.role === 'admin' ? 'Super Admin' : user?.role === 'manager' ? 'Manager' : 'Team Member';
+    const roleLabel = user?.role === 'admin' ? 'Super Admin' : user?.role === 'manager' ? 'Manager' : (user?.department || 'Team Member');
 
     return (
         <header className="h-20 bg-white sticky top-0 z-30 px-8 flex items-center justify-center print:hidden transition-all duration-150 border-b border-black/80">

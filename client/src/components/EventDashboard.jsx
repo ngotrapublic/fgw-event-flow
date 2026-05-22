@@ -179,8 +179,8 @@ const EmailModal = ({ event, onClose, onSend }) => {
     );
 };
 
-const StatCard = ({ title, value, icon: Icon, color, trend, labelColor }) => (
-    <Card className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-white hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all duration-150 group relative overflow-hidden rounded-xl cursor-pointer">
+const StatCard = ({ title, value, icon: Icon, color, trend, labelColor, onClick }) => (
+    <Card className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-white hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all duration-150 group relative overflow-hidden rounded-xl cursor-pointer" onClick={onClick}>
         <CardContent className="p-5 flex items-start justify-between">
             <div className="flex flex-col z-10">
                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2">{title}</p>
@@ -550,23 +550,27 @@ const EventCard = memo(({ event, onDelete, onEmail, onToggleSign, resources = []
 
                         {canModify && (
                             <>
-                                <Button
-                                    size="icon"
-                                    className="h-9 w-9 bg-white hover:bg-cyan-100 text-slate-700 border-2 border-slate-900 rounded-none shadow-[4px_4px_0_#1e293b] hover:shadow-[2px_2px_0_#1e293b] hover:translate-x-[2px] hover:translate-y-[2px] transition-all -rotate-1 hover:rotate-0"
-                                    onClick={(e) => { e.stopPropagation(); onEmail(event); }}
-                                    title="Gửi Email"
-                                >
-                                    <Mail size={16} />
-                                </Button>
-                                <Link to={`/print-portal/${event.id}`} onClick={(e) => e.stopPropagation()}>
-                                    <Button
-                                        size="icon"
-                                        className="h-9 w-9 bg-white hover:bg-pink-100 text-slate-700 border-2 border-slate-900 rounded-none shadow-[4px_4px_0_#1e293b] hover:shadow-[2px_2px_0_#1e293b] hover:translate-x-[2px] hover:translate-y-[2px] transition-all rotate-1 hover:rotate-0"
-                                        title="In ấn"
-                                    >
-                                        <Printer size={16} />
-                                    </Button>
-                                </Link>
+                                {isAdmin && (
+                                    <>
+                                        <Button
+                                            size="icon"
+                                            className="h-9 w-9 bg-white hover:bg-cyan-100 text-slate-700 border-2 border-slate-900 rounded-none shadow-[4px_4px_0_#1e293b] hover:shadow-[2px_2px_0_#1e293b] hover:translate-x-[2px] hover:translate-y-[2px] transition-all -rotate-1 hover:rotate-0"
+                                            onClick={(e) => { e.stopPropagation(); onEmail(event); }}
+                                            title="Gửi Email"
+                                        >
+                                            <Mail size={16} />
+                                        </Button>
+                                        <Link to={`/print-portal/${event.id}`} onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                                size="icon"
+                                                className="h-9 w-9 bg-white hover:bg-pink-100 text-slate-700 border-2 border-slate-900 rounded-none shadow-[4px_4px_0_#1e293b] hover:shadow-[2px_2px_0_#1e293b] hover:translate-x-[2px] hover:translate-y-[2px] transition-all rotate-1 hover:rotate-0"
+                                                title="In ấn"
+                                            >
+                                                <Printer size={16} />
+                                            </Button>
+                                        </Link>
+                                    </>
+                                )}
                                 <Link to={`/events/${event.id}/edit`} onClick={(e) => e.stopPropagation()}>
                                     <Button
                                         size="icon"
@@ -644,6 +648,9 @@ const EventDashboard = () => {
 
             const params = { limit: itemsPerPage };
             if (lastDocId) params.lastDocId = lastDocId;
+            if (filterMode === 'my' && user?.department) {
+                params.department = user.department;
+            }
 
             const response = await api.get('/events', { params });
             const { events: newEvents, meta } = response.data;
@@ -660,7 +667,7 @@ const EventDashboard = () => {
             showError('Có lỗi xảy ra khi tải dữ liệu.');
             setPagination(prev => ({ ...prev, isLoading: false }));
         }
-    }, [showError]);
+    }, [showError, filterMode, user]);
 
     const handleNext = useCallback(() => {
         if (!pagination.hasMore || pagination.isLoading) return;
@@ -690,23 +697,30 @@ const EventDashboard = () => {
         }
     };
 
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         try {
-            const res = await api.get('/events/stats');
+            const params = {};
+            const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+            if (!isAdmin && user?.department) {
+                params.department = user.department;
+            }
+            const res = await api.get('/events/stats', { params });
             setDashboardStats(res.data);
         } catch (err) {
             console.error('Error fetching stats:', err);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         fetchEvents(null);
         fetchAppContext();
-        fetchStats();
+        if (user) {
+            fetchStats();
+        }
         // Refresh stats every 5 minutes
         const statsInterval = setInterval(fetchStats, 5 * 60 * 1000);
         return () => clearInterval(statsInterval);
-    }, []);  // Load once on mount
+    }, [user, fetchStats]);  // Load once on mount or when user changes
 
     const handleDelete = useCallback(async (id) => {
         if (window.confirm('Bạn có chắc muốn xóa sự kiện này?')) {
@@ -768,8 +782,7 @@ const EventDashboard = () => {
 
     const filteredEvents = useMemo(() => events.filter(event => {
         if (filterMode === 'my') {
-            const myEmail = localStorage.getItem('userEmail');
-            if (!myEmail || event.registrantEmail !== myEmail) return false;
+            if (!user?.department || event.department !== user.department) return false;
         }
         if (debouncedSearch) {
             const term = debouncedSearch.toLowerCase();
@@ -857,23 +870,22 @@ const EventDashboard = () => {
                             </>
                         );
                     } else {
-                        // REQUESTER VIEW (User): My Events
-                        const myEvents = events.filter(e =>
-                            e.createdBy === user?.uid ||
-                            e.registrantEmail === user?.email ||
-                            (user?.department && e.department === user.department)
-                        );
-
-                        const myUpcoming = myEvents.filter(e => new Date(e.eventDate) >= today);
-                        const myPast = myEvents.filter(e => new Date(e.eventDate) < today);
-                        const myMonth = myEvents.filter(e => new Date(e.eventDate).getMonth() === today.getMonth());
-
+                        // The backend 'getStats' now returns the accurate total counts for the department
+                        // independent of the 9-item pagination limit.
+                        
                         return (
                             <>
-                                <StatCard title="My Events" value={myEvents.length} icon={Users} color="bg-violet-50" labelColor="text-violet-600" />
-                                <StatCard title="Upcoming" value={myUpcoming.length} icon={Clock} color="bg-teal-50" labelColor="text-teal-600" />
-                                <StatCard title="Completed" value={myPast.length} icon={List} color="bg-slate-100" labelColor="text-slate-600" />
-                                <StatCard title="This Month" value={myMonth.length} icon={CalendarIcon} color="bg-orange-50" labelColor="text-orange-600" />
+                                <StatCard 
+                                    title="My Events" 
+                                    value={dashboardStats.total || 0} 
+                                    icon={Users} 
+                                    color={filterMode === 'my' ? "bg-violet-200 border-violet-500" : "bg-violet-50"} 
+                                    labelColor="text-violet-600"
+                                    onClick={() => setFilterMode(filterMode === 'my' ? 'all' : 'my')} 
+                                />
+                                <StatCard title="Upcoming" value={dashboardStats.upcoming || 0} icon={Clock} color="bg-teal-50" labelColor="text-teal-600" />
+                                <StatCard title="Completed" value={dashboardStats.completed || 0} icon={List} color="bg-slate-100" labelColor="text-slate-600" />
+                                <StatCard title="This Month" value={dashboardStats.thisMonthCount || 0} icon={CalendarIcon} color="bg-orange-50" labelColor="text-orange-600" />
                             </>
                         );
                     }
