@@ -43,8 +43,11 @@ const ImportEventModal = ({ onClose, onSuccess }) => {
         formData.append('file', file);
 
         try {
+            // NOTE: Do NOT set Content-Type manually for FormData uploads.
+            // The browser must auto-generate the multipart boundary string.
+            // Setting it manually causes multer to fail parsing the file.
             const response = await api.post('/import/events', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' } // Browser handles this usually but good to be explicit or let api handle it
+                headers: { 'Content-Type': undefined }
             });
 
             setUploadResult({

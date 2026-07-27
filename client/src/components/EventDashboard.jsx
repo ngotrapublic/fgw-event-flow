@@ -609,6 +609,7 @@ const EventDashboard = () => {
     const [showPreviewModal, setShowPreviewModal] = useState(false); // NEW
     const [showImportModal, setShowImportModal] = useState(false); // Import State
     const [selectedEvent, setSelectedEvent] = useState(null);
+    const [dataVersion, setDataVersion] = useState(0); // Incremented on mutations to signal child views to re-fetch
     const { user } = useAuth();
 
     // Dashboard Stats from dedicated API (not affected by pagination)
@@ -728,6 +729,7 @@ const EventDashboard = () => {
                 await api.delete(`/events/${id}`);
                 showSuccess('Đã xóa sự kiện thành công!');
                 fetchEvents();
+                setDataVersion(v => v + 1); // Signal Calendar & other views to re-fetch
             } catch (error) {
                 console.error('Error deleting event:', error);
                 showError('Không thể xóa sự kiện');
@@ -1037,7 +1039,7 @@ const EventDashboard = () => {
                 {viewMode === 'calendar' && (
                     <div className="animate-in fade-in zoom-in-95 duration-300">
                         <Suspense fallback={<ViewSkeleton />}>
-                            <CalendarView searchTerm={searchTerm} filterDepartment={filterDepartment} filterLocation={filterLocation} />
+                            <CalendarView searchTerm={searchTerm} filterDepartment={filterDepartment} filterLocation={filterLocation} dataVersion={dataVersion} />
                         </Suspense>
                     </div>
                 )}
@@ -1088,6 +1090,7 @@ const EventDashboard = () => {
                     onSuccess={() => {
                         setShowImportModal(false);
                         fetchEvents();
+                        setDataVersion(v => v + 1); // Signal Calendar & other views to re-fetch
                     }}
                 />
             )}

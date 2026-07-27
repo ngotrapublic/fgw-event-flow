@@ -201,7 +201,7 @@ WeekEvent.displayName = 'WeekEvent';
 
 
 
-const CalendarView = ({ searchTerm, filterDepartment, filterLocation }) => {
+const CalendarView = ({ searchTerm, filterDepartment, filterLocation, dataVersion }) => {
     const [previewEvent, setPreviewEvent] = useState(null);
     const [view, setView] = useState('month');
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -228,7 +228,7 @@ const CalendarView = ({ searchTerm, filterDepartment, filterLocation }) => {
         };
         fetchCalendarData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [monthKey]);
+    }, [monthKey, dataVersion]); // Re-fetch when month changes OR when data is mutated (delete/import)
 
     const handleNavigate = useCallback((newDate) => {
         setCurrentDate(newDate);

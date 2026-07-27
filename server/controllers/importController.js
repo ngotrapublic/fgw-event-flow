@@ -373,7 +373,10 @@ exports.importEvents = async (req, res, next) => {
                         resources: [],
                         facilitiesSummary: '',
                         needsWelcomeNotification: isFirst, // Only send welcome true for the first event
-                        remindersSent: { oneDay: false, oneHour: false }
+                        remindersSent: { oneDay: false, oneHour: false },
+                        // CRITICAL: Must match createEvent logic so List view query works
+                        // List view filters by isUniqueEvent == true
+                        isUniqueEvent: isSeries ? isFirst : true
                     };
 
                     if (isSeries) {
