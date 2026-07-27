@@ -345,7 +345,16 @@ exports.importEvents = async (req, res, next) => {
                         if (match) {
                             facilitiesChecklist[match.id] = {
                                 checked: true,
-                                quantity: parseInt(qty) || 1
+                                quantity: parseInt(qty) || 1,
+                                label: match.label || match.name
+                            };
+                        } else {
+                            // Preserve unmapped equipment as custom items instead of dropping them
+                            const customId = `custom_${Math.random().toString(36).substring(2, 9)}`;
+                            facilitiesChecklist[customId] = {
+                                checked: true,
+                                quantity: parseInt(qty) || 1,
+                                label: name
                             };
                         }
                     });
