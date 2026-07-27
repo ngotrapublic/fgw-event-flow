@@ -1101,7 +1101,7 @@ exports.exportCalendarExcel = async (req, res, next) => {
             if (event.facilitiesChecklist) {
                 Object.entries(event.facilitiesChecklist).forEach(([k, v]) => {
                     if (v.checked) {
-                        const name = resourceMap[k] || k;
+                        const name = v.label || resourceMap[k] || k;
                         const qty = v.quantity || 0;
                         items.push(qty > 0 ? `${name} (${qty})` : name);
                     }
@@ -1118,7 +1118,7 @@ exports.exportCalendarExcel = async (req, res, next) => {
                 const locationMap = {};
                 Object.entries(event.facilitiesChecklist).forEach(([key, value]) => {
                     if (value.checked) {
-                        const name = resourceMap[key] || key;
+                        const name = value.label || resourceMap[key] || key;
                         const total = value.quantity || 0;
 
                         if (value.distribution && Object.keys(value.distribution).length > 0) {
@@ -1327,9 +1327,6 @@ exports.exportCalendarExcel = async (req, res, next) => {
 
                     // Format department
                     let deptStr = e.department || 'Chưa rõ bộ phận';
-                    
-                    // Format resources (CSVC)
-                    let csvcStr = formatFlatResources(e);
 
                     // Title + Time
                     if (isCurrentMonth) {
@@ -1349,20 +1346,9 @@ exports.exportCalendarExcel = async (req, res, next) => {
                             text: `   BP: ${deptStr}\n`,
                             font: { size: 9, color: { argb: deptColor } }
                         });
-                        
-                        // CSVC
-                        if (csvcStr) {
-                            richText.push({
-                                text: `   ⚙️ CSVC: ${csvcStr}\n`,
-                                font: { size: 9, color: { argb: 'FFD97706' }, italic: true } // amber-600
-                            });
-                        }
 
                         if (index < dayEvents.length - 1) {
-                            richText.push({
-                                text: `------------------------------------------\n`,
-                                font: { size: 8, color: { argb: 'FFCBD5E1' } }
-                            });
+                            richText.push({ text: '\n' }); // blank line instead of dashed line for cleaner look
                         } else {
                             richText.push({ text: '\n' }); // padding bottom
                         }

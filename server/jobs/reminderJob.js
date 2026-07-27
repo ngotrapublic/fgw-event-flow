@@ -22,14 +22,21 @@ class ReminderJob {
 
     async run() {
         const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
+        const tzOffset = 7 * 60 * 60 * 1000;
+        const nowLocal = new Date(now.getTime() + tzOffset);
+        
+        // Fetch Today, Tomorrow, and the Day After Tomorrow (to cover 24h+ boundaries safely)
+        const datesToFetch = [];
+        for (let i = 0; i <= 2; i++) {
+            const d = new Date(nowLocal.getTime() + i * 24 * 60 * 60 * 1000);
+            datesToFetch.push(d.toISOString().split('T')[0]);
+        }
 
         try {
-            // [OPTIMIZATION] Only fetch events from today onwards, limit to 100 to avoid huge snapshot reads
+            // [FIX] No limit() so we don't accidentally truncate tomorrow's events if today is busy!
+            // Query exactly the 3-day window we care about for 1h and 24h reminders.
             const snapshot = await eventsCollection
-                .where('eventDate', '>=', todayStr)
-                .orderBy('eventDate', 'asc')
-                .limit(100)
+                .where('eventDate', 'in', datesToFetch)
                 .get();
 
             for (const doc of snapshot.docs) {
@@ -97,15 +104,27 @@ class ReminderJob {
                         remindersSent: { oneHour: true }
                     }, { merge: true });
                 }
+            }
 
-                // [NEW] Background Welcome Notification for Imports (5-10 min delay)
+            // ==========================================
+            // [FIX] Separate Welcome Notification Query
+            // ==========================================
+            // Previously, welcome emails were bundled in the date query. 
+            // If an event was imported for next month, the welcome email wouldn't send until next month!
+            const welcomeSnapshot = await eventsCollection
+                .where('needsWelcomeNotification', '==', true)
+                .limit(50)
+                .get();
+
+            for (const doc of welcomeSnapshot.docs) {
+                const event = { id: doc.id, ...doc.data() };
                 const createdAt = event.createdAt ? new Date(event.createdAt) : null;
                 const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-                if (event.needsWelcomeNotification && createdAt && createdAt <= fiveMinsAgo) {
-                    console.log(`[REMINDER] Sending delayed Welcome notification for "${event.eventName}"`);
+                if (createdAt && createdAt <= fiveMinsAgo) {
+                    console.log(`[REMINDER] Sending delayed Welcome notification for imported event "${event.eventName}"`);
 
-                    // 1. Send Email (Ticket)
+                    // 1. Send Email
                     await emailService.sendEventNotification(event, 'created');
 
                     // 2. Send In-App Notification

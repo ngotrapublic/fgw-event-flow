@@ -835,34 +835,6 @@ const EventDashboard = () => {
 
                     if (isAdmin) {
                         // ... existing admin logic
-                        const tomorrow = new Date(today);
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-
-                        const nextWeek = new Date(today);
-                        nextWeek.setDate(nextWeek.getDate() + 7);
-
-                        const eventsToday = events.filter(e => new Date(e.eventDate).toDateString() === today.toDateString());
-                        const eventsTomorrow = events.filter(e => new Date(e.eventDate).toDateString() === tomorrow.toDateString());
-                        const eventsWeek = events.filter(e => {
-                            const d = new Date(e.eventDate);
-                            return d >= today && d <= nextWeek;
-                        });
-
-                        // "Happening Now" calculation (simple approx)
-                        const now = new Date();
-                        const currentHour = now.getHours();
-                        const currentMin = now.getMinutes();
-                        const eventsOngoing = eventsToday.filter(e => {
-                            try {
-                                const [startH, startM] = e.startTime.split(':').map(Number);
-                                const [endH, endM] = e.endTime.split(':').map(Number);
-                                const startVal = startH * 60 + startM;
-                                const endVal = endH * 60 + endM;
-                                const nowVal = currentHour * 60 + currentMin;
-                                return nowVal >= startVal && nowVal <= endVal;
-                            } catch (err) { return false; }
-                        });
-
                         return (
                             <>
                                 <StatCard title="Today" value={dashboardStats.today} icon={CalendarIcon} color="bg-blue-50" labelColor="text-blue-600" />
