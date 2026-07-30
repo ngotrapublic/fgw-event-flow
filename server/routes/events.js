@@ -19,6 +19,9 @@ router.get('/calendar', eventController.getCalendarEvents);
 // Dashboard Stats (must be before /:id)
 router.get('/stats', eventController.getStats);
 
+// Dashboard Stats Details (Drill-down)
+router.get('/stat-details', eventController.getStatDetails);
+
 // Export CSV (Must be before /:id)
 router.get('/export-csv', eventController.exportEventsCsv);
 

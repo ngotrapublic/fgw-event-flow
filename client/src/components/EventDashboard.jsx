@@ -11,6 +11,7 @@ const DepartmentGalaxy = lazy(() => import('./DepartmentGalaxy'));
 
 import EventPreviewModal from './EventPreviewModal';
 import ImportEventModal from './ImportEventModal';
+import StatDrilldownModal from './StatDrilldownModal';
 import { useToast } from './Toast';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -634,6 +635,7 @@ const EventDashboard = () => {
     const [filterDepartment, setFilterDepartment] = useState('all');
     const [filterLocation, setFilterLocation] = useState('all');
     const [filterDate, setFilterDate] = useState('all');
+    const [drilldownType, setDrilldownType] = useState(null);
 
     // Reset to first page when filter/search changes
     useEffect(() => {
@@ -837,10 +839,10 @@ const EventDashboard = () => {
                         // ... existing admin logic
                         return (
                             <>
-                                <StatCard title="Today" value={dashboardStats.today} icon={CalendarIcon} color="bg-blue-50" labelColor="text-blue-600" />
-                                <StatCard title="Tomorrow" value={dashboardStats.tomorrow} icon={Clock} color="bg-indigo-50" labelColor="text-indigo-600" />
-                                <StatCard title="Next 7 Days" value={dashboardStats.week} icon={CalendarIcon} color="bg-purple-50" labelColor="text-purple-600" />
-                                <StatCard title="Happening Now" value={dashboardStats.happeningNow} icon={BarChart2} color="bg-emerald-50" labelColor="text-emerald-600" trend={dashboardStats.happeningNow > 0 ? "LIVE" : null} />
+                                <StatCard title="Today" value={dashboardStats.today} icon={CalendarIcon} color="bg-blue-50" labelColor="text-blue-600" onClick={() => setDrilldownType('today')} />
+                                <StatCard title="Tomorrow" value={dashboardStats.tomorrow} icon={Clock} color="bg-indigo-50" labelColor="text-indigo-600" onClick={() => setDrilldownType('tomorrow')} />
+                                <StatCard title="Next 7 Days" value={dashboardStats.week} icon={CalendarIcon} color="bg-purple-50" labelColor="text-purple-600" onClick={() => setDrilldownType('week')} />
+                                <StatCard title="Happening Now" value={dashboardStats.happeningNow} icon={BarChart2} color="bg-emerald-50" labelColor="text-emerald-600" trend={dashboardStats.happeningNow > 0 ? "LIVE" : null} onClick={() => setDrilldownType('now')} />
                             </>
                         );
                     } else {
@@ -1066,6 +1068,14 @@ const EventDashboard = () => {
                     }}
                 />
             )}
+
+            {/* Stat Drilldown Modal */}
+            <StatDrilldownModal 
+                isOpen={!!drilldownType}
+                type={drilldownType}
+                department={filterDepartment === 'all' ? '' : filterDepartment}
+                onClose={() => setDrilldownType(null)}
+            />
         </div>
     );
 };

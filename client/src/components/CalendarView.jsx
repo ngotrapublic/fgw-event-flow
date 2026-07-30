@@ -391,7 +391,8 @@ const CalendarView = ({ searchTerm, filterDepartment, filterLocation, dataVersio
                 .rbc-event.rbc-selected { outline: 2px solid #3b82f6 !important; outline-offset: 1px; }
                 
                 /* Agenda View */
-                .rbc-agenda-view { border: 2px solid #e2e8f0 !important; border-radius: 20px; overflow: hidden; }
+                .rbc-agenda-view { border: 2px solid #e2e8f0 !important; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; }
+                .rbc-agenda-content { overflow-y: auto !important; flex: 1; }
                 .rbc-agenda-table { border: none !important; }
                 .rbc-agenda-date-cell, .rbc-agenda-time-cell { font-size: 12px; font-weight: 700; color: #475569; padding: 12px !important; }
                 .rbc-agenda-event-cell { font-size: 13px; font-weight: 600; }

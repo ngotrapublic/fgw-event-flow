@@ -283,6 +283,88 @@ exports.getStats = async (req, res, next) => {
 };
 
 /**
+ * Get detailed events for a specific dashboard stat category.
+ */
+exports.getStatDetails = async (req, res, next) => {
+    try {
+        const { type, department } = req.query; // type: 'today', 'tomorrow', 'week', 'now'
+        
+        const now = new Date();
+        const tzOffset = 7 * 60 * 60 * 1000;
+        const todayLocal = new Date(now.getTime() + tzOffset);
+
+        const weekDates = [];
+        for (let i = 0; i <= 7; i++) {
+            const d = new Date(todayLocal.getTime() + i * 24 * 60 * 60 * 1000);
+            weekDates.push(d.toISOString().split('T')[0]);
+        }
+        
+        const todayStr = weekDates[0];
+        const tomorrowStr = weekDates[1];
+
+        let targetDates = [];
+        if (type === 'today' || type === 'now') {
+            targetDates = [todayStr];
+        } else if (type === 'tomorrow') {
+            targetDates = [tomorrowStr];
+        } else if (type === 'week') {
+            targetDates = weekDates;
+        } else {
+            return res.json([]);
+        }
+
+        const snap = await eventsCollection
+            .where('eventDate', 'in', targetDates)
+            .get();
+
+        const currentHour = todayLocal.getUTCHours();
+        const currentMin = todayLocal.getUTCMinutes();
+        const nowVal = currentHour * 60 + currentMin;
+
+        let results = [];
+        const uniqueGroups = new Set();
+
+        snap.docs.forEach(doc => {
+            const data = doc.data();
+            
+            if (department && data.department !== department) return;
+
+            const key = data.groupId || doc.id;
+
+            if (type === 'week') {
+                if (!uniqueGroups.has(key)) {
+                    uniqueGroups.add(key);
+                    results.push({ id: doc.id, ...data });
+                }
+            } else if (type === 'now') {
+                try {
+                    const [startH, startM] = (data.startTime || '').split(':').map(Number);
+                    const [endH, endM] = (data.endTime || '').split(':').map(Number);
+                    if (!isNaN(startH) && !isNaN(endH)) {
+                        if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
+                            results.push({ id: doc.id, ...data });
+                        }
+                    }
+                } catch (_) {}
+            } else {
+                results.push({ id: doc.id, ...data });
+            }
+        });
+
+        // Sort results by date then time
+        results.sort((a, b) => {
+            if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
+            return (a.startTime || '').localeCompare(b.startTime || '');
+        });
+
+        res.json(results);
+    } catch (error) {
+        console.error('[STAT DETAILS] Error:', error.message);
+        res.json([]);
+    }
+};
+
+/**
  * Get all events within a specific month/range for Calendar View.
  * Does NOT filter by `isUniqueEvent` (retrieves all days of a series).
  * Does NOT paginate.
