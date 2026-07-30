@@ -26,7 +26,7 @@ const canModifyEvent = (user, event) => {
  */
 exports.getAllEvents = async (req, res, next) => {
     try {
-        const { startDate, endDate, limit = 12, lastDocId, department } = req.query;
+        const { startDate, endDate, limit = 12, lastDocId, department, location, dateFilter } = req.query;
         const parsedLimit = Math.min(parseInt(limit) || 12, 100);
 
         // ──────────────────────────────────────────────────────────────
@@ -39,8 +39,26 @@ exports.getAllEvents = async (req, res, next) => {
             baseQuery = baseQuery.where('department', '==', department);
         }
 
-        // MODE 1: Optional Date-range filter
-        if (startDate && endDate) {
+        if (location) {
+            baseQuery = baseQuery.where('location', '==', location);
+        }
+
+        // dateFilter: 'today' | 'upcoming' | 'past' (Vietnam timezone UTC+7)
+        if (dateFilter && dateFilter !== 'all') {
+            const now = new Date();
+            const tzOffset = 7 * 60 * 60 * 1000;
+            const todayLocal = new Date(now.getTime() + tzOffset);
+            const todayStr = todayLocal.toISOString().split('T')[0];
+
+            if (dateFilter === 'today') {
+                baseQuery = baseQuery.where('eventDate', '==', todayStr);
+            } else if (dateFilter === 'upcoming') {
+                baseQuery = baseQuery.where('eventDate', '>=', todayStr);
+            } else if (dateFilter === 'past') {
+                baseQuery = baseQuery.where('eventDate', '<', todayStr);
+            }
+        } else if (startDate && endDate) {
+            // MODE 1: Optional Date-range filter (explicit range takes priority)
             baseQuery = baseQuery
                 .where('eventDate', '>=', startDate)
                 .where('eventDate', '<=', endDate);
@@ -66,12 +84,13 @@ exports.getAllEvents = async (req, res, next) => {
         const lastReturnedDoc = snapshot.docs[finalEvents.length - 1] || null;
 
         // ──────────────────────────────────────────────────────────────
-        // ACCURATE TOTAL: Fetch from Global Metadata Counter
-        // Zero Reads Limit: Instantly fetches the exact unique count
+        // ACCURATE TOTAL: Use aggregation query when filters are active,
+        // otherwise use the fast global metadata counter.
         // ──────────────────────────────────────────────────────────────
+        const hasFilters = department || location || dateFilter || (startDate && endDate);
         let totalUnique;
         try {
-            if (department) {
+            if (hasFilters) {
                 const countSnapshot = await baseQuery.count().get();
                 totalUnique = countSnapshot.data().count;
             } else {

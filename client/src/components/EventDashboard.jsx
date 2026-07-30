@@ -635,7 +635,11 @@ const EventDashboard = () => {
     const [filterDepartment, setFilterDepartment] = useState('all');
     const [filterLocation, setFilterLocation] = useState('all');
     const [filterDate, setFilterDate] = useState('all');
+    const [showFilterPanel, setShowFilterPanel] = useState(false);
     const [drilldownType, setDrilldownType] = useState(null);
+
+    // Count active filters for badge
+    const activeFilterCount = [filterDepartment, filterLocation, filterDate].filter(f => f !== 'all').length;
 
     // Reset to first page when filter/search changes
     useEffect(() => {
@@ -651,9 +655,15 @@ const EventDashboard = () => {
 
             const params = { limit: itemsPerPage };
             if (lastDocId) params.lastDocId = lastDocId;
+
+            // Backend-driven filters
             if (filterMode === 'my' && user?.department) {
                 params.department = user.department;
+            } else if (filterDepartment !== 'all') {
+                params.department = filterDepartment;
             }
+            if (filterLocation !== 'all') params.location = filterLocation;
+            if (filterDate !== 'all') params.dateFilter = filterDate;
 
             const response = await api.get('/events', { params });
             const { events: newEvents, meta } = response.data;
@@ -662,7 +672,7 @@ const EventDashboard = () => {
             setPagination({
                 hasMore: meta.hasMore,
                 lastId: meta.lastId,
-                total: meta.total, // Accurately set the total matching count
+                total: meta.total,
                 isLoading: false
             });
         } catch (error) {
@@ -670,7 +680,7 @@ const EventDashboard = () => {
             showError('Có lỗi xảy ra khi tải dữ liệu.');
             setPagination(prev => ({ ...prev, isLoading: false }));
         }
-    }, [showError, filterMode, user]);
+    }, [showError, filterMode, filterDepartment, filterLocation, filterDate, user]);
 
     const handleNext = useCallback(() => {
         if (!pagination.hasMore || pagination.isLoading) return;
@@ -784,45 +794,25 @@ const EventDashboard = () => {
     // Debounce search input to avoid filtering on every keystroke
     const debouncedSearch = useDebounce(searchTerm, 300);
 
-    const filteredEvents = useMemo(() => events.filter(event => {
-        if (filterMode === 'my') {
-            if (!user?.department || event.department !== user.department) return false;
-        }
-        if (debouncedSearch) {
+    // Client-side search only — department/location/date filters are handled by backend
+    const filteredEvents = useMemo(() => {
+        if (!debouncedSearch) return events;
+        return events.filter(event => {
             const term = debouncedSearch.toLowerCase();
             const matchesName = String(event.eventName || '').toLowerCase().includes(term);
             const matchesLocation = String(event.location || '').toLowerCase().includes(term);
             const matchesDepartment = String(event.department || '').toLowerCase().includes(term);
+            return matchesName || matchesLocation || matchesDepartment;
+        });
+    }, [events, debouncedSearch]);
 
-            if (!matchesName && !matchesLocation && !matchesDepartment) return false;
-        }
-        if (filterDepartment !== 'all' && event.department !== filterDepartment) return false;
-        if (filterLocation !== 'all' && event.location !== filterLocation) return false;
-        if (filterDate !== 'all') {
-            const eventDate = new Date(event.eventDate);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            if (filterDate === 'today') {
-                return eventDate.toDateString() === today.toDateString();
-            }
-            if (filterDate === 'upcoming') {
-                return eventDate >= today;
-            }
-            if (filterDate === 'past') {
-                return eventDate < today;
-            }
-        }
-        return true;
-    }), [events, debouncedSearch, filterMode, filterDepartment, filterLocation, filterDate]);
-
-    // Server already deduplicates series events, so use filteredEvents directly
     const currentEvents = filteredEvents;
 
-    const paginate = (pageNumber) => {
-        setCurrentPage(pageNumber);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    const handleResetFilters = useCallback(() => {
+        setFilterDepartment('all');
+        setFilterLocation('all');
+        setFilterDate('all');
+    }, []);
 
 
 
@@ -880,7 +870,24 @@ const EventDashboard = () => {
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <Button variant="outline" size="icon" className="shrink-0 border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all"><Filter size={18} /></Button>
+                    <div className="relative">
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setShowFilterPanel(prev => !prev)}
+                            className={cn(
+                                "shrink-0 border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all",
+                                showFilterPanel && "bg-violet-100 border-violet-500"
+                            )}
+                        >
+                            <Filter size={18} />
+                        </Button>
+                        {activeFilterCount > 0 && (
+                            <span className="absolute -top-2 -right-2 w-5 h-5 bg-gradient-to-r from-violet-500 to-pink-500 border-2 border-black text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-[2px_2px_0_#0f172a] animate-in zoom-in duration-200">
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto justify-end">
@@ -899,6 +906,94 @@ const EventDashboard = () => {
                     </Link>
                 </div>
             </div>
+
+            {/* Filter Panel — Slide-down */}
+            <AnimatePresence>
+                {showFilterPanel && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ type: 'spring', bounce: 0.15, duration: 0.45 }}
+                        className="overflow-hidden"
+                    >
+                        <div className="bg-white border-2 border-black rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5">
+                            {/* Panel Header */}
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 bg-violet-500 border-2 border-black rounded-md">
+                                        <Filter size={14} className="text-white" />
+                                    </div>
+                                    <span className="text-sm font-black text-slate-900 uppercase tracking-wider">Bộ lọc nâng cao</span>
+                                </div>
+                                {activeFilterCount > 0 && (
+                                    <button
+                                        onClick={handleResetFilters}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 border-2 border-black text-slate-900 text-xs font-bold shadow-[2px_2px_0_#0f172a] hover:shadow-[1px_1px_0_#0f172a] hover:translate-x-[1px] hover:translate-y-[1px] transition-all hover:bg-amber-200"
+                                    >
+                                        <X size={12} strokeWidth={3} />
+                                        Xóa bộ lọc ({activeFilterCount})
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Filter Dropdowns */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Department Filter */}
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                                        <Users size={11} className="text-violet-500" /> Bộ phận
+                                    </label>
+                                    <select
+                                        value={filterDepartment}
+                                        onChange={(e) => setFilterDepartment(e.target.value)}
+                                        className="w-full px-3 py-2.5 border-2 border-black bg-white text-sm font-bold text-slate-800 rounded-lg shadow-[3px_3px_0_rgba(139,92,246,0.3)] focus:shadow-[1px_1px_0_rgba(139,92,246,0.3)] focus:translate-x-[2px] focus:translate-y-[2px] focus:outline-none transition-all appearance-none cursor-pointer"
+                                    >
+                                        <option value="all">Tất cả bộ phận</option>
+                                        {departments.map(dept => (
+                                            <option key={dept.id || dept} value={dept.name || dept}>{dept.name || dept}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Location Filter */}
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                                        <MapPin size={11} className="text-pink-500" /> Địa điểm
+                                    </label>
+                                    <select
+                                        value={filterLocation}
+                                        onChange={(e) => setFilterLocation(e.target.value)}
+                                        className="w-full px-3 py-2.5 border-2 border-black bg-white text-sm font-bold text-slate-800 rounded-lg shadow-[3px_3px_0_rgba(236,72,153,0.3)] focus:shadow-[1px_1px_0_rgba(236,72,153,0.3)] focus:translate-x-[2px] focus:translate-y-[2px] focus:outline-none transition-all appearance-none cursor-pointer"
+                                    >
+                                        <option value="all">Tất cả địa điểm</option>
+                                        {locations.map(loc => (
+                                            <option key={loc.id || loc} value={loc.name || loc}>{loc.name || loc}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Date Filter */}
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                                        <CalendarIcon size={11} className="text-indigo-500" /> Thời gian
+                                    </label>
+                                    <select
+                                        value={filterDate}
+                                        onChange={(e) => setFilterDate(e.target.value)}
+                                        className="w-full px-3 py-2.5 border-2 border-black bg-white text-sm font-bold text-slate-800 rounded-lg shadow-[3px_3px_0_rgba(99,102,241,0.3)] focus:shadow-[1px_1px_0_rgba(99,102,241,0.3)] focus:translate-x-[2px] focus:translate-y-[2px] focus:outline-none transition-all appearance-none cursor-pointer"
+                                    >
+                                        <option value="all">Tất cả</option>
+                                        <option value="today">Hôm nay</option>
+                                        <option value="upcoming">Sắp diễn ra</option>
+                                        <option value="past">Đã kết thúc</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* View Switcher - Pro Max Segmented Control */}
             <div className="flex items-center justify-between gap-4 bg-white/40 backdrop-blur-md p-2 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] sticky top-4 z-40 transition-all duration-300">
