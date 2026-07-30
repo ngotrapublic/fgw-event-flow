@@ -48,7 +48,7 @@ const createResource = async (req, res) => {
         const actor = req.user ? req.user.email : 'Admin (Legacy)';
         const role = req.user ? req.user.role : 'admin';
 
-        const id = label.toLowerCase().replace(/\s+/g, '-'); // Simple ID generation
+        const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''); // Safe ID generation
 
         const newResource = { label, category, quantity: parseInt(quantity), icon };
 

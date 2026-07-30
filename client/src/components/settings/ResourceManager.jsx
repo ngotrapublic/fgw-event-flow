@@ -66,7 +66,7 @@ const ResourceManager = () => {
     const handleDelete = async (id) => {
         if (window.confirm('Are you sure you want to delete this resource?')) {
             try {
-                await api.delete(`/resources/${id}`);
+                await api.delete(`/resources/${encodeURIComponent(id)}`);
                 setResources(prev => prev.filter(item => item.id !== id));
                 showSuccess('Resource deleted');
             } catch (error) {
@@ -86,7 +86,7 @@ const ResourceManager = () => {
                 setIsAdding(false);
                 showSuccess('New resource added');
             } else if (editingId) {
-                const res = await api.put(`/resources/${editingId}`, newItem);
+                const res = await api.put(`/resources/${encodeURIComponent(editingId)}`, newItem);
                 setResources(prev => prev.map(item => item.id === editingId ? res.data : item));
                 setEditingId(null);
                 showSuccess('Resource updated');
