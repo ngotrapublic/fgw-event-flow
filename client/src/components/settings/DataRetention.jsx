@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Database, Download, Trash2, AlertTriangle,
     Save, RefreshCcw, HardDrive, CheckCircle, FileText, Upload, Loader2,
-    ChevronDown, Calendar
+    ChevronDown, Calendar, X
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import api from '../../services/api';
@@ -15,6 +15,8 @@ const DataRetention = () => {
     const [isExporting, setIsExporting] = useState(false);
     const [exportSuccess, setExportSuccess] = useState(false);
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+    const [restoreValidationData, setRestoreValidationData] = useState(null);
+    const [isRestoring, setIsRestoring] = useState(false);
     const dropdownRef = React.useRef(null);
     const { showSuccess, showError } = useToast();
 
@@ -109,22 +111,42 @@ const DataRetention = () => {
     const handleRestore = async (file) => {
         if (!file) return;
 
+        // Reset file input so user can select the same file again if needed
+        const fileInput = document.getElementById('restore-file');
+        if (fileInput) fileInput.value = '';
+
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
                 const jsonContent = JSON.parse(e.target.result);
-                const confirmMsg = `Ready to restore data from version ${jsonContent.version || 'Unknown'} (${jsonContent.timestamp || 'No Date'}). This will merge/overwrite existing data. Continue?`;
-                if (!window.confirm(confirmMsg)) return;
-
-                await api.post('/backup/restore', { data: jsonContent.data });
-                showSuccess('System restored successfully! Please refresh.');
-                setTimeout(() => window.location.reload(), 2000);
+                
+                // STEP 1: Validate file with backend
+                const res = await api.post('/backup/validate', jsonContent);
+                setRestoreValidationData(res.data);
             } catch (error) {
-                console.error("Restore failed", error);
-                showError('Failed to restore system: Invalid file or server error.');
+                console.error("Restore validation failed", error);
+                showError(error.response?.data?.error || 'Failed to validate system backup file.');
             }
         };
         reader.readAsText(file);
+    };
+
+    const handleConfirmRestore = async () => {
+        if (!restoreValidationData?.confirmationToken) return;
+        setIsRestoring(true);
+        try {
+            await api.post('/backup/restore', { 
+                confirmationToken: restoreValidationData.confirmationToken,
+                mode: 'merge'
+            });
+            showSuccess('System restored successfully! Reloading...');
+            setTimeout(() => window.location.reload(), 2000);
+        } catch (error) {
+            console.error("Restore failed", error);
+            showError(error.response?.data?.error || 'Failed to restore system: Token expired or server error.');
+            setIsRestoring(false);
+            setRestoreValidationData(null);
+        }
     };
 
     return (
@@ -396,6 +418,93 @@ const DataRetention = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Restore Confirmation Modal - Neubrutalism */}
+            {restoreValidationData && (
+                <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                    <div className="relative w-full max-w-lg">
+                        {/* Multi-layer shadow effect */}
+                        <div className="absolute inset-0 bg-rose-500 translate-x-[8px] translate-y-[8px]" />
+                        <div className="absolute inset-0 bg-orange-500 translate-x-[4px] translate-y-[4px]" />
+                        
+                        {/* Main card */}
+                        <div className="relative bg-white border-[3px] border-black flex flex-col">
+                            {/* Header */}
+                            <div className="bg-rose-100 border-b-[3px] border-black px-6 py-4 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-lg bg-rose-500 flex items-center justify-center border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                        <AlertTriangle size={20} strokeWidth={2.5} className="text-white" />
+                                    </div>
+                                    <h3 className="text-xl font-black text-rose-900">Xác nhận Khôi phục</h3>
+                                </div>
+                                <button
+                                    onClick={() => !isRestoring && setRestoreValidationData(null)}
+                                    disabled={isRestoring}
+                                    className="w-8 h-8 flex items-center justify-center bg-white border-2 border-black rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-slate-100 transition-colors disabled:opacity-50"
+                                >
+                                    <X size={16} strokeWidth={3} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-6 space-y-5 bg-gradient-to-br from-slate-50 to-white">
+                                <div className="p-4 bg-amber-50 border-2 border-black rounded-lg shadow-[2px_2px_0_#0f172a]">
+                                    <p className="text-sm font-bold text-amber-900 leading-relaxed mb-1">
+                                        Bạn đang chuẩn bị khôi phục hệ thống từ một bản sao lưu.
+                                    </p>
+                                    <p className="text-xs font-semibold text-amber-700">
+                                        Chế độ <span className="font-black bg-amber-200 px-1 rounded border border-black">Merge</span>: Dữ liệu cũ sẽ được ghi đè bằng bản backup này. Các sự kiện tạo MỚI hơn (không có trong backup) vẫn được GIỮ NGUYÊN.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center py-2 border-b-2 border-dashed border-slate-200">
+                                        <span className="text-sm font-bold text-slate-500">Ngày tạo Backup:</span>
+                                        <span className="text-sm font-black text-slate-900">
+                                            {new Date(restoreValidationData.backupDate).toLocaleString('vi-VN')}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center py-2 border-b-2 border-dashed border-slate-200">
+                                        <span className="text-sm font-bold text-slate-500">Phiên bản System:</span>
+                                        <span className="text-sm font-black text-slate-900">v{restoreValidationData.version}</span>
+                                    </div>
+                                    
+                                    <div className="pt-2">
+                                        <span className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Dữ liệu bao gồm ({restoreValidationData.totalDocs} dòng):</span>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {Object.entries(restoreValidationData.stats).map(([col, count]) => (
+                                                <div key={col} className="flex items-center justify-between p-2 bg-slate-100 border-2 border-black rounded shadow-[2px_2px_0_#0f172a]">
+                                                    <span className="text-xs font-bold text-slate-600 capitalize">{col}</span>
+                                                    <span className="text-xs font-black text-slate-900 bg-white px-2 py-0.5 border-2 border-black rounded-full">{count}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="px-6 py-4 border-t-[3px] border-black bg-slate-100 flex justify-end gap-3">
+                                <button
+                                    onClick={() => setRestoreValidationData(null)}
+                                    disabled={isRestoring}
+                                    className="px-5 py-2.5 bg-white text-slate-700 font-bold border-2 border-black shadow-[3px_3px_0_#0f172a] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#0f172a] transition-all rounded disabled:opacity-50"
+                                >
+                                    Hủy bỏ
+                                </button>
+                                <button
+                                    onClick={handleConfirmRestore}
+                                    disabled={isRestoring}
+                                    className="px-5 py-2.5 flex items-center gap-2 bg-rose-500 text-white font-black border-2 border-black shadow-[3px_3px_0_#0f172a] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#0f172a] hover:bg-rose-600 transition-all rounded disabled:opacity-50"
+                                >
+                                    {isRestoring ? <Loader2 size={16} strokeWidth={3} className="animate-spin" /> : <RefreshCcw size={16} strokeWidth={3} />}
+                                    Tiến hành Khôi phục
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
