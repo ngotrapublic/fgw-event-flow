@@ -35,6 +35,7 @@ const ResourceManager = () => {
     const [editingId, setEditingId] = useState(null);
     const [newItem, setNewItem] = useState({ label: '', category: '', quantity: 0, icon: 'Box' });
     const [itemToDelete, setItemToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
@@ -69,16 +70,18 @@ const ResourceManager = () => {
     };
 
     const handleDelete = async () => {
-        if (!itemToDelete) return;
+        if (!itemToDelete || isDeleting) return;
         try {
+            setIsDeleting(true);
             await api.delete(`/resources?id=${encodeURIComponent(itemToDelete.id)}`);
             setResources(prev => prev.filter(item => item.id !== itemToDelete.id));
             showSuccess('Resource deleted');
+            setItemToDelete(null); // Close modal on success
         } catch (error) {
             console.error("Delete failed", error);
             showError('Failed to delete resource');
         } finally {
-            setItemToDelete(null);
+            setIsDeleting(false);
         }
     };
 
@@ -223,18 +226,26 @@ const ResourceManager = () => {
                                 className="group relative bg-white rounded-xl p-4 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all duration-150 cursor-pointer"
                             >
                                 {/* Action Buttons */}
-                                <div className="absolute top-3 right-3 flex gap-2">
+                                <div className="absolute top-3 right-3 flex gap-2 z-10">
                                     <button
-                                        onClick={() => startEdit(item)}
-                                        className="p-2 bg-blue-100 text-blue-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-200 transition-colors"
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            startEdit(item);
+                                        }}
+                                        className="p-2 bg-blue-100 text-blue-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-200 transition-colors cursor-pointer"
                                     >
-                                        <Edit size={12} strokeWidth={2.5} />
+                                        <Edit size={14} strokeWidth={2.5} className="pointer-events-none" />
                                     </button>
                                     <button
-                                        onClick={() => confirmDelete(item)}
-                                        className="p-2 bg-rose-100 text-rose-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-rose-200 transition-colors"
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            confirmDelete(item);
+                                        }}
+                                        className="p-2 bg-rose-100 text-rose-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-rose-200 transition-colors cursor-pointer"
                                     >
-                                        <Trash2 size={12} strokeWidth={2.5} />
+                                        <Trash2 size={14} strokeWidth={2.5} className="pointer-events-none" />
                                     </button>
                                 </div>
 
@@ -388,16 +399,20 @@ const ResourceManager = () => {
                         
                         <div className="flex gap-3 justify-end">
                             <button
+                                type="button"
                                 onClick={() => setItemToDelete(null)}
-                                className="px-5 py-2.5 font-black text-slate-600 bg-white border-2 border-black rounded-lg hover:bg-slate-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors"
+                                disabled={isDeleting}
+                                className="px-5 py-2.5 font-black text-slate-600 bg-white border-2 border-black rounded-lg hover:bg-slate-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Cancel
                             </button>
                             <button
+                                type="button"
                                 onClick={handleDelete}
-                                className="px-5 py-2.5 font-black text-white bg-rose-500 border-2 border-black rounded-lg hover:bg-rose-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors"
+                                disabled={isDeleting}
+                                className="px-5 py-2.5 flex items-center gap-2 font-black text-white bg-rose-500 border-2 border-black rounded-lg hover:bg-rose-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                Delete Item
+                                {isDeleting ? <Loader2 size={18} strokeWidth={2.5} className="animate-spin" /> : 'Delete Item'}
                             </button>
                         </div>
                     </div>
