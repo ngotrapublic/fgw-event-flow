@@ -10,7 +10,10 @@ const { verifyToken } = require('../middleware/authMiddleware');
 
 router.get('/', verifyToken, resourceController.getAllResources);
 router.post('/', verifyToken, resourceController.createResource); // TODO: Add role check
-router.put('/', verifyToken, resourceController.updateResource); // TODO: Add role check
-router.delete('/', verifyToken, resourceController.deleteResource); // TODO: Add role check
+// Support both Query Params (new, safe) and Path Params (legacy) to prevent HMR/Caching issues
+router.put('/', verifyToken, resourceController.updateResource);
+router.put('/:id', verifyToken, resourceController.updateResource);
+router.delete('/', verifyToken, resourceController.deleteResource);
+router.delete('/:id', verifyToken, resourceController.deleteResource);
 
 module.exports = router;

@@ -69,7 +69,7 @@ const createResource = async (req, res) => {
 
 const updateResource = async (req, res) => {
     try {
-        const id = req.query.id;
+        const id = req.query.id || req.params.id;
         if (!id) return res.status(400).json({ error: 'Missing resource ID' });
         const updates = req.body;
         delete updates.id; // Prevent ID update
@@ -94,12 +94,17 @@ const updateResource = async (req, res) => {
 
 const deleteResource = async (req, res) => {
     try {
-        const id = req.query.id;
+        console.log('--- DELETE RESOURCE INITIATED ---');
+        console.log('Query:', req.query, 'Params:', req.params);
+        const id = req.query.id || req.params.id;
+        console.log('Extracted ID:', id);
         if (!id) return res.status(400).json({ error: 'Missing resource ID' });
         const actor = req.user ? req.user.email : 'Admin (Legacy)';
         const role = req.user ? req.user.role : 'admin';
 
+        console.log('Calling firestore delete on id:', id);
         await resourcesCollection.doc(id).delete();
+        console.log('Firestore delete successful');
 
         // LOGGING
         await logAction({
