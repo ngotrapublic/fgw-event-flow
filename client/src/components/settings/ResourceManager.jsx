@@ -34,6 +34,7 @@ const ResourceManager = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [newItem, setNewItem] = useState({ label: '', category: '', quantity: 0, icon: 'Box' });
+    const [itemToDelete, setItemToDelete] = useState(null);
 
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
@@ -63,16 +64,21 @@ const ResourceManager = () => {
         fetchResources();
     }, []);
 
-    const handleDelete = async (id) => {
-        if (window.confirm('Are you sure you want to delete this resource?')) {
-            try {
-                await api.delete(`/resources?id=${encodeURIComponent(id)}`);
-                setResources(prev => prev.filter(item => item.id !== id));
-                showSuccess('Resource deleted');
-            } catch (error) {
-                console.error("Delete failed", error);
-                showError('Failed to delete resource');
-            }
+    const confirmDelete = (item) => {
+        setItemToDelete(item);
+    };
+
+    const handleDelete = async () => {
+        if (!itemToDelete) return;
+        try {
+            await api.delete(`/resources?id=${encodeURIComponent(itemToDelete.id)}`);
+            setResources(prev => prev.filter(item => item.id !== itemToDelete.id));
+            showSuccess('Resource deleted');
+        } catch (error) {
+            console.error("Delete failed", error);
+            showError('Failed to delete resource');
+        } finally {
+            setItemToDelete(null);
         }
     };
 
@@ -225,7 +231,7 @@ const ResourceManager = () => {
                                         <Edit size={12} strokeWidth={2.5} />
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(item.id)}
+                                        onClick={() => confirmDelete(item)}
                                         className="p-2 bg-rose-100 text-rose-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-rose-200 transition-colors"
                                     >
                                         <Trash2 size={12} strokeWidth={2.5} />
@@ -356,6 +362,44 @@ const ResourceManager = () => {
                         >
                             <ChevronRight size={16} strokeWidth={2.5} />
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Delete Confirmation Modal - Neubrutalism */}
+            {itemToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className="w-12 h-12 bg-rose-100 border-2 border-black rounded-xl flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                <Trash2 className="text-rose-600" size={24} strokeWidth={2.5} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-black">Delete Resource</h3>
+                                <p className="text-sm font-bold text-slate-500">This action cannot be undone.</p>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-slate-50 border-2 border-black rounded-xl p-4 mb-6 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <p className="text-slate-600 font-medium">
+                                Are you sure you want to permanently delete <span className="font-black text-black">"{itemToDelete.label}"</span>?
+                            </p>
+                        </div>
+                        
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setItemToDelete(null)}
+                                className="px-5 py-2.5 font-black text-slate-600 bg-white border-2 border-black rounded-lg hover:bg-slate-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDelete}
+                                className="px-5 py-2.5 font-black text-white bg-rose-500 border-2 border-black rounded-lg hover:bg-rose-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors"
+                            >
+                                Delete Item
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
