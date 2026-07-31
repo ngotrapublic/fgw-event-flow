@@ -69,7 +69,8 @@ const createResource = async (req, res) => {
 
 const updateResource = async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = req.query.id;
+        if (!id) return res.status(400).json({ error: 'Missing resource ID' });
         const updates = req.body;
         delete updates.id; // Prevent ID update
 
@@ -93,7 +94,8 @@ const updateResource = async (req, res) => {
 
 const deleteResource = async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = req.query.id;
+        if (!id) return res.status(400).json({ error: 'Missing resource ID' });
         const actor = req.user ? req.user.email : 'Admin (Legacy)';
         const role = req.user ? req.user.role : 'admin';
 

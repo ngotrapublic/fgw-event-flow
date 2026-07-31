@@ -10,7 +10,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 
 router.get('/', verifyToken, resourceController.getAllResources);
 router.post('/', verifyToken, resourceController.createResource); // TODO: Add role check
-router.put('/:id', verifyToken, resourceController.updateResource); // TODO: Add role check
-router.delete('/:id', verifyToken, resourceController.deleteResource); // TODO: Add role check
+router.put('/', verifyToken, resourceController.updateResource); // TODO: Add role check
+router.delete('/', verifyToken, resourceController.deleteResource); // TODO: Add role check
 
 module.exports = router;
