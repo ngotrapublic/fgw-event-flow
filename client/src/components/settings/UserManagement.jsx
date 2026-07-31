@@ -25,6 +25,8 @@ const UserManagement = () => {
     const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'user', department: '' });
     const [editingRole, setEditingRole] = useState(null);
     const [editingDepartment, setEditingDepartment] = useState(null);
+    const [userToDelete, setUserToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Reset Password State
     const [resetModal, setResetModal] = useState({ show: false, userId: null, userName: '', newPassword: '' });
@@ -93,14 +95,23 @@ const UserManagement = () => {
         }
     };
 
-    const handleDeleteUser = async (userId) => {
-        if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    const confirmDelete = (user) => {
+        setUserToDelete(user);
+    };
+
+    const handleDeleteUser = async () => {
+        if (!userToDelete || isDeleting) return;
         try {
-            await api.delete(`/users/${userId}`);
+            setIsDeleting(true);
+            await api.delete(`/users/${userToDelete.id}`);
             showSuccess('User deleted successfully');
             fetchUsers();
+            setUserToDelete(null); // Close modal on success
         } catch (error) {
+            console.error(error);
             showError('Failed to delete user');
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -240,21 +251,28 @@ const UserManagement = () => {
                                         </div>
                                     </div>
 
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 relative">
                                         <button
-                                            onClick={() => setResetModal({ show: true, userId: user.id, userName: user.name, newPassword: '' })}
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setResetModal({ show: true, userId: user.id, userName: user.name, newPassword: '' });
+                                            }}
                                             className="p-2 bg-amber-100 text-amber-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-amber-200 transition-colors cursor-pointer"
                                             title="Reset Password"
                                         >
-                                            <Key size={12} strokeWidth={2.5} />
+                                            <Key size={14} strokeWidth={2.5} className="pointer-events-none" />
                                         </button>
                                         <button
-                                            onClick={() => handleDeleteUser(user.id)}
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                confirmDelete(user);
+                                            }}
                                             className="p-2 bg-rose-100 text-rose-600 border-2 border-black rounded-lg shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:bg-rose-200 transition-colors cursor-pointer"
                                             title="Delete User"
                                         >
-                                            <Trash2 size={12} strokeWidth={2.5} />
+                                            <Trash2 size={14} strokeWidth={2.5} className="pointer-events-none" />
                                         </button>
                                     </div>
                                 </div>
@@ -535,6 +553,48 @@ const UserManagement = () => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Delete Confirmation Modal - Neubrutalism */}
+            {userToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] max-w-md w-full p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className="w-12 h-12 bg-rose-100 border-2 border-black rounded-xl flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                <Trash2 className="text-rose-600" size={24} strokeWidth={2.5} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-black">Delete User</h3>
+                                <p className="text-sm font-bold text-slate-500">This action cannot be undone.</p>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-slate-50 border-2 border-black rounded-xl p-4 mb-6 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <p className="text-slate-600 font-medium">
+                                Are you sure you want to permanently delete user <span className="font-black text-black">"{userToDelete.name || userToDelete.email}"</span>?
+                            </p>
+                        </div>
+                        
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setUserToDelete(null)}
+                                disabled={isDeleting}
+                                className="px-5 py-2.5 font-black text-slate-600 bg-white border-2 border-black rounded-lg hover:bg-slate-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDeleteUser}
+                                disabled={isDeleting}
+                                className="px-5 py-2.5 flex items-center gap-2 font-black text-white bg-rose-500 border-2 border-black rounded-lg hover:bg-rose-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isDeleting ? <Loader2 size={18} strokeWidth={2.5} className="animate-spin" /> : 'Delete User'}
+                            </button>
                         </div>
                     </div>
                 </div>
