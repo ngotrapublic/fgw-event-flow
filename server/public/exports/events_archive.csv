@@ -1,31 +1,44 @@
 ﻿STT,THỨ,NGÀY,THỜI GIAN,TÊN SỰ KIỆN,ĐỊA ĐIỂM TỔ CHỨC,PHỤ TRÁCH,CSVC CẦN SỬ DỤNG,GHI CHÚ
 1,Thứ 2,05/01/2026,Sáng (08:00 - 17:30),WELOME BACK TO SCHOOL SPRING TRIMESTER,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,
 2,Thứ 3,06/01/2026,Sáng (08:00 - 21:30),Khai Giảng MBA,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,"Hội trường Tầng 3:
-Màn hình LED (1); Standee (2); Loa / Âm thanh (1); Ánh sáng (1); Micro (4)",Khai Giảng MBA
+Màn hình LED (1); Standee (2); loa (1); Ánh sáng (1); Micro (4)",Khai Giảng MBA
 3,Thứ 6,09/01/2026,Sáng (08:00 - 17:30),Checkin gương Google Gemini,Sảnh Tầng 2 - Kinh Tuyến,Quan Hệ Doanh Nghiệp,,
 4,Chủ nhật,22/02/2026,Sáng (08:00 - 17:30),Khai Trương đầu năm,Sảnh Tầng 2 - Kinh Tuyến,Phòng Đào Tạo,,
 5,Thứ 3 - Thứ 3,07/04/2026 - 14/04/2026,Sáng (07:00 - 17:30),Trưng bày triển lãm Lớp Thầy Sơn,"Sảnh Tầng 2 - Kinh Tuyến,Sảnh Tầng 2 - Greenwich",Phòng Đào Tạo,,
 6,Thứ 5,09/04/2026,Sáng (08:00 - 17:30),WORKSHOP ĐỘC BẢN - THE SOLE,Hội trường Tầng 3,Quan Hệ Doanh Nghiệp,"Hội trường Tầng 3:
-Bàn 1m8 (50); Màn hình LED (1); Loa / Âm thanh (1)",
+Bàn 1m8 (50); Màn hình LED (1); loa (1)",
 7,Thứ 6,10/04/2026,Chiều (15:00 - 20:30),Tôn vinh sinh viên,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,"Hội trường Tầng 3:
-Ánh sáng (1); Bàn 1m8 (4); Ghế (200); Khăn Trải Bàn (4); Màn hình LED (1); Loa / Âm thanh (1); Micro (4)",
+Ánh sáng (1); Bàn 1m8 (4); Ghế (200); Khăn Trải Bàn (4); Màn hình LED (1); loa (1); Micro (4)",
 8,Thứ 7,11/04/2026,Sáng (08:00 - 12:00),"""WORKSHOP NGÀNH IT """"AI Industry Briefing""",Hội trường Tầng 3,Quan Hệ Doanh Nghiệp,"Hội trường Tầng 3:
-Bàn 1m8 (25); Ghế (50); Màn hình LED (1); Loa / Âm thanh (1); Micro (4)","""WORKSHOP NGÀNH IT
+Bàn 1m8 (25); Ghế (50); Màn hình LED (1); loa (1); Micro (4)","""WORKSHOP NGÀNH IT
 """"AI Industry Briefing"""" - Mr. Trịnh Trúc Linh"""
 9,Thứ 4 - Thứ 7,15/04/2026 - 25/04/2026,Sáng (08:00 - 17:30),Trưng bày triển lãm DESI1214.2_Cô Thy,"Sảnh Tầng 2 - Greenwich,Sảnh Tầng 2 - Kinh Tuyến",Phòng Đào Tạo,,20 khung sắt backdrop; Giá vẽ lớn 16 cái; bàn dài 1.2m (20 bàn). Giá vẽ nhỏ (20 cái_nếu còn)
 10,Thứ 5,23/04/2026,Sáng (08:30 - 12:00),Orientation OJT Summer 2026 (3+0),Hội trường Tầng 3,Quan Hệ Doanh Nghiệp,"Hội trường Tầng 3:
-Ánh sáng (1); Ghế (140); Màn hình LED (1); Loa / Âm thanh (1); Micro (1)",
+Ánh sáng (1); Ghế (140); Màn hình LED (1); loa (1); Micro (1)",
 11,Thứ 7 - Thứ 5,25/04/2026 - 07/05/2026,Sáng (08:00 - 17:30),Trưng bày triển lãm lớp  cô KIMJ,"Sảnh Tầng 2 - Greenwich,Sảnh Tầng 2 - Kinh Tuyến",Phòng Đào Tạo,,
 12,Thứ 2 - Thứ 5,04/05/2026 - 07/05/2026,Sáng (07:00 - 20:30),Demo Đồ án Tốt nghiệp - Bộ môn IT,IT LAB,Phòng Đào Tạo,"IT LAB:
 Khăn Trải Bàn (1); Nước suối / Teabreak (1)",
 13,Thứ 5,21/05/2026,Sáng (09:00 - 11:30),BA Orientation_Dr. Raj Dass,Hội trường Tầng 3,Phòng Đào Tạo,"Hội trường Tầng 3:
-Bàn 1m8 (20); Ghế (70); Màn hình LED (1); Loa / Âm thanh (1); Micro (3)",
-14,Thứ 7,08/08/2026,Chiều (13:00 - 21:00),UK FESTIVAL (đổi qua Bowling),Bên ngoài trường,Phòng Công Tác Sinh Viên,,
-15,Thứ 3,11/08/2026,Chiều (14:00 - 21:00),Tôn Vinh Sinh Viên_Spring 2026,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,"Setup khu vực Pantry để làm khu vực teabreak, sử dụng 4 dãy bàn ăn lớn, có thêm loa kéo để phục vụ âm nhạc
+Bàn 1m8 (20); Ghế (70); Màn hình LED (1); loa (1); Micro (3)",
+14,Thứ 3 - Thứ 3,28/07/2026 - 25/08/2026,Sáng (07:00 - 11:30),"Triển lãm ""Digital Imprint"" lớp cô ChiNC",Sảnh Tầng 2 - Greenwich,Phòng Đào Tạo,,
+15,Thứ 6 - Thứ 7,31/07/2026 - 01/08/2026,Sáng (10:00 - 12:30),Event MBA Talk,Thư Viện,Phòng Tuyến Sinh,"Thư Viện:
+loa (1); Micro (1); Nước suối / Teabreak (1); Standee (1); Tivi (1); xyz (1)","Bộ bàn ghế xám talkshow (2 ghế xám + 1 bàn)
+Bảo vệ hỗ trợ Setup layout thư viện"
+16,Thứ 7,08/08/2026,Chiều (13:00 - 21:00),UK FESTIVAL (đổi qua Bowling),Bên ngoài trường,Phòng Công Tác Sinh Viên,,
+17,Thứ 3,11/08/2026,Chiều (14:00 - 21:00),Tôn Vinh Sinh Viên_Spring 2026,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,"Setup khu vực Pantry để làm khu vực teabreak, sử dụng 4 dãy bàn ăn lớn, có thêm loa kéo để phục vụ âm nhạc
 Lưu ý: Đăng ký máy lạnh buổi tối
 Đăng ký thi công backdrop vào 10/08/2026"
-16,Thứ 4,12/08/2026,Sáng (08:00 - 17:00),INDUSTRY TOUR (FPT Corporation's businesses),Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,SV ngồi chờ tại hội trường và được điều phối di chuyển ra xe để tham quan doanh nghiệp
-17,Thứ 6,14/08/2026,Sáng (08:00 - 17:00),"WS chuẩn bị nghề nghiệp
+18,Thứ 4,12/08/2026,Sáng (08:00 - 17:00),INDUSTRY TOUR (FPT Corporation's businesses),Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,SV ngồi chờ tại hội trường và được điều phối di chuyển ra xe để tham quan doanh nghiệp
+19,Thứ 6,14/08/2026,Sáng (08:00 - 17:00),"WS chuẩn bị nghề nghiệp
 ""CV/LinkedIn SKILL - Build a strong personal profile""",Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,
-18,Thứ 3,25/08/2026,Sáng (08:00 - 12:00),TRIỂN LÃM TKĐH,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,
-19,Thứ 4,26/08/2026,Sáng (08:00 - 12:00),ORIENTATION OJT FA26,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,
+20,Thứ 2 - Thứ 7,17/08/2026 - 29/08/2026,Sáng (07:00 - 11:30),Triển lãm đồ án sinh viên ngành GD_Mr.Sơn,Sảnh Tầng 2 - Kinh Tuyến,Phòng Đào Tạo,"Sảnh Tầng 2 - Kinh Tuyến:
+Bàn 1m8 (29); Tivi (1)","Nhờ ban đảm bảo hỗ trợ chuẩn bị: 
+28 bàn dài 1.8m.
+15 khung sắt backdrop.
+1 tivi kèm chân cho sinh viên mượn ( vào ngày 24.8 và 25.8) "
+21,Thứ 3,25/08/2026,Sáng (08:00 - 12:00),TRIỂN LÃM TKĐH,Hội trường Tầng 3,Phòng Công Tác Sinh Viên,,
+22,Thứ 4 - Thứ 5,26/08/2026 - 24/09/2026,Sáng (07:00 - 11:30),"Triển lãm ""Digital Imprint"" lớp cô ChiNC",Sảnh Tầng 2 - Greenwich,Phòng Đào Tạo,,
+23,Thứ 4,26/08/2026,Sáng (08:00 - 12:00),ORIENTATION OJT FA26,Hội trường Tầng 3,Quan Hệ Doanh Nghiệp,"Hội trường Tầng 3:
+Ghế (150); Màn hình LED (1); loa (1); Micro (1)",
+24,Thứ 5,27/08/2026,Sáng (08:00 - 11:30),OR FIELD TRIP SU26,Hội trường Tầng 3,Quan Hệ Doanh Nghiệp,"Hội trường Tầng 3:
+Ghế (150); Màn hình LED (1); loa (1); Micro (1)",

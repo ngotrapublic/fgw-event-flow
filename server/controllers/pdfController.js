@@ -1,18 +1,12 @@
 const puppeteer = require('puppeteer');
 
-exports.generatePdf = async (req, res) => {
-    const { url, html, filename = 'document.pdf' } = req.body;
+let browserInstance = null;
 
-    // Support both URL-based and HTML-based generation
-    if (!url && !html) {
-        return res.status(400).json({ error: 'Either URL or HTML is required' });
-    }
-
-    let browser;
-    try {
-        console.log(`[PDF] Launching browser...`);
-        browser = await puppeteer.launch({
-            headless: 'new',
+const getBrowser = async () => {
+    if (!browserInstance) {
+        console.log(`[PDF] Launching persistent browser instance...`);
+        browserInstance = await puppeteer.launch({
+            headless: 'new', // or true in newer puppeteer
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -21,7 +15,35 @@ exports.generatePdf = async (req, res) => {
                 '--disable-gpu'
             ]
         });
-        const page = await browser.newPage();
+        browserInstance.on('disconnected', () => {
+            console.log(`[PDF] Browser disconnected. Resetting instance.`);
+            browserInstance = null;
+        });
+    }
+    return browserInstance;
+};
+
+exports.closeBrowser = async () => {
+    if (browserInstance) {
+        console.log(`[PDF] Closing persistent browser instance...`);
+        await browserInstance.close();
+        browserInstance = null;
+    }
+};
+
+exports.generatePdf = async (req, res) => {
+    const { url, html, filename = 'document.pdf' } = req.body;
+
+    // Support both URL-based and HTML-based generation
+    if (!url && !html) {
+        return res.status(400).json({ error: 'Either URL or HTML is required' });
+    }
+
+    let page;
+    try {
+        console.log(`[PDF] Using persistent browser...`);
+        const browser = await getBrowser();
+        page = await browser.newPage();
 
         console.log(`[PDF] Setting viewport to A4 dimensions...`);
         await page.setViewport({ width: 794, height: 1123 });
@@ -82,8 +104,8 @@ exports.generatePdf = async (req, res) => {
             details: error.message
         });
     } finally {
-        if (browser) {
-            await browser.close();
+        if (page) {
+            await page.close(); // Close only the page, keep the browser alive
         }
     }
 };

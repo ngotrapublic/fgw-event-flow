@@ -302,7 +302,7 @@ const DataRetention = () => {
 
                         {/* Nightly Archive Export Card (Cold) */}
                         <div
-                            onClick={() => window.open('http://localhost:5000/exports/events_archive.csv', '_blank')}
+                            onClick={() => window.open('/exports/events_archive.csv', '_blank')}
                             className="p-4 rounded-lg bg-slate-50 border-2 border-slate-200 hover:border-black hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer group flex items-center justify-between"
                         >
                             <div className="flex items-center gap-3">

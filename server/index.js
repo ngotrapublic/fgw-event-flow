@@ -53,6 +53,14 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Serve static exports folder
 app.use('/exports', express.static(path.join(__dirname, 'public', 'exports')));
 
+// Serve React frontend (Phase 4 Deployment Patch)
+app.use(express.static(path.join(__dirname, 'public', 'dist')));
+
+// Health check endpoint (Phase 4 Deployment)
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
 console.log('🔥 Using Firebase Firestore for data storage');
 
 // Routes
@@ -90,6 +98,11 @@ app.post('/api/notify', verifyToken, async (req, res, next) => {
     }
 });
 
+// React Router Fallback (Phase 4 Deployment Patch)
+app.get(/^(?!\/api).+/, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
+});
+
 // Error handling (must be last)
 app.use(errorHandler);
 
@@ -103,7 +116,47 @@ emailQueueWorker.start();
 notificationCleanupJob.start();
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`🔥 Firebase Firestore Backend - REFACTORED`);
     console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Graceful Shutdown (Phase 4 Deployment Security & Reliability)
+const gracefulShutdown = (signal) => {
+    console.log(`\n⚠️  Received ${signal}. Initiating graceful shutdown...`);
+    
+    // Stop receiving new HTTP requests
+    server.close(async () => {
+        console.log('✓ HTTP server closed.');
+
+        // Stop background jobs and schedulers
+        try {
+            reminderJob.stop();
+            emailQueueWorker.stop();
+            notificationCleanupJob.stop();
+            exportJob.stop();
+            retentionService.stopScheduler();
+            
+            // Clean up persistent Puppeteer browser
+            const pdfController = require('./controllers/pdfController');
+            await pdfController.closeBrowser();
+            
+            console.log('✓ Schedulers, background workers, and Puppeteer browser stopped.');
+        } catch (err) {
+            console.error('Error stopping background workers:', err.message);
+        }
+
+        console.log('✓ Graceful shutdown complete. Exiting.');
+        process.exit(0);
+    });
+
+    // Force exit if shutdown hangs longer than 10 seconds
+    setTimeout(() => {
+        console.error('✗ Forced shutdown due to timeout.');
+        process.exit(1);
+    }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+

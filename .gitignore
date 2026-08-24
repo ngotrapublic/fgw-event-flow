@@ -36,3 +36,14 @@ server/*.temp.js
 # Old JSON data files (migrated to Firestore)
 server/data/*.json
 server/data/*.backup.json
+
+# Docker deployment artifacts & Data Exports
+offline-deploy-bundle/
+*.zip
+*.tar
+out.txt
+server/public/exports/*.csv
+server/public/exports/*.xlsx
+server/public/exports/*.pdf
+Event_Import_Template*.xlsx
+

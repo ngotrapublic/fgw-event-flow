@@ -24,10 +24,10 @@
     "node-fetch": "^2.7.0",
     "nodemailer": "^7.0.10",
     "nodemon": "^3.1.11",
+    "puppeteer": "^24.35.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "jest": "^30.2.0",
-    "puppeteer": "^24.35.0"
+    "jest": "^30.2.0"
   }
 }

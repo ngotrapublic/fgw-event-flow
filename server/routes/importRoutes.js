@@ -4,10 +4,25 @@ const multer = require('multer');
 const importController = require('../controllers/importController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
-// Configure Multer (Memory Storage)
+// Configure Multer (Memory Storage with MIME type validation)
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedMimes = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel',
+            'text/csv',
+            'application/csv',
+            'application/octet-stream'
+        ];
+        const isExcelExt = file.originalname.match(/\.(xlsx|xls|csv)$/i);
+        if (allowedMimes.includes(file.mimetype) || isExcelExt) {
+            cb(null, true);
+        } else {
+            cb(new Error('Chỉ chấp nhận các tệp tin Excel (.xlsx, .xls) hoặc CSV (.csv)!'), false);
+        }
+    }
 });
 
 // Protect routes

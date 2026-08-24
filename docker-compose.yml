@@ -1,0 +1,41 @@
+services:
+  antigravity:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: antigravity:latest
+    container_name: antigravity-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      - PORT=5000 # Internal container port is always 5000
+      - NODE_ENV=${NODE_ENV:-production}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - antigravity_exports:/usr/src/app/server/public/exports
+    healthcheck:
+      test: ["CMD", "./healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    cap_drop:
+      - ALL
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  antigravity_exports:
+    name: antigravity_exports

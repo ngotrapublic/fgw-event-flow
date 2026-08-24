@@ -1,0 +1,14 @@
+# ========================================================
+# Docker Compose Development Override (Optional)
+# ========================================================
+# Copy this file to 'docker-compose.override.yml' to enable 
+# live volume mounting during local development.
+
+services:
+  antigravity:
+    environment:
+      - NODE_ENV=development
+    # Uncomment to map host directory for live code updates in dev:
+    # volumes:
+    #   - ./server:/usr/src/app/server
+    #   - /usr/src/app/server/node_modules # Keep container's dependencies intact

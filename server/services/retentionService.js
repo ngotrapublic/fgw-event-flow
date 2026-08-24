@@ -78,26 +78,39 @@ const runCleanup = async () => {
 };
 
 // Start 24h scheduler
+let schedulerIntervalId = null;
+let schedulerTimeoutId = null;
+
 const startScheduler = () => {
     console.log('[RETENTION] Scheduler started (Runs every 24h).');
-
-    // Run immediately on start (optional, maybe check last run time to avoid restart spam)
-    // For now, let's just schedule it.
 
     // Interval: 24 hours
     const INTERVAL = 24 * 60 * 60 * 1000;
 
-    setInterval(() => {
+    schedulerIntervalId = setInterval(() => {
         runCleanup();
     }, INTERVAL);
 
     // Run once after 1 minute of server start to clear potential backlog
-    setTimeout(() => {
+    schedulerTimeoutId = setTimeout(() => {
         runCleanup();
     }, 60000);
 };
 
+const stopScheduler = () => {
+    if (schedulerIntervalId) {
+        clearInterval(schedulerIntervalId);
+        schedulerIntervalId = null;
+    }
+    if (schedulerTimeoutId) {
+        clearTimeout(schedulerTimeoutId);
+        schedulerTimeoutId = null;
+    }
+    console.log('[RETENTION] Scheduler stopped.');
+};
+
 module.exports = {
     startScheduler,
+    stopScheduler,
     runCleanup
 };
