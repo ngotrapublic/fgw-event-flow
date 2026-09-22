@@ -15,9 +15,10 @@ class NotificationService {
      * @param {Object} params.data - Metadata (e.g., { eventId: '123' })
      * @param {string} params.sender - Sender name or 'System'
      */
-    async create({ recipients, type = 'info', title, message, data = {}, sender = 'System' }) {
+    async create({ recipients, type = 'info', title, message, data, metadata, sender = 'System' }) {
         if (!recipients) return;
 
+        const payloadData = data || metadata || {};
         const recipientList = Array.isArray(recipients) ? recipients : [recipients];
         const batch = db.batch(); // Use batch for atomic writes
 
@@ -45,7 +46,7 @@ class NotificationService {
                 type,
                 title,
                 message,
-                data,
+                data: payloadData,
                 sender,
                 isRead: false,
                 createdAt: new Date().toISOString(),

@@ -38,6 +38,10 @@ class EmailQueue {
         }
 
         const now = new Date();
+        // Delay 3 minutes for 'created' emails as requested (buffer time), send immediately for reminders/updates
+        const defaultDelayMs = type === 'created' ? 3 * 60 * 1000 : 0;
+        const scheduledTime = options.scheduledFor || new Date(now.getTime() + defaultDelayMs).toISOString();
+
         const job = {
             eventId: event.id,
             eventData: event,
@@ -46,7 +50,7 @@ class EmailQueue {
             attempts: 0,
             maxAttempts: options.maxAttempts || 3,
             createdAt: now.toISOString(),
-            scheduledFor: options.scheduledFor || now.toISOString(),
+            scheduledFor: scheduledTime,
             lastError: null,
             serverTimestamp: admin.firestore.FieldValue.serverTimestamp()
         };

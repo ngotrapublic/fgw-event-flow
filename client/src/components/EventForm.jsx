@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -22,6 +22,7 @@ import { Section, InputGroup, QuickPresets, LivePreview, ICON_MAP } from './even
 const EventForm = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const locationRouter = useLocation();
     const { user } = useAuth();
     const [dayOfWeek, setDayOfWeek] = useState('');
     const [activeTab, setActiveTab] = useState('general');
@@ -205,12 +206,40 @@ const EventForm = () => {
             };
             fetchEvent();
         } else {
-            const savedEmail = localStorage.getItem('userEmail');
-            if (savedEmail) {
-                setValue('registrantEmail', savedEmail);
+            if (locationRouter.state?.aiDraft) {
+                // If this is a new event initiated by AI, prefill the draft data
+                const draft = locationRouter.state.aiDraft;
+                
+                // Set each field individually to avoid overwriting defaults
+                if (draft.eventName) setValue('eventName', draft.eventName);
+                if (draft.eventDate) setValue('eventDate', draft.eventDate);
+                if (draft.startTime) setValue('startTime', draft.startTime);
+                if (draft.endTime) setValue('endTime', draft.endTime);
+                if (draft.location) setValue('location', draft.location);
+                if (draft.department) setValue('department', draft.department);
+                if (draft.content) setValue('content', draft.content);
+                if (draft.setup) setValue('setup', draft.setup);
+                
+                // Apply facilities checklist from AI
+                if (draft.facilitiesChecklist) {
+                    Object.entries(draft.facilitiesChecklist).forEach(([resourceId, data]) => {
+                        setValue(`facilitiesChecklist.${resourceId}.checked`, data.checked);
+                        setValue(`facilitiesChecklist.${resourceId}.quantity`, data.quantity || 1);
+                    });
+                }
+                
+                // Also trigger success toast
+                showSuccess('Đã điền thông tin sự kiện từ AI. Vui lòng kiểm tra và lưu.');
+                // Clear state so it doesn't loop
+                navigate(locationRouter.pathname, { replace: true, state: {} });
+            } else {
+                const savedEmail = localStorage.getItem('userEmail');
+                if (savedEmail) {
+                    setValue('registrantEmail', savedEmail);
+                }
             }
         }
-    }, [id, reset, setValue]);
+    }, [id, reset, setValue, locationRouter.state, locationRouter.pathname, navigate]);
 
     const [conflictWarning, setConflictWarning] = useState(null);
     const watchDate = watch('eventDate');

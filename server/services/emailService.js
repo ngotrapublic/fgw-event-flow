@@ -533,17 +533,30 @@ class EmailService {
     async getRecipients(event) {
         const recipients = [];
         try {
-            const snapshot = await departmentsCollection.where('name', '==', event.department).get();
-            if (!snapshot.empty) {
-                const dept = snapshot.docs[0].data();
-
-                // 1. Add Department Default Email
-                if (dept.defaultEmail) {
-                    recipients.push(dept.defaultEmail);
-                }
-                // Fallback: If no default set, send to all
-                else if (dept.emails && dept.emails.length > 0) {
-                    recipients.push(...dept.emails);
+            if (event.department) {
+                const trimmedDept = String(event.department).trim();
+                let snapshot = await departmentsCollection.where('name', '==', trimmedDept).get();
+                if (snapshot.empty) {
+                    // Fallback: search all departments for case-insensitive / trimmed match
+                    const allDepts = await departmentsCollection.get();
+                    const matched = allDepts.docs.find(d => 
+                        d.data().name && d.data().name.trim().toLowerCase() === trimmedDept.toLowerCase()
+                    );
+                    if (matched) {
+                        const dept = matched.data();
+                        if (dept.defaultEmail) {
+                            recipients.push(dept.defaultEmail);
+                        } else if (dept.emails && dept.emails.length > 0) {
+                            recipients.push(...dept.emails);
+                        }
+                    }
+                } else {
+                    const dept = snapshot.docs[0].data();
+                    if (dept.defaultEmail) {
+                        recipients.push(dept.defaultEmail);
+                    } else if (dept.emails && dept.emails.length > 0) {
+                        recipients.push(...dept.emails);
+                    }
                 }
             }
 
@@ -557,11 +570,24 @@ class EmailService {
                 recipients.push(event.contactEmail);
             }
 
+            // 4. Fallback if registrantEmail is still missing but we have createdBy (user UID)
+            if (!event.registrantEmail && event.createdBy) {
+                try {
+                    const { db } = require('../config/firebase');
+                    const userDoc = await db.collection('users').doc(event.createdBy).get();
+                    if (userDoc.exists && userDoc.data().email) {
+                        recipients.push(userDoc.data().email);
+                    }
+                } catch (userErr) {
+                    console.error('[EMAIL SERVICE] Failed to fetch creator email fallback:', userErr.message);
+                }
+            }
+
         } catch (error) {
             console.error('Error getting recipients:', error);
         }
 
-        return [...new Set(recipients)];
+        return [...new Set(recipients.filter(Boolean))];
     }
 
     detectChanges(oldEvent, newEvent) {

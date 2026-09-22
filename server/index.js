@@ -75,6 +75,7 @@ app.use('/api/audit-logs', require('./routes/auditLogs')); // ✅ NEW: Audit Log
 app.use('/api/backup', require('./routes/backup')); // ✅ NEW: Backup & Restore API
 app.use('/api/import', require('./routes/importRoutes')); // ✅ NEW: Excel Import API
 app.use('/api/analytics', require('./routes/analytics')); // Phase 3: Analytics Endpoint
+app.use('/api/ai', require('./routes/ai')); // AI Agent Endpoint
 
 // Notification endpoint (legacy - protected by auth)
 app.post('/api/notify', verifyToken, async (req, res, next) => {

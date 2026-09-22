@@ -486,6 +486,7 @@ exports.createEvent = async (req, res, next) => {
                 ...eventData,
                 eventDate: dateStr,
                 createdBy: uid,
+                registrantEmail: eventData.registrantEmail || req.user?.email || '',
                 createdAt: new Date().toISOString(),
                 remindersSent: { oneDay: false, oneHour: false }
             };
@@ -525,7 +526,7 @@ exports.createEvent = async (req, res, next) => {
                 type: 'success',
                 title: 'Event Registered',
                 message: isSeries ? `You have successfully registered series "${firstDoc.eventName}".` : `You have successfully registered "${firstDoc.eventName}".`,
-                metadata: { eventId: firstDoc.id, groupId: firstDoc.groupId },
+                metadata: { eventId: firstDoc.id, groupId: firstDoc.groupId || null },
                 sender: 'System'
             });
 
@@ -534,7 +535,7 @@ exports.createEvent = async (req, res, next) => {
             const role = req.user ? req.user.role : 'user';
 
             await logAction({
-                actor, role, action: 'CREATE', target: `Event: ${firstDoc.eventName}${isSeries ? ' (Series)' : ''}`, details: { id: firstDoc.id, isSeries, groupId }, ip: req.ip
+                actor, role, action: 'CREATE', target: `Event: ${firstDoc.eventName}${isSeries ? ' (Series)' : ''}`, details: { id: firstDoc.id, isSeries: Boolean(isSeries), groupId: groupId || null }, ip: req.ip
             });
 
             // Phase 4: Delta-based Audit Trail

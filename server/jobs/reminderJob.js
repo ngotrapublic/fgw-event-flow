@@ -8,8 +8,10 @@ class ReminderJob {
     }
 
     start() {
-        console.log('[REMINDER JOB] Starting background reminder job... (interval: 30m)');
-        this.intervalId = setInterval(() => this.run(), 1800000); // Every 30 minutes
+        console.log('[REMINDER JOB] Starting background reminder job... (interval: 15m)');
+        // Run immediately on start so upcoming reminders are not delayed by 15-30m
+        this.run().catch(err => console.error('[REMINDER JOB] Initial run error:', err));
+        this.intervalId = setInterval(() => this.run(), 900000); // Every 15 minutes
     }
 
     stop() {
@@ -57,31 +59,8 @@ class ReminderJob {
                 const timeDiffMs = eventStart - now;
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
 
-                // 1 Day Reminder (23h to 25h)
-                if (timeDiffHours >= 23 && timeDiffHours <= 25 && !event.remindersSent.oneDay) {
-                    console.log(`[REMINDER] Queueing 1-day reminder for "${event.eventName}"`);
-                    const emailQueue = require('../services/emailQueue');
-                    await emailQueue.enqueue(event, 'reminder_1day');
-
-                    // [NEW] In-App Reminder (Creator + Admin)
-                    const notificationService = require('../services/notificationService');
-                    const adminUids = await notificationService.getAdminUids();
-                    await notificationService.create({
-                        recipients: [event.createdBy, ...adminUids],
-                        type: 'warning',
-                        title: 'Upcoming Event (24h)',
-                        message: `"${event.eventName}" is scheduled for tomorrow.`,
-                        data: { eventId: event.id },
-                        sender: 'System'
-                    });
-
-                    await eventsCollection.doc(doc.id).set({
-                        remindersSent: { oneDay: true }
-                    }, { merge: true });
-                }
-
-                // 1 Hour Reminder (0.5h to 1.5h)
-                if (timeDiffHours >= 0.5 && timeDiffHours <= 1.5 && !event.remindersSent.oneHour) {
+                // 1. 1-Hour Reminder: Triggered when event is starting within 1.5 hours (and not already in the past)
+                if (timeDiffHours > 0 && timeDiffHours <= 1.5 && !event.remindersSent.oneHour) {
                     console.log(`[REMINDER] Queueing 1-hour reminder email for "${event.eventName}"`);
                     const emailQueue = require('../services/emailQueue');
                     await emailQueue.enqueue(event, 'reminder_1hour');
@@ -92,7 +71,7 @@ class ReminderJob {
                     const notificationService = require('../services/notificationService');
                     const adminUids = await notificationService.getAdminUids();
                     await notificationService.create({
-                        recipients: [event.createdBy, ...adminUids],
+                        recipients: [event.createdBy, ...adminUids].filter(Boolean),
                         type: 'warning',
                         title: 'Event Starting Soon (1h)',
                         message: `"${event.eventName}" will start in 1 hour. Get ready!`,
@@ -100,8 +79,39 @@ class ReminderJob {
                         sender: 'System'
                     });
 
+                    // Update flags safely preserving existing map
                     await eventsCollection.doc(doc.id).set({
-                        remindersSent: { oneHour: true }
+                        remindersSent: {
+                            ...(event.remindersSent || {}),
+                            oneDay: true,
+                            oneHour: true
+                        }
+                    }, { merge: true });
+                }
+                // 2. 1-Day Reminder: Triggered when event is within 24h (and > 1.5h away)
+                else if (timeDiffHours > 1.5 && timeDiffHours <= 24 && !event.remindersSent.oneDay) {
+                    console.log(`[REMINDER] Queueing 1-day reminder for "${event.eventName}"`);
+                    const emailQueue = require('../services/emailQueue');
+                    await emailQueue.enqueue(event, 'reminder_1day');
+
+                    // [NEW] In-App Reminder (Creator + Admin)
+                    const notificationService = require('../services/notificationService');
+                    const adminUids = await notificationService.getAdminUids();
+                    await notificationService.create({
+                        recipients: [event.createdBy, ...adminUids].filter(Boolean),
+                        type: 'warning',
+                        title: 'Upcoming Event (24h)',
+                        message: `"${event.eventName}" is scheduled for tomorrow.`,
+                        data: { eventId: event.id },
+                        sender: 'System'
+                    });
+
+                    // Update flags safely preserving existing map
+                    await eventsCollection.doc(doc.id).set({
+                        remindersSent: {
+                            ...(event.remindersSent || {}),
+                            oneDay: true
+                        }
                     }, { merge: true });
                 }
             }

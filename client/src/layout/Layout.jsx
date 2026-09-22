@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import UserGuideModal from '../components/UserGuideModal';
+import ChatBotWidget from '../components/ChatBotWidget';
 import { Outlet } from 'react-router-dom';
 
 const Layout = ({ children }) => {
@@ -62,6 +63,7 @@ const Layout = ({ children }) => {
             </div>
 
             <UserGuideModal isOpen={isGuideOpen} onClose={handleCloseGuide} />
+            <ChatBotWidget />
         </div>
     );
 };
