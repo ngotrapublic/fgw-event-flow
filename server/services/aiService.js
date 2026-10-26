@@ -62,6 +62,7 @@ QUY TẮC TẠO SỰ KIỆN:
 - CÁC THIẾT BỊ CÓ SẴN TRONG HỆ THỐNG: loa/âm thanh, mic/micro, màn hình LED/màn chiếu, bàn, ghế, tivi, standee/banner, ánh sáng/đèn, nước suối/teabreak.
 
 QUY TẮC TRA CỨU & THỐNG KÊ:
+- 'getEventDetails': LUÔN DÙNG khi người dùng hỏi về THIẾT BỊ, HẬU CẦN, BÀN GHẾ, ÂM THANH, MÀN HÌNH, SETUP, GHI CHÚ, hoặc THÔNG TIN CHI TIẾT của một sự kiện cụ thể (ví dụ: "Sự kiện X cần thiết bị gì?", "Chi tiết sự kiện Y").
 - 'getStats': CHỈ cho số liệu nhanh (hôm nay, ngày mai, tuần này, đang diễn ra).
 - 'searchEvents': Khi hỏi về sự kiện theo THÁNG, KHOẢNG THỜI GIAN, hoặc LIỆT KÊ danh sách.
 - 'checkLocationAvailability': Khi hỏi phòng/địa điểm có trống không vào ngày/giờ cụ thể.
@@ -151,7 +152,19 @@ const findContactTool = {
     }
 };
 
-const tools = [{ functionDeclarations: [draftEventTool, getStatsTool, searchEventsTool, checkLocationTool, findContactTool] }];
+const getEventDetailsTool = {
+    name: 'getEventDetails',
+    description: 'Tra cứu thông tin chi tiết một sự kiện: danh sách thiết bị/hậu cần (facilities, âm thanh, bàn ghế, LED...), ghi chú setup, địa điểm, thời gian, người phụ trách, phòng ban. Gọi khi người dùng hỏi về thiết bị, hậu cần, setup, cơ sở vật chất hoặc chi tiết sự kiện.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            eventName: { type: Type.STRING, description: 'Tên sự kiện cần tra cứu chi tiết (tìm kiếm tương đối).' }
+        },
+        required: ['eventName']
+    }
+};
+
+const tools = [{ functionDeclarations: [draftEventTool, getStatsTool, searchEventsTool, checkLocationTool, findContactTool, getEventDetailsTool] }];
 
 // ========== TOOL HANDLERS ==========
 async function handleDraftEvent(args, availableResources, userContext) {
@@ -339,7 +352,8 @@ async function handleFindContact(args) {
         eventDate: e.eventDate,
         department: e.department || 'N/A',
         registrantEmail: e.registrantEmail || 'N/A',
-        location: Array.isArray(e.location) ? e.location.join(', ') : (e.location || 'N/A')
+        location: Array.isArray(e.location) ? e.location.join(', ') : (e.location || 'N/A'),
+        facilitiesSummary: e.facilitiesSummary || 'Chưa đăng ký thiết bị'
     }));
     
     console.log(`[AI Agent] findContact found ${contacts.length} results`);
@@ -349,6 +363,69 @@ async function handleFindContact(args) {
         message: contacts.length > 0
             ? `Tìm thấy ${contacts.length} kết quả liên quan.`
             : 'Không tìm thấy kết quả phù hợp. Hãy thử từ khóa khác.'
+    };
+}
+
+async function handleGetEventDetails(args) {
+    const { eventName } = args;
+    console.log(`[AI Agent] getEventDetails: eventName="${eventName}"`);
+    if (!eventName) {
+        return { error: 'Vui lòng cung cấp tên sự kiện cần tra cứu.' };
+    }
+
+    const nameLower = eventName.toLowerCase().trim();
+
+    // Fetch recent & upcoming events from Firestore
+    const snapshot = await eventsCollection
+        .orderBy('eventDate', 'desc')
+        .limit(300)
+        .get();
+
+    const matchedDocs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(e => e.eventName && e.eventName.toLowerCase().includes(nameLower));
+
+    if (matchedDocs.length === 0) {
+        return {
+            found: false,
+            message: `Không tìm thấy sự kiện nào có tên khớp với "${eventName}".`
+        };
+    }
+
+    // Pick primary event (series start if exists, else first doc)
+    const primaryEvent = matchedDocs.find(e => e.isSeriesStart) || matchedDocs[0];
+
+    // Extract facilities checklist
+    const facilitiesList = [];
+    if (primaryEvent.facilitiesChecklist) {
+        Object.entries(primaryEvent.facilitiesChecklist).forEach(([key, val]) => {
+            if (val && (val.checked || val.quantity)) {
+                facilitiesList.push({
+                    item: val.label || key,
+                    quantity: val.quantity || 1
+                });
+            }
+        });
+    }
+
+    return {
+        found: true,
+        event: {
+            eventName: primaryEvent.eventName,
+            eventDate: primaryEvent.eventDate,
+            eventEndDate: primaryEvent.seriesEndDate || primaryEvent.eventEndDate || primaryEvent.eventDate,
+            startTime: primaryEvent.startTime || 'Chưa xác định',
+            endTime: primaryEvent.endTime || 'Chưa xác định',
+            location: Array.isArray(primaryEvent.location) ? primaryEvent.location.join(', ') : (primaryEvent.location || 'Chưa xác định'),
+            department: primaryEvent.department || 'Chưa xác định',
+            registrantEmail: primaryEvent.registrantEmail || 'Chưa có email',
+            facilitiesSummary: primaryEvent.facilitiesSummary || (facilitiesList.length > 0 ? facilitiesList.map(f => `${f.item} (${f.quantity})`).join(', ') : 'Không có yêu cầu thiết bị nào'),
+            facilitiesList: facilitiesList,
+            setupNotes: primaryEvent.setup || 'Không có ghi chú setup',
+            generalNotes: primaryEvent.notes || 'Không có ghi chú thêm',
+            services: primaryEvent.services || {},
+            equipmentInOut: primaryEvent.equipmentInOut || []
+        }
     };
 }
 
@@ -413,6 +490,8 @@ exports.processChat = async (message, history, userContext) => {
                     resultData = await handleCheckLocation(args);
                 } else if (name === 'findContact') {
                     resultData = await handleFindContact(args);
+                } else if (name === 'getEventDetails') {
+                    resultData = await handleGetEventDetails(args);
                 }
             } catch (err) {
                 console.error(`[AI Agent] Tool Execution Error (${name}):`, err);
