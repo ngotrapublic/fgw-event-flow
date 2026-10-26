@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useMotionValue, animate } from 'framer-motion';
 import { X, Send, Loader2, Sparkles, AlertCircle, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -29,7 +29,13 @@ const formatMarkdown = (text) => {
     return { __html: formatted };
 };
 
-const MascotAvatar = ({ isMini = false, isCloseMode = false }) => {
+const MascotAvatar = ({ 
+    isMini = false, 
+    isCloseMode = false, 
+    isHovered = false, 
+    isDragging = false,
+    isLeftHalf = false 
+}) => {
     if (isMini && isCloseMode) {
         return (
             <div className="relative flex items-center justify-center w-full h-full">
@@ -47,14 +53,156 @@ const MascotAvatar = ({ isMini = false, isCloseMode = false }) => {
         );
     }
 
+    // Seamless Organic Character Motion Timeline (Hands, legs 100% attached to clothes)
+    // - Fixed scale (no zoom, feet 100% visible on ground at all times)
+    // - Ambient Aurora Glow (Breathing royal blue & Greenwich gold aura)
+    // - Ground Hologram Pedestal (High-tech energy rings and dynamic contact shadow)
+    // - Pendulum hip sway & 3D perspective shoulder turn (rotateY)
+    // - Organic squash & stretch elasticity (scaleY / scaleX)
+    const animTimes = [0, 0.09, 0.18, 0.27, 0.36, 0.45, 0.54, 0.63, 0.72, 0.81, 0.90, 1.0];
+    const baseTorsoTurn = isLeftHalf ? 6 : -4;
+
     return (
         <div className="relative flex flex-col items-center justify-end select-none">
-            {/* Mascot Character with Floating Animation */}
+            {/* Ambient Aurora Glow (Hào quang ánh sáng công nghệ Greenwich) */}
+            <div className="absolute -inset-6 flex items-center justify-center pointer-events-none -z-10">
+                {/* Outer Breathing Aurora */}
+                <motion.div
+                    animate={isHovered ? {
+                        scale: [1.15, 1.35, 1.15],
+                        opacity: [0.65, 0.9, 0.65]
+                    } : isDragging ? {
+                        scale: 1.25,
+                        opacity: 0.85
+                    } : {
+                        scale: [0.95, 1.12, 0.95],
+                        opacity: [0.35, 0.6, 0.35]
+                    }}
+                    transition={{
+                        repeat: Infinity,
+                        duration: isHovered ? 1.4 : 3.6,
+                        ease: "easeInOut"
+                    }}
+                    className="w-32 h-32 rounded-full bg-gradient-to-tr from-[#003882]/40 via-[#F58220]/35 to-transparent blur-xl"
+                />
+                
+                {/* Inner Warm Gold Energy Core */}
+                <motion.div
+                    animate={isHovered ? {
+                        scale: [1.1, 1.25, 1.1],
+                        opacity: [0.75, 0.95, 0.75]
+                    } : {
+                        scale: [0.9, 1.05, 0.9],
+                        opacity: [0.35, 0.6, 0.35]
+                    }}
+                    transition={{
+                        repeat: Infinity,
+                        duration: isHovered ? 1.2 : 2.8,
+                        ease: "easeInOut",
+                        delay: 0.2
+                    }}
+                    className="absolute w-20 h-20 rounded-full bg-gradient-to-br from-[#F58220]/35 via-amber-300/30 to-[#003882]/25 blur-lg"
+                />
+            </div>
+
+            {/* Hover Magic Sparkles */}
+            <AnimatePresence>
+                {isHovered && (
+                    <>
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0, y: 5 }}
+                            animate={{ opacity: 1, scale: [1, 1.3, 1], rotate: [0, 20, -15, 0] }}
+                            exit={{ opacity: 0, scale: 0 }}
+                            transition={{ repeat: Infinity, duration: 1.0 }}
+                            className="absolute -top-2 left-2 text-amber-400 text-sm pointer-events-none z-30 drop-shadow-sm"
+                        >
+                            ✨
+                        </motion.div>
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0, y: 5 }}
+                            animate={{ opacity: 1, scale: [1, 1.2, 1], rotate: [0, -15, 20, 0] }}
+                            exit={{ opacity: 0, scale: 0 }}
+                            transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }}
+                            className="absolute top-3 right-0 text-amber-400 text-xs pointer-events-none z-30 drop-shadow-sm"
+                        >
+                            ⭐
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
+
+            {/* Cute Waving Greeting Badge */}
             <motion.div
-                animate={{ y: [0, -6, 0] }}
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-                whileHover={{ scale: 1.07, y: -8, transition: { duration: 0.25, type: "spring", stiffness: 300 } }}
-                className="relative z-10 origin-bottom cursor-pointer drop-shadow-[0_12px_18px_rgba(0,56,130,0.28)]"
+                animate={isHovered ? {
+                    opacity: 1,
+                    scale: 1.1,
+                    y: -4
+                } : {
+                    opacity: [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0],
+                    scale: [0, 0, 0, 0, 0, 1.15, 1.0, 1.1, 0, 0, 0, 0],
+                    y: [5, 5, 5, 5, 5, -3, 0, -2, 5, 5, 5, 5]
+                }}
+                transition={isHovered ? {
+                    duration: 0.2
+                } : {
+                    repeat: Infinity,
+                    duration: 6.8,
+                    ease: "easeInOut",
+                    times: animTimes
+                }}
+                className={`absolute -top-3 ${isLeftHalf ? 'left-0' : 'right-0'} z-30 pointer-events-none`}
+            >
+                <div className="bg-white/95 backdrop-blur-sm border-2 border-amber-400 text-amber-600 rounded-full px-2.5 py-0.5 shadow-lg flex items-center gap-1">
+                    <motion.span 
+                        animate={{ rotate: [0, 25, -15, 25, 0] }} 
+                        transition={{ repeat: Infinity, duration: 0.6, ease: "easeInOut" }}
+                        className="text-sm inline-block origin-bottom-right"
+                    >
+                        👋
+                    </motion.span>
+                    <span className="text-[11px] text-slate-800 font-black tracking-tight">
+                        {isHovered ? "Chat với tớ nhé!" : "Chào bạn!"}
+                    </span>
+                </div>
+            </motion.div>
+
+            {/* Seamless Living Character (100% intact image: hands, legs, clothes attached) */}
+            <motion.div
+                animate={isHovered ? {
+                    x: 2,
+                    y: [-4, -8, -4],
+                    rotate: [3, 6, 3],
+                    rotateY: baseTorsoTurn + 8,
+                    skewX: 1.5,
+                    scaleY: [1.02, 1.05, 1.02],
+                    scaleX: [0.99, 0.97, 0.99]
+                } : {
+                    // Stride sway and weight shifting (x translation)
+                    x: [0, -4, 0, 4, 0, 2, 4, 2, 0, -3, 0, 0],
+                    // Footstep cadence & cheerful bounce (y translation)
+                    y: [0, 2, -5, 2, -5, 0, -6, 1, -5, 2, -4, 0],
+                    // Natural spine sway & greeting tilt
+                    rotate: [0, -2.5, 0, 2.5, 0, 3.5, 4.5, 2.5, 4.0, -2.5, 0, 0],
+                    // 3D Perspective torso twist (shoulders turning naturally towards screen center)
+                    rotateY: [baseTorsoTurn, baseTorsoTurn - 6, baseTorsoTurn, baseTorsoTurn + 6, baseTorsoTurn, baseTorsoTurn + 4, baseTorsoTurn + 6, baseTorsoTurn + 2, baseTorsoTurn + 5, baseTorsoTurn - 6, baseTorsoTurn, baseTorsoTurn],
+                    // Organic waist shear / flexibility
+                    skewX: [0, -2.0, 0, 2.0, 0, 2.2, 3.0, 1.5, 2.2, -2.0, 0, 0],
+                    // Squash & Stretch: vertical elasticity of knees & spine
+                    scaleY: [1.0, 0.97, 1.03, 0.97, 1.03, 1.0, 1.04, 0.97, 1.03, 0.97, 1.02, 1.0],
+                    // Volume preservation: horizontal compensation
+                    scaleX: [1.0, 1.02, 0.98, 1.02, 0.98, 1.0, 0.97, 1.02, 0.98, 1.02, 0.99, 1.0]
+                }}
+                transition={isHovered ? {
+                    repeat: Infinity,
+                    duration: 1.2,
+                    ease: "easeInOut"
+                } : {
+                    repeat: Infinity,
+                    duration: 6.8,
+                    ease: "easeInOut",
+                    times: animTimes
+                }}
+                className="relative z-10 origin-bottom cursor-pointer drop-shadow-[0_14px_22px_rgba(0,56,130,0.32)]"
             >
                 <img 
                     src="/assets/greenwich-mascot.png" 
@@ -64,12 +212,67 @@ const MascotAvatar = ({ isMini = false, isCloseMode = false }) => {
                 />
             </motion.div>
 
-            {/* Dynamic Ground Shadow */}
-            <motion.div 
-                animate={{ scale: [1, 0.75, 1], opacity: [0.35, 0.18, 0.35] }}
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-                className="w-16 h-2.5 bg-blue-950/40 rounded-full blur-[3px] -mt-1 z-0"
-            />
+            {/* High-Tech Holographic Energy Pedestal & Ground Contact Shadow */}
+            <div className="relative flex flex-col items-center justify-center -mt-1 pointer-events-none z-0">
+                {/* Holographic Rotating Concentric Ring */}
+                <motion.div
+                    animate={{
+                        rotate: 360,
+                        scale: isHovered ? [1.05, 1.18, 1.05] : [0.95, 1.05, 0.95]
+                    }}
+                    transition={{
+                        rotate: { repeat: Infinity, duration: 10, ease: "linear" },
+                        scale: { repeat: Infinity, duration: 2.5, ease: "easeInOut" }
+                    }}
+                    className="absolute -top-1 w-20 h-5 rounded-[100%] border border-amber-400/50 border-dashed opacity-80"
+                />
+
+                {/* Outer Tech Pulse Ring */}
+                <motion.div
+                    animate={{
+                        rotate: -360,
+                        scale: isHovered ? [1.12, 1.25, 1.12] : [1.0, 1.08, 1.0],
+                        opacity: isHovered ? 0.7 : 0.4
+                    }}
+                    transition={{
+                        rotate: { repeat: Infinity, duration: 16, ease: "linear" },
+                        scale: { repeat: Infinity, duration: 3, ease: "easeInOut" }
+                    }}
+                    className="absolute -top-1.5 w-24 h-6 rounded-[100%] border border-[#003882]/40 border-dotted"
+                />
+
+                {/* Hologram Core Glow Beam */}
+                <motion.div
+                    animate={{
+                        opacity: isHovered ? [0.65, 0.9, 0.65] : [0.35, 0.55, 0.35],
+                        scaleX: isHovered ? 1.15 : 1.0
+                    }}
+                    transition={{ repeat: Infinity, duration: 2.0, ease: "easeInOut" }}
+                    className="absolute -top-0.5 w-16 h-3 rounded-[100%] bg-gradient-to-r from-[#003882]/40 via-amber-400/60 to-[#003882]/40 blur-[2px]"
+                />
+
+                {/* Dynamic Organic Ground Shadow */}
+                <motion.div 
+                    animate={isHovered ? {
+                        scaleX: [1.05, 0.9, 1.05],
+                        opacity: [0.4, 0.25, 0.4]
+                    } : { 
+                        scaleX: [1.0, 1.15, 0.85, 1.15, 0.85, 1.0, 0.85, 1.15, 0.90, 1.15, 0.90, 1.0],
+                        opacity: [0.35, 0.45, 0.22, 0.45, 0.22, 0.35, 0.20, 0.48, 0.25, 0.45, 0.25, 0.35] 
+                    }}
+                    transition={isHovered ? {
+                        repeat: Infinity,
+                        duration: 1.2,
+                        ease: "easeInOut"
+                    } : { 
+                        repeat: Infinity, 
+                        duration: 6.8, 
+                        ease: "easeInOut",
+                        times: animTimes
+                    }}
+                    className="w-16 h-2.5 bg-blue-950/45 rounded-full blur-[3px]"
+                />
+            </div>
         </div>
     );
 };
@@ -81,7 +284,135 @@ const ChatBotWidget = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isHovered, setIsHovered] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
     const messagesEndRef = useRef(null);
+    const dragConstraintsRef = useRef(null);
+    const widgetRef = useRef(null);
+    const isDraggingRef = useRef(false);
+    const [isTopHalf, setIsTopHalf] = useState(false);
+    const [isLeftHalf, setIsLeftHalf] = useState(false);
+
+    // Motion values for smooth magnetic edge snapping
+    const x = useMotionValue(0);
+    const y = useMotionValue(0);
+
+    // Helper to calculate safe left docking position avoiding sidebar collision
+    const getSafeLeft = () => {
+        const sidebar = document.querySelector('aside');
+        if (sidebar) {
+            const rect = sidebar.getBoundingClientRect();
+            if (rect.width > 0 && rect.right > 0 && rect.left >= 0 && rect.right < window.innerWidth / 2) {
+                return rect.right + 20; // 20px comfortable spacing beside the dashboard sidebar
+            }
+        }
+        return window.innerWidth < 640 ? 16 : 24;
+    };
+
+    const handleDragStart = () => {
+        isDraggingRef.current = true;
+        setIsDragging(true);
+        setIsHovered(false);
+    };
+
+    const handleDrag = (event, info) => {
+        if (info && info.point) {
+            const safeLeft = getSafeLeft();
+            const rightMargin = window.innerWidth < 640 ? 16 : 24;
+            const distToLeft = Math.abs(info.point.x - safeLeft);
+            const distToRight = Math.abs(window.innerWidth - rightMargin - info.point.x);
+            const currentToLeft = distToLeft < distToRight;
+            if (currentToLeft !== isLeftHalf) {
+                setIsLeftHalf(currentToLeft);
+            }
+        }
+    };
+
+    const handleDragEnd = (event, info) => {
+        setTimeout(() => {
+            isDraggingRef.current = false;
+            setIsDragging(false);
+        }, 150);
+
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        const currentPointX = info?.point?.x ?? windowWidth;
+        const currentPointY = info?.point?.y ?? windowHeight;
+
+        const safeLeft = getSafeLeft();
+        const rightMargin = windowWidth < 640 ? 16 : 24;
+        const distToLeft = Math.abs(currentPointX - safeLeft);
+        const distToRight = Math.abs(windowWidth - rightMargin - currentPointX);
+        const toLeft = distToLeft < distToRight;
+        const toTop = currentPointY < windowHeight / 2;
+
+        setIsLeftHalf(toLeft);
+        setIsTopHalf(toTop);
+
+        const chatWidth = windowWidth < 640 ? Math.min(320, windowWidth - (rightMargin * 2)) : 384;
+        const currentWidth = isOpen ? chatWidth : 100;
+        
+        // Exact formula so the left edge lands cleanly at safeLeft (outside sidebar)
+        const targetX = toLeft ? (safeLeft + currentWidth + rightMargin - windowWidth) : 0;
+
+        // Apple AssistiveTouch-style spring snap physics
+        animate(x, targetX, {
+            type: "spring",
+            stiffness: 380,
+            damping: 26,
+            restDelta: 0.5
+        });
+
+        // Viewport bounds safe clamping for Y (so mascot and header/bottom never overlap or clip)
+        const elementHeight = isOpen ? 580 : 150;
+        const safeTop = 32;
+        const minY = -(windowHeight - rightMargin - safeTop - elementHeight);
+        const maxY = 0;
+        const currentY = y.get();
+
+        if (currentY < minY) {
+            animate(y, minY, { type: "spring", stiffness: 350, damping: 26 });
+        } else if (currentY > maxY) {
+            animate(y, maxY, { type: "spring", stiffness: 350, damping: 26 });
+        }
+    };
+
+    // Re-dock smoothly when chat opens/closes or window/sidebar resizes while docked to the left edge
+    useEffect(() => {
+        const updatePosition = () => {
+            if (isLeftHalf) {
+                const windowWidth = window.innerWidth;
+                const rightMargin = windowWidth < 640 ? 16 : 24;
+                const chatWidth = windowWidth < 640 ? Math.min(320, windowWidth - (rightMargin * 2)) : 384;
+                const currentWidth = isOpen ? chatWidth : 100;
+                const safeLeft = getSafeLeft();
+                const targetX = safeLeft + currentWidth + rightMargin - windowWidth;
+                animate(x, targetX, {
+                    type: "spring",
+                    stiffness: 380,
+                    damping: 28
+                });
+            }
+        };
+
+        updatePosition();
+        window.addEventListener('resize', updatePosition);
+
+        // Auto-adjust when sidebar expands/collapses
+        const sidebar = document.querySelector('aside');
+        let observer;
+        if (sidebar && window.ResizeObserver) {
+            observer = new ResizeObserver(() => {
+                updatePosition();
+            });
+            observer.observe(sidebar);
+        }
+
+        return () => {
+            window.removeEventListener('resize', updatePosition);
+            if (observer) observer.disconnect();
+        };
+    }, [isOpen, isLeftHalf]);
 
     // Only show if user is logged in
     if (!user) return null;
@@ -171,16 +502,47 @@ const ChatBotWidget = () => {
     };
 
     return (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        <div ref={dragConstraintsRef} className="fixed inset-0 pointer-events-none z-50">
+            {/* Magnetic Edge Docking Aura (Guideline during drag) */}
             <AnimatePresence>
-                {isOpen && (
+                {isDragging && (
                     <motion.div
-                        initial={{ opacity: 0, y: 20, scale: 0.95, filter: 'blur(10px)' }}
-                        animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-                        exit={{ opacity: 0, y: 20, scale: 0.95, filter: 'blur(10px)' }}
-                        transition={{ duration: 0.3, type: "spring", bounce: 0.4 }}
-                        className="bg-white/95 backdrop-blur-xl border-2 border-slate-800 rounded-[24px] shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] w-80 sm:w-96 h-[550px] mb-4 flex flex-col overflow-hidden ring-1 ring-white/50"
-                    >
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        style={isLeftHalf ? { left: `${Math.max(0, getSafeLeft() - 8)}px` } : { right: '0px' }}
+                        className="fixed top-0 w-1.5 h-full bg-gradient-to-b from-transparent via-[#F58220]/60 to-transparent pointer-events-none z-40 blur-[2px]"
+                    />
+                )}
+            </AnimatePresence>
+
+            <motion.div
+                ref={widgetRef}
+                drag
+                dragConstraints={dragConstraintsRef}
+                dragElastic={0.08}
+                dragMomentum={false}
+                style={{ x, y }}
+                onDragStart={handleDragStart}
+                onDrag={handleDrag}
+                onDragEnd={handleDragEnd}
+                whileDrag={{ scale: 1.05 }}
+                className={`pointer-events-auto absolute bottom-6 right-6 flex ${
+                    isTopHalf ? 'flex-col-reverse' : 'flex-col'
+                } ${isLeftHalf ? 'items-start' : 'items-end'} select-none`}
+            >
+                <AnimatePresence>
+                    {isOpen && (
+                        <motion.div
+                            initial={{ opacity: 0, y: isTopHalf ? -20 : 20, scale: 0.95, filter: 'blur(10px)' }}
+                            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                            exit={{ opacity: 0, y: isTopHalf ? -20 : 20, scale: 0.95, filter: 'blur(10px)' }}
+                            transition={{ duration: 0.3, type: "spring", bounce: 0.4 }}
+                            className={`bg-white/95 backdrop-blur-xl border-2 border-slate-800 rounded-[24px] shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] w-80 sm:w-96 h-[550px] ${
+                                isTopHalf ? 'mt-3' : 'mb-3'
+                            } flex flex-col overflow-hidden ring-1 ring-white/50`}
+                        >
                         {/* Header - Greenwich Signature Colors */}
                         <div className="bg-gradient-to-r from-[#002d6b] via-[#003882] to-[#004bb5] text-white p-3.5 flex items-center justify-between border-b-2 border-slate-800 shrink-0 relative overflow-hidden">
                             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
@@ -285,17 +647,36 @@ const ChatBotWidget = () => {
                             ))}
                             {isLoading && (
                                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-end gap-2 justify-start">
-                                    <div className="w-7 h-7 rounded-full overflow-hidden border border-blue-200 bg-white shadow-xs shrink-0 mb-1">
+                                    {/* Thinking Mascot Avatar with lightbulb pulse */}
+                                    <motion.div 
+                                        animate={{ 
+                                            rotate: [-3, 3, -3],
+                                            y: [0, -2, 0]
+                                        }} 
+                                        transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
+                                        className="w-8 h-8 rounded-full overflow-hidden border-2 border-amber-400 bg-white shadow-sm shrink-0 mb-1 relative"
+                                    >
                                         <img 
                                             src="/assets/greenwich-mascot.png" 
-                                            alt="AI" 
+                                            alt="AI Thinking" 
                                             className="w-full h-full object-cover object-top scale-125 translate-y-0.5"
                                         />
-                                    </div>
-                                    <div className="bg-white/90 backdrop-blur-sm border-2 border-slate-200 rounded-2xl rounded-tl-[4px] px-4 py-3 flex gap-1.5 items-center shadow-sm">
-                                        <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-2 h-2 rounded-full bg-blue-500" />
-                                        <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-2 h-2 rounded-full bg-amber-500" />
-                                        <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} className="w-2 h-2 rounded-full bg-blue-700" />
+                                        {/* Thinking Sparkle Badge */}
+                                        <motion.div 
+                                            animate={{ scale: [1, 1.25, 1], opacity: [0.8, 1, 0.8] }}
+                                            transition={{ repeat: Infinity, duration: 1.2 }}
+                                            className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-400 text-slate-900 rounded-full flex items-center justify-center text-[9px] shadow-xs"
+                                        >
+                                            💡
+                                        </motion.div>
+                                    </motion.div>
+                                    <div className="bg-white/95 backdrop-blur-sm border-2 border-slate-200 rounded-2xl rounded-tl-[4px] px-3.5 py-2.5 flex flex-col gap-1 shadow-sm">
+                                        <div className="flex gap-1.5 items-center">
+                                            <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-2 h-2 rounded-full bg-[#003882]" />
+                                            <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-2 h-2 rounded-full bg-[#F58220]" />
+                                            <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} className="w-2 h-2 rounded-full bg-blue-500" />
+                                            <span className="text-[11px] font-bold text-slate-600 ml-1">Đang suy nghĩ & tra cứu... ⚡</span>
+                                        </div>
                                     </div>
                                 </motion.div>
                             )}
@@ -329,44 +710,68 @@ const ChatBotWidget = () => {
             </AnimatePresence>
 
             {/* Toggle Button Container */}
-            <div className="relative flex flex-col items-end gap-2">
-                {/* Cute Floating Greeting Bubble */}
+            <div className="relative">
+                {/* Cute Floating Greeting Bubble - positioned absolute so it NEVER alters container width */}
                 <AnimatePresence>
                     {!isOpen && (
                         <motion.div
-                            initial={{ opacity: 0, y: 10, scale: 0.8, rotate: -3 }}
-                            animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
-                            exit={{ opacity: 0, y: 10, scale: 0.8 }}
-                            transition={{ delay: 1.5, duration: 0.4, type: "spring" }}
-                            className="bg-white text-slate-800 px-3.5 py-2 rounded-2xl rounded-br-sm border-2 border-slate-800 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer origin-bottom-right max-w-[260px] text-left leading-snug"
-                            onClick={() => setIsOpen(true)}
+                            initial={{ opacity: 0, y: isTopHalf ? -8 : 8, scale: 0.85 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: isTopHalf ? -8 : 8, scale: 0.85 }}
+                            transition={{ delay: 1.2, duration: 0.35, type: "spring" }}
+                            className={`absolute ${
+                                isTopHalf ? 'top-[105%]' : 'bottom-[105%]'
+                            } ${
+                                isLeftHalf ? 'left-0 origin-bottom-left' : 'right-0 origin-bottom-right'
+                            } z-30 bg-white text-slate-800 px-3.5 py-2 rounded-2xl ${
+                                isLeftHalf 
+                                    ? (isTopHalf ? 'rounded-tl-sm' : 'rounded-bl-sm') 
+                                    : (isTopHalf ? 'rounded-tr-sm' : 'rounded-br-sm')
+                            } border-2 border-slate-800 shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer w-max max-w-[260px] text-left leading-snug pointer-events-auto select-none`}
+                            onClick={() => {
+                                if (isDraggingRef.current) return;
+                                setIsOpen(true);
+                            }}
                         >
-                            <span>{randomGreeting}</span>
+                            <span>{isHovered ? "Chào bạn nha! Chat với tớ nè! 🦁✨" : randomGreeting}</span>
                         </motion.div>
                     )}
                 </AnimatePresence>
 
                 <motion.div className="relative">
                     <motion.button
-                        whileHover="hover"
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setIsOpen(!isOpen)}
-                        className={`relative z-10 flex flex-col items-center justify-end transition-all overflow-visible ${
+                        onMouseEnter={() => {
+                            if (!isDraggingRef.current) setIsHovered(true);
+                        }}
+                        onMouseLeave={() => setIsHovered(false)}
+                        whileTap={{ scale: 0.92, y: 3 }}
+                        onClick={() => {
+                            if (isDraggingRef.current) return;
+                            setIsOpen(!isOpen);
+                            setIsHovered(false);
+                        }}
+                        className={`relative z-10 flex flex-col items-center justify-end transition-all overflow-visible cursor-grab active:cursor-grabbing ${
                             isOpen 
-                                ? 'w-14 h-14 bg-white/95 backdrop-blur-md rounded-full shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] border-2 border-slate-800 cursor-pointer hover:bg-rose-50 flex items-center justify-center' 
-                                : 'w-[96px] h-[135px] cursor-pointer bg-transparent border-none outline-none'
+                                ? 'w-14 h-14 bg-white/95 backdrop-blur-md rounded-full shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] border-2 border-slate-800 hover:bg-rose-50 flex items-center justify-center' 
+                                : 'w-[100px] h-[142px] bg-transparent border-none outline-none'
                         }`}
-                        title={isOpen ? "Đóng chat" : "Chat với Greenwich AI"}
+                        title={isOpen ? "Đóng chat" : "Nhấp để chat • Nắm và kéo để di chuyển khắp màn hình 🦁✨"}
                     >
                         {isOpen ? (
                             <MascotAvatar isMini={true} isCloseMode={true} />
                         ) : (
-                            <MascotAvatar isMini={false} />
+                            <MascotAvatar 
+                                isMini={false} 
+                                isHovered={isHovered} 
+                                isDragging={isDragging}
+                                isLeftHalf={isLeftHalf}
+                            />
                         )}
                     </motion.button>
                 </motion.div>
             </div>
-        </div>
+        </motion.div>
+    </div>
     );
 };
 

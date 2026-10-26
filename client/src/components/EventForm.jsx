@@ -261,7 +261,7 @@ const EventForm = () => {
                         const conflict = response.data.conflictingEvent;
                         const conflictLocs = Array.isArray(conflict.location) ? conflict.location.join(', ') : conflict.location;
                         const myLocs = Array.isArray(watchLocation) ? watchLocation.join(', ') : watchLocation;
-                        setConflictWarning(`⚠️ Warning: Location(s) "${myLocs}" overlap with "${conflict.eventName}" at "${conflictLocs}" on ${watchDate} (${conflict.startTime} - ${conflict.endTime}).`);
+                        setConflictWarning(`⚠️ Bị trùng lịch: Địa điểm "${myLocs}" trùng với sự kiện "${conflict.eventName}" tại "${conflictLocs}" vào ngày ${watchDate} (${conflict.startTime} - ${conflict.endTime}). Bạn có chắc chắn muốn bỏ qua cảnh báo và tiếp tục lưu không?`);
                     } else {
                         setConflictWarning(null);
                     }
@@ -599,6 +599,19 @@ const EventForm = () => {
                                                 </Button>
                                             </div>
                                         </InputGroup>
+
+                                        {conflictWarning && (
+                                            <motion.div
+                                                initial={{ opacity: 0, y: -6 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className="p-3.5 bg-amber-50 border-2 border-amber-400 rounded-xl flex items-start gap-3 shadow-[2px_2px_0px_0px_rgba(245,158,11,1)]"
+                                            >
+                                                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                                                <div className="text-xs sm:text-sm text-amber-900 font-semibold leading-relaxed">
+                                                    {conflictWarning}
+                                                </div>
+                                            </motion.div>
+                                        )}
 
                                         <InputGroup label="Description / Content" error={errors.content}>
                                             <textarea
@@ -947,7 +960,9 @@ const EventForm = () => {
                                     </p>
                                     <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-3">
                                         <p className="text-xs text-amber-800 font-bold">
-                                            Bạn có chắc chắn muốn tạo sự kiện này dù trùng lịch không?
+                                            {id 
+                                                ? 'Bạn có chắc chắn muốn cập nhật sự kiện này dù trùng lịch không?' 
+                                                : 'Bạn có chắc chắn muốn tạo sự kiện này dù trùng lịch không?'}
                                         </p>
                                     </div>
                                 </div>
@@ -968,7 +983,7 @@ const EventForm = () => {
                                         className="flex-1 bg-amber-500 hover:bg-amber-600 text-black border-2 border-black rounded-lg shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all font-bold gap-2"
                                     >
                                         <Check size={16} />
-                                        Tôi hiểu, vẫn tạo
+                                        {id ? 'Tôi hiểu, vẫn cập nhật' : 'Tôi hiểu, vẫn tạo'}
                                     </Button>
                                 </div>
                             </motion.div>

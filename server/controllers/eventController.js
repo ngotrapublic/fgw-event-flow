@@ -420,8 +420,15 @@ exports.getCalendarEvents = async (req, res, next) => {
  */
 exports.checkConflict = async (req, res, next) => {
     try {
-        const { excludeId, ...eventData } = req.body;
-        const conflict = await conflictService.checkConflict(eventData, excludeId);
+        const { excludeId, excludeGroupId, ...eventData } = req.body;
+        let resolvedGroupId = excludeGroupId;
+        if (excludeId && !resolvedGroupId) {
+            const existing = await eventsCollection.doc(excludeId).get();
+            if (existing.exists) {
+                resolvedGroupId = existing.data().groupId || null;
+            }
+        }
+        const conflict = await conflictService.checkConflict(eventData, excludeId, resolvedGroupId);
 
         if (conflict) {
             res.json({ conflict: true, conflictingEvent: conflict });
@@ -611,14 +618,44 @@ exports.updateEvent = async (req, res, next) => {
         }
 
         // Check for conflicts (excluding current event and all series siblings)
-        const conflict = await conflictService.checkConflict(updatedEvent, id, oldEvent.groupId || null);
-        if (conflict) {
-            return res.status(409).json({
-                error: 'Conflict detected',
-                message: 'Updated schedule conflicts with an existing event.',
-                conflictingEvent: conflict
-            });
+        // Skip conflict check if client explicitly passes skipConflictCheck: true
+        if (!req.body.skipConflictCheck) {
+            if (oldEvent.groupId && req.body.eventEndDate) {
+                const newStartDate = req.body.eventDate || oldEvent.eventDate;
+                const newEndDate = req.body.eventEndDate;
+                const checkDates = [];
+                let cur = new Date(newStartDate);
+                const edEnd = new Date(newEndDate);
+                while (cur <= edEnd && checkDates.length < 30) {
+                    checkDates.push(cur.toISOString().split('T')[0]);
+                    cur.setDate(cur.getDate() + 1);
+                }
+                for (const dateStr of checkDates) {
+                    const tempEvent = { ...updatedEvent, eventDate: dateStr };
+                    const conflict = await conflictService.checkConflict(tempEvent, id, oldEvent.groupId || null);
+                    if (conflict) {
+                        return res.status(409).json({
+                            error: 'Conflict detected',
+                            message: `Updated schedule conflicts with an existing event on ${dateStr}.`,
+                            conflictingEvent: conflict
+                        });
+                    }
+                }
+            } else {
+                const conflict = await conflictService.checkConflict(updatedEvent, id, oldEvent.groupId || null);
+                if (conflict) {
+                    return res.status(409).json({
+                        error: 'Conflict detected',
+                        message: 'Updated schedule conflicts with an existing event.',
+                        conflictingEvent: conflict
+                    });
+                }
+            }
         }
+
+        // Clean up the flag before saving to database
+        delete req.body.skipConflictCheck;
+        delete updatedEvent.skipConflictCheck;
 
         // --- Series-aware update ---
         if (oldEvent.groupId && req.body.eventEndDate) {
@@ -667,9 +704,10 @@ exports.updateEvent = async (req, res, next) => {
                     });
                 } else {
                     // Create new doc for this date
+                    const { id: _ignoredId, ...templateData } = oldEvent;
                     const newDocRef = eventsCollection.doc();
                     batch.set(newDocRef, {
-                        ...oldEvent,
+                        ...templateData,
                         ...commonFields,
                         eventDate: dateStr,
                         groupId,
