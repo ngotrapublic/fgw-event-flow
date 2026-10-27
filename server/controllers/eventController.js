@@ -26,7 +26,7 @@ const canModifyEvent = (user, event) => {
  */
 exports.getAllEvents = async (req, res, next) => {
     try {
-        const { startDate, endDate, limit = 12, lastDocId, department, location, dateFilter } = req.query;
+        const { startDate, endDate, limit = 12, lastDocId, department, location, dateFilter, sortOrder } = req.query;
         const parsedLimit = Math.min(parseInt(limit) || 12, 100);
 
         // ──────────────────────────────────────────────────────────────
@@ -64,7 +64,15 @@ exports.getAllEvents = async (req, res, next) => {
                 .where('eventDate', '<=', endDate);
         }
 
-        baseQuery = baseQuery.orderBy('eventDate', 'desc');
+        // Determine sort direction:
+        // - Explicit sortOrder takes precedence ('asc' | 'desc')
+        // - 'past' filter defaults to 'desc' (most recently past events first)
+        // - Otherwise default to 'asc' (chronological: upcoming / earliest first)
+        const direction = sortOrder
+            ? (sortOrder.toLowerCase() === 'desc' ? 'desc' : 'asc')
+            : (dateFilter === 'past' ? 'desc' : 'asc');
+
+        baseQuery = baseQuery.orderBy('eventDate', direction);
 
         // Cursor-based pagination
         let paginatedQuery = baseQuery;
@@ -82,6 +90,16 @@ exports.getAllEvents = async (req, res, next) => {
         const hasMore = allDocs.length > parsedLimit;
         const finalEvents = hasMore ? allDocs.slice(0, parsedLimit) : allDocs;
         const lastReturnedDoc = snapshot.docs[finalEvents.length - 1] || null;
+
+        // Secondary sort: for events occurring on the same date, sort by startTime ascending
+        finalEvents.sort((a, b) => {
+            if (a.eventDate === b.eventDate) {
+                const timeA = a.startTime || '00:00';
+                const timeB = b.startTime || '00:00';
+                return timeA.localeCompare(timeB);
+            }
+            return 0;
+        });
 
         // ──────────────────────────────────────────────────────────────
         // ACCURATE TOTAL: Use aggregation query when filters are active,

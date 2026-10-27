@@ -634,12 +634,12 @@ const EventDashboard = () => {
     const [filterMode, setFilterMode] = useState('all');
     const [filterDepartment, setFilterDepartment] = useState('all');
     const [filterLocation, setFilterLocation] = useState('all');
-    const [filterDate, setFilterDate] = useState('all');
+    const [filterDate, setFilterDate] = useState('upcoming');
     const [showFilterPanel, setShowFilterPanel] = useState(false);
     const [drilldownType, setDrilldownType] = useState(null);
 
     // Count active filters for badge
-    const activeFilterCount = [filterDepartment, filterLocation, filterDate].filter(f => f !== 'all').length;
+    const activeFilterCount = [filterDepartment !== 'all', filterLocation !== 'all', filterDate !== 'upcoming'].filter(Boolean).length;
 
     // Reset to first page when filter/search changes
     useEffect(() => {
@@ -794,15 +794,29 @@ const EventDashboard = () => {
     // Debounce search input to avoid filtering on every keystroke
     const debouncedSearch = useDebounce(searchTerm, 300);
 
-    // Client-side search only — department/location/date filters are handled by backend
+    // Client-side search & secondary sort by startTime
     const filteredEvents = useMemo(() => {
-        if (!debouncedSearch) return events;
-        return events.filter(event => {
+        let result = events;
+        if (debouncedSearch) {
             const term = debouncedSearch.toLowerCase();
-            const matchesName = String(event.eventName || '').toLowerCase().includes(term);
-            const matchesLocation = String(event.location || '').toLowerCase().includes(term);
-            const matchesDepartment = String(event.department || '').toLowerCase().includes(term);
-            return matchesName || matchesLocation || matchesDepartment;
+            result = events.filter(event => {
+                const matchesName = String(event.eventName || '').toLowerCase().includes(term);
+                const matchesLocation = Array.isArray(event.location)
+                    ? event.location.some(l => String(l).toLowerCase().includes(term))
+                    : String(event.location || '').toLowerCase().includes(term);
+                const matchesDepartment = String(event.department || '').toLowerCase().includes(term);
+                return matchesName || matchesLocation || matchesDepartment;
+            });
+        }
+
+        // Secondary sort: when dates are the same, sort by startTime ascending (Sáng -> Chiều -> Tối)
+        return [...result].sort((a, b) => {
+            if (a.eventDate === b.eventDate) {
+                const timeA = a.startTime || '00:00';
+                const timeB = b.startTime || '00:00';
+                return timeA.localeCompare(timeB);
+            }
+            return 0; // maintain backend date order
         });
     }, [events, debouncedSearch]);
 
@@ -811,7 +825,7 @@ const EventDashboard = () => {
     const handleResetFilters = useCallback(() => {
         setFilterDepartment('all');
         setFilterLocation('all');
-        setFilterDate('all');
+        setFilterDate('upcoming');
     }, []);
 
 
@@ -983,10 +997,10 @@ const EventDashboard = () => {
                                         onChange={(e) => setFilterDate(e.target.value)}
                                         className="w-full px-3 py-2.5 border-2 border-black bg-white text-sm font-bold text-slate-800 rounded-lg shadow-[3px_3px_0_rgba(99,102,241,0.3)] focus:shadow-[1px_1px_0_rgba(99,102,241,0.3)] focus:translate-x-[2px] focus:translate-y-[2px] focus:outline-none transition-all appearance-none cursor-pointer"
                                     >
-                                        <option value="all">Tất cả</option>
-                                        <option value="today">Hôm nay</option>
                                         <option value="upcoming">Sắp diễn ra</option>
+                                        <option value="today">Hôm nay</option>
                                         <option value="past">Đã kết thúc</option>
+                                        <option value="all">Tất cả</option>
                                     </select>
                                 </div>
                             </div>
