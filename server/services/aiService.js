@@ -18,14 +18,46 @@ const RESOURCE_ALIASES = {
     'nuoc': ['nước', 'teabreak', 'tea break', 'nước suối', 'catering', 'coffee'],
 };
 
+let cachedResources = null;
+let cachedResourcesExpiry = 0;
+
 async function getDynamicResources() {
+    const now = Date.now();
+    if (cachedResources && cachedResourcesExpiry > now) {
+        return cachedResources;
+    }
     try {
         const snapshot = await resourcesCollection.get();
         if (snapshot.empty) return [];
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        cachedResources = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        cachedResourcesExpiry = now + 15 * 60 * 1000; // Cache 15 minutes
+        return cachedResources;
     } catch (e) {
         console.error('Failed to load resources for AI:', e);
-        return [];
+        return cachedResources || [];
+    }
+}
+
+// In-memory cache for recent events (prevents fetching 300 docs on every query)
+let cachedRecentEvents = null;
+let cachedRecentEventsExpiry = 0;
+
+async function getCachedRecentEvents() {
+    const now = Date.now();
+    if (cachedRecentEvents && cachedRecentEventsExpiry > now) {
+        return cachedRecentEvents;
+    }
+    try {
+        const snapshot = await eventsCollection
+            .orderBy('eventDate', 'desc')
+            .limit(150)
+            .get();
+        cachedRecentEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        cachedRecentEventsExpiry = now + 60 * 1000; // Cache 60 seconds
+        return cachedRecentEvents;
+    } catch (e) {
+        console.error('Failed to load recent events for AI:', e);
+        return cachedRecentEvents || [];
     }
 }
 
@@ -321,17 +353,9 @@ async function handleFindContact(args) {
     let events = [];
     
     if (eventName) {
-        // Search by event name (get recent 200 events and filter)
-        const snapshot = await eventsCollection
-            .where('isUniqueEvent', '==', true)
-            .orderBy('eventDate', 'desc')
-            .limit(200)
-            .get();
-        
+        const allEvents = await getCachedRecentEvents();
         const nameLower = eventName.toLowerCase();
-        events = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() }))
-            .filter(e => e.eventName && e.eventName.toLowerCase().includes(nameLower));
+        events = allEvents.filter(e => e.eventName && e.eventName.toLowerCase().includes(nameLower));
     } else if (department) {
         // Search by department (upcoming events)
         const today = new Date().toISOString().split('T')[0];
@@ -375,15 +399,9 @@ async function handleGetEventDetails(args) {
 
     const nameLower = eventName.toLowerCase().trim();
 
-    // Fetch recent & upcoming events from Firestore
-    const snapshot = await eventsCollection
-        .orderBy('eventDate', 'desc')
-        .limit(300)
-        .get();
-
-    const matchedDocs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(e => e.eventName && e.eventName.toLowerCase().includes(nameLower));
+    // Fetch from in-memory cache
+    const allEvents = await getCachedRecentEvents();
+    const matchedDocs = allEvents.filter(e => e.eventName && e.eventName.toLowerCase().includes(nameLower));
 
     if (matchedDocs.length === 0) {
         return {
@@ -453,12 +471,14 @@ exports.processChat = async (message, history, userContext) => {
             `CÁC THIẾT BỊ CÓ SẴN TRONG HỆ THỐNG: ${resourceNames.length > 0 ? resourceNames : 'loa, mic, ghế, bàn'}`
         ) + `\n\nTHÔNG TIN THỜI GIAN:\n- Hôm nay: ${currentDateStr} (Năm ${currentYear}). Nếu không chỉ định năm, LUÔN dùng năm ${currentYear}.`;
 
+        const startTimeMs = Date.now();
+        const aiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
         const chat = ai.chats.create({
-            model: 'gemini-3.6-flash',
+            model: aiModel,
             config: {
                 systemInstruction: dynamicInstruction,
                 tools: tools,
-                temperature: 0.2
+                temperature: 0.1
             },
             history: history || []
         });
@@ -511,6 +531,8 @@ exports.processChat = async (message, history, userContext) => {
             });
         }
 
+        const totalMs = Date.now() - startTimeMs;
+        console.log(`[AI Agent] Total response time (${aiModel}): ${totalMs}ms`);
         return {
             reply: response.text,
             type: isDraftEvent ? 'draft_event' : 'text',
