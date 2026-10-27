@@ -10,9 +10,9 @@ const envFile = process.env.NODE_ENV === 'production'
 
 require('dotenv').config({ path: path.resolve(__dirname, '..', envFile) });
 
-// Fallback to .env if specific file doesn't exist
-if (!process.env.FIREBASE_PROJECT_ID) {
-    require('dotenv').config();
+// Fallback to .env if specific file doesn't exist or contains placeholder values
+if (!process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID === 'your-dev-project-id' || !process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY.includes('YOUR_DEV_PRIVATE_KEY_HERE')) {
+    require('dotenv').config({ path: path.resolve(__dirname, '..', '.env'), override: true });
 }
 
 console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
