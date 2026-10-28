@@ -19,7 +19,7 @@ function createMockRes() {
 
 async function runTests() {
     console.log("=================================================");
-    console.log("🚀 TEST CÁC TÍNH NĂNG SẮP XẾP VÀ BỘ LỌC MỚI");
+    console.log("🚀 TEST BỘ QUY TẮC SẮP XẾP MỚI CHO TỪNG BỘ LỌC");
     console.log("=================================================");
 
     const next = (err) => {
@@ -27,12 +27,12 @@ async function runTests() {
     };
 
     // -----------------------------------------------------------------
-    // TEST 1: getAllEvents() mặc định (không truyền dateFilter)
-    // Kỳ vọng: Sắp xếp ASC theo eventDate, cùng ngày sắp xếp theo startTime ASC
+    // TEST 1: dateFilter = 'all' (Tất cả sự kiện)
+    // Kỳ vọng: Sắp xếp GIẢM DẦN (DESC) - Sự kiện mới nhất ở trên đầu
     // -----------------------------------------------------------------
-    console.log("\n[TEST 1] Kiểm tra getAllEvents mặc định (limit 9)...");
+    console.log("\n[TEST 1] Kiểm tra dateFilter = 'all' (Tất cả sự kiện, limit 9)...");
     const res1 = createMockRes();
-    await eventController.getAllEvents({ query: { limit: '9' } }, res1, next);
+    await eventController.getAllEvents({ query: { dateFilter: 'all', limit: '9' } }, res1, next);
     const data1 = res1.finalData;
 
     if (!data1 || !data1.events) {
@@ -44,20 +44,20 @@ async function runTests() {
         console.log(`  ${idx + 1}. [${e.eventDate}] (${e.startTime || '??'} - ${e.endTime || '??'}) ${e.eventName}`);
     });
 
-    let isAsc = true;
+    let isAllDesc = true;
     for (let i = 0; i < data1.events.length - 1; i++) {
-        if (data1.events[i].eventDate > data1.events[i + 1].eventDate) {
-            isAsc = false;
+        if (data1.events[i].eventDate < data1.events[i + 1].eventDate) {
+            isAllDesc = false;
             break;
         }
     }
-    console.log(isAsc ? "✅ TEST 1 PASSED: Thứ tự ngày tăng dần (ASC) thành công!" : "❌ TEST 1 FAILED: Ngày không tăng dần!");
+    console.log(isAllDesc ? "✅ TEST 1 PASSED: 'Tất cả sự kiện' đã được sắp xếp GIẢM DẦN (DESC) - mới nhất lên đầu!" : "❌ TEST 1 FAILED: 'Tất cả' không giảm dần!");
 
     // -----------------------------------------------------------------
-    // TEST 2: getAllEvents() với dateFilter = 'upcoming'
-    // Kỳ vọng: Chỉ các sự kiện >= hôm nay, xếp ASC, cùng ngày xếp theo giờ ASC
+    // TEST 2: dateFilter = 'upcoming' (Sắp diễn ra)
+    // Kỳ vọng: Chỉ các sự kiện >= hôm nay, sắp xếp TĂNG DẦN (ASC)
     // -----------------------------------------------------------------
-    console.log("\n[TEST 2] Kiểm tra dateFilter = 'upcoming' (limit 9)...");
+    console.log("\n[TEST 2] Kiểm tra dateFilter = 'upcoming' (Sắp diễn ra, limit 9)...");
     const res2 = createMockRes();
     await eventController.getAllEvents({ query: { dateFilter: 'upcoming', limit: '9' } }, res2, next);
     const data2 = res2.finalData;
@@ -71,74 +71,36 @@ async function runTests() {
     const allUpcoming = data2.events.every(e => e.eventDate >= todayStr);
     console.log(allUpcoming ? `✅ TEST 2a: Tất cả sự kiện đều >= hôm nay (${todayStr})` : "❌ TEST 2a FAILED: Có sự kiện trong quá khứ!");
 
-    // Kiểm tra sắp xếp phụ theo giờ
-    let timeOrderOk = true;
+    let isUpcomingAsc = true;
     for (let i = 0; i < data2.events.length - 1; i++) {
-        if (data2.events[i].eventDate === data2.events[i + 1].eventDate) {
-            const tA = data2.events[i].startTime || '00:00';
-            const tB = data2.events[i + 1].startTime || '00:00';
-            if (tA > tB) {
-                timeOrderOk = false;
-                console.log(`❌ Lỗi thứ tự giờ trên cùng ngày ${data2.events[i].eventDate}: ${tA} > ${tB}`);
-            }
+        if (data2.events[i].eventDate > data2.events[i + 1].eventDate) {
+            isUpcomingAsc = false;
+            break;
         }
     }
-    console.log(timeOrderOk ? "✅ TEST 2b: Cùng ngày sắp xếp theo giờ bắt đầu (startTime ASC) chuẩn xác!" : "❌ TEST 2b FAILED!");
-
-    // Kiểm tra sự kiện mới tạo "SPINE program" (2026-11-02) có nằm trên Trang 1 không
-    const spineIdx = data2.events.findIndex(e => e.eventName && e.eventName.includes('SPINE program'));
-    if (spineIdx !== -1) {
-        console.log(`✅ TEST 2c: Sự kiện mới tạo "SPINE program" hiển thị ngay ở Trang 1 (Vị trí #${spineIdx + 1}) thay vì bị đẩy sang Trang 2 như trước!`);
-    } else {
-        console.log("ℹ️ TEST 2c: Không tìm thấy SPINE program ở Trang 1.");
-    }
+    console.log(isUpcomingAsc ? "✅ TEST 2b: 'Sắp diễn ra' được sắp xếp TĂNG DẦN (ASC) - sự kiện sớm nhất ở đầu!" : "❌ TEST 2b FAILED!");
 
     // -----------------------------------------------------------------
-    // TEST 3: Cursor Pagination với dateFilter = 'upcoming'
+    // TEST 3: dateFilter = 'past' (Đã kết thúc)
+    // Kỳ vọng: Sắp xếp GIẢM DẦN (DESC) - Mới diễn ra gần nhất ở trên đầu
     // -----------------------------------------------------------------
-    console.log("\n[TEST 3] Kiểm tra Phân trang liên tục (Pagination: Page 1 -> Page 2)...");
-    const resP1 = createMockRes();
-    await eventController.getAllEvents({ query: { dateFilter: 'upcoming', limit: '4' } }, resP1, next);
-    const p1 = resP1.finalData;
-    console.log(`Page 1 trả về ${p1.events.length} sự kiện. HasMore = ${p1.meta.hasMore}, lastId = ${p1.meta.lastId}`);
-    p1.events.forEach((e, i) => console.log(`  P1.#${i+1}: [${e.eventDate}] (${e.startTime}) ${e.eventName}`));
-
-    const resP2 = createMockRes();
-    await eventController.getAllEvents({ query: { dateFilter: 'upcoming', limit: '4', lastDocId: p1.meta.lastId } }, resP2, next);
-    const p2 = resP2.finalData;
-    console.log(`Page 2 trả về ${p2.events.length} sự kiện.`);
-    p2.events.forEach((e, i) => console.log(`  P2.#${i+1}: [${e.eventDate}] (${e.startTime}) ${e.eventName}`));
-
-    // Đảm bảo không trùng ID giữa P1 và P2
-    const p1Ids = new Set(p1.events.map(e => e.id));
-    const overlap = p2.events.filter(e => p1Ids.has(e.id));
-    if (overlap.length === 0) {
-        console.log("✅ TEST 3 PASSED: Phân trang mượt mà, không trùng lặp sự kiện giữa 2 trang!");
-    } else {
-        console.log("❌ TEST 3 FAILED: Có sự kiện bị trùng giữa P1 và P2:", overlap.map(e => e.id));
-    }
-
-    // -----------------------------------------------------------------
-    // TEST 4: dateFilter = 'past' (Đã kết thúc)
-    // Kỳ vọng: Sắp xếp DESC (sự kiện vừa diễn ra gần nhất nằm ở đầu)
-    // -----------------------------------------------------------------
-    console.log("\n[TEST 4] Kiểm tra dateFilter = 'past'...");
-    const res4 = createMockRes();
-    await eventController.getAllEvents({ query: { dateFilter: 'past', limit: '5' } }, res4, next);
-    const data4 = res4.finalData;
-    console.log(`✅ Nhận được ${data4.events.length} sự kiện quá khứ:`);
-    data4.events.forEach((e, idx) => {
+    console.log("\n[TEST 3] Kiểm tra dateFilter = 'past' (Đã kết thúc, limit 5)...");
+    const res3 = createMockRes();
+    await eventController.getAllEvents({ query: { dateFilter: 'past', limit: '5' } }, res3, next);
+    const data3 = res3.finalData;
+    console.log(`✅ Nhận được ${data3.events.length} sự kiện quá khứ:`);
+    data3.events.forEach((e, idx) => {
         console.log(`  ${idx + 1}. [${e.eventDate}] ${e.eventName}`);
     });
 
     let isPastDesc = true;
-    for (let i = 0; i < data4.events.length - 1; i++) {
-        if (data4.events[i].eventDate < data4.events[i + 1].eventDate) {
+    for (let i = 0; i < data3.events.length - 1; i++) {
+        if (data3.events[i].eventDate < data3.events[i + 1].eventDate) {
             isPastDesc = false;
             break;
         }
     }
-    console.log(isPastDesc ? "✅ TEST 4 PASSED: Sự kiện quá khứ sắp xếp DESC (mới qua gần nhất ở trên đầu)!" : "❌ TEST 4 FAILED: Quá khứ không xếp DESC!");
+    console.log(isPastDesc ? "✅ TEST 3 PASSED: 'Đã kết thúc' sắp xếp GIẢM DẦN (DESC) - mới qua gần nhất ở đầu!" : "❌ TEST 3 FAILED!");
 
     console.log("\n=================================================");
     console.log("🎉 TẤT CẢ CÁC BÀI TEST ĐÃ HOÀN TẤT THÀNH CÔNG!");

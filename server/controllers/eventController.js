@@ -66,11 +66,16 @@ exports.getAllEvents = async (req, res, next) => {
 
         // Determine sort direction:
         // - Explicit sortOrder takes precedence ('asc' | 'desc')
-        // - 'past' filter defaults to 'desc' (most recently past events first)
-        // - Otherwise default to 'asc' (chronological: upcoming / earliest first)
-        const direction = sortOrder
-            ? (sortOrder.toLowerCase() === 'desc' ? 'desc' : 'asc')
-            : (dateFilter === 'past' ? 'desc' : 'asc');
+        // - 'upcoming' or 'today': 'asc' (chronological: earliest upcoming first)
+        // - 'all' or 'past': 'desc' (latest / recent events first, avoiding old 2025 archives on Page 1)
+        let direction;
+        if (sortOrder) {
+            direction = sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc';
+        } else if (dateFilter === 'upcoming' || dateFilter === 'today') {
+            direction = 'asc';
+        } else {
+            direction = 'desc';
+        }
 
         baseQuery = baseQuery.orderBy('eventDate', direction);
 
