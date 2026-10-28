@@ -6,3 +6,4 @@ echo  Starting Event Management Backend Server (:5000)...
 echo ===================================================
 node index.js
 pause
+

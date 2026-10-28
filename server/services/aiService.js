@@ -447,6 +447,24 @@ async function handleGetEventDetails(args) {
     };
 }
 
+async function sendMessageWithRetry(chat, msgPayload, maxRetries = 2) {
+    let attempt = 0;
+    while (true) {
+        try {
+            return await chat.sendMessage(msgPayload);
+        } catch (err) {
+            attempt++;
+            const isRetryable = err.status === 503 || err.status === 429 || String(err.message || '').includes('503') || String(err.message || '').includes('UNAVAILABLE');
+            if (isRetryable && attempt <= maxRetries) {
+                console.warn(`[AI Agent] Transient Gemini error (${err.status || err.message}). Retrying ${attempt}/${maxRetries}...`);
+                await new Promise(r => setTimeout(r, 1200 * attempt));
+            } else {
+                throw err;
+            }
+        }
+    }
+}
+
 // ========== MAIN PROCESSOR ==========
 exports.processChat = async (message, history, userContext) => {
     try {
@@ -483,7 +501,7 @@ exports.processChat = async (message, history, userContext) => {
             history: history || []
         });
 
-        let response = await chat.sendMessage({ message: finalMessage });
+        let response = await sendMessageWithRetry(chat, { message: finalMessage });
         let isDraftEvent = false;
         let draftData = null;
 
@@ -518,7 +536,7 @@ exports.processChat = async (message, history, userContext) => {
                 resultData = { error: 'Lỗi hệ thống khi thực thi hàm.' };
             }
 
-            response = await chat.sendMessage({
+            response = await sendMessageWithRetry(chat, {
                 message: {
                     role: 'user',
                     parts: [{

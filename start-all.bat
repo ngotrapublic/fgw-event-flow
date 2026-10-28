@@ -9,3 +9,4 @@ cd /d "%~dp0client"
 start "Frontend Client (Port 5173)" cmd /k "npm run dev"
 echo Both Backend (:5000) and Frontend (:5173) are launched!
 timeout /t 5
+
