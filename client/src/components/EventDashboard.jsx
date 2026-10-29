@@ -641,13 +641,13 @@ const EventDashboard = () => {
     // Count active filters for badge
     const activeFilterCount = [filterDepartment !== 'all', filterLocation !== 'all', filterDate !== 'upcoming'].filter(Boolean).length;
 
-    // Reset to first page when filter/search changes
+    // Reset to first page when filter/search changes (Bug B5 fix)
     useEffect(() => {
         setCursorStack([null]);
         setCurrentPage(1);
         fetchEvents(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filterMode, filterDepartment, filterLocation, filterDate]);
+    }, [filterMode, filterDepartment, filterLocation, filterDate, debouncedSearch]);
 
     const fetchEvents = useCallback(async (lastDocId = null) => {
         try {
@@ -656,14 +656,22 @@ const EventDashboard = () => {
             const params = { limit: itemsPerPage };
             if (lastDocId) params.lastDocId = lastDocId;
 
-            // Backend-driven filters
-            if (filterMode === 'my' && user?.department) {
-                params.department = user.department;
+            // Backend-driven filters (Bug B12 fix)
+            if (filterMode === 'my') {
+                if (user?.department) {
+                    params.department = user.department;
+                } else {
+                    // User has no department assigned yet -> show empty event list for "My Events"
+                    setEvents([]);
+                    setPagination({ hasMore: false, lastId: null, total: 0, isLoading: false });
+                    return;
+                }
             } else if (filterDepartment !== 'all') {
                 params.department = filterDepartment;
             }
             if (filterLocation !== 'all') params.location = filterLocation;
             if (filterDate !== 'all') params.dateFilter = filterDate;
+            if (debouncedSearch && debouncedSearch.trim()) params.search = debouncedSearch.trim();
 
             const response = await api.get('/events', { params });
             const { events: newEvents, meta } = response.data;
@@ -680,7 +688,7 @@ const EventDashboard = () => {
             showError('Có lỗi xảy ra khi tải dữ liệu.');
             setPagination(prev => ({ ...prev, isLoading: false }));
         }
-    }, [showError, filterMode, filterDepartment, filterLocation, filterDate, user]);
+    }, [showError, filterMode, filterDepartment, filterLocation, filterDate, debouncedSearch, user]);
 
     const handleNext = useCallback(() => {
         if (!pagination.hasMore || pagination.isLoading) return;
@@ -714,8 +722,14 @@ const EventDashboard = () => {
         try {
             const params = {};
             const isAdmin = user?.role === 'admin' || user?.role === 'manager';
-            if (!isAdmin && user?.department) {
-                params.department = user.department;
+            if (!isAdmin) {
+                if (user?.department) {
+                    params.department = user.department;
+                } else {
+                    // Bug B12 fix: User has no department assigned yet -> show 0 stats instead of university-wide total
+                    setDashboardStats({ today: 0, tomorrow: 0, week: 0, happeningNow: 0 });
+                    return;
+                }
             }
             const res = await api.get('/events/stats', { params });
             setDashboardStats(res.data);
@@ -740,14 +754,29 @@ const EventDashboard = () => {
             try {
                 await api.delete(`/events/${id}`);
                 showSuccess('Đã xóa sự kiện thành công!');
-                fetchEvents();
+                
+                // Bug B4 fix: Keep pagination and cursor state in sync after delete
+                if (currentPage <= 1) {
+                    setCursorStack([null]);
+                    setCurrentPage(1);
+                    fetchEvents(null);
+                } else {
+                    // If more than 1 item remains on the current page, re-fetch current page using current cursor
+                    if (events.length > 1) {
+                        const currentCursor = cursorStack[currentPage - 1];
+                        fetchEvents(currentCursor);
+                    } else {
+                        // Deleted the only item on this page, fall back to previous page
+                        handlePrev();
+                    }
+                }
                 setDataVersion(v => v + 1); // Signal Calendar & other views to re-fetch
             } catch (error) {
                 console.error('Error deleting event:', error);
                 showError('Không thể xóa sự kiện');
             }
         }
-    }, [fetchEvents, showSuccess, showError]);
+    }, [fetchEvents, showSuccess, showError, currentPage, cursorStack, events.length, handlePrev]);
 
     const handleCardAction = useCallback((event, isPreview = false) => {
         setSelectedEvent(event);

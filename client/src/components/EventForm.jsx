@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Save, Plus, Trash2, Calendar, MapPin, Users, Box, Hammer,
     Info, FileText, ChevronDown, Map, X, Clock, Check, Download, Upload, FileSpreadsheet, Loader2,
-    AlertTriangle
+    AlertTriangle, Moon
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import api from '../services/api';
@@ -75,7 +75,34 @@ const EventForm = () => {
     const [isEmailDropdownOpen, setIsEmailDropdownOpen] = useState(false);
     const { showSuccess, showError } = useToast();
     const [showConflictConfirm, setShowConflictConfirm] = useState(false);
+    const [showOvernightConfirm, setShowOvernightConfirm] = useState(false);
+    const [confirmedOvernightTimes, setConfirmedOvernightTimes] = useState(null);
     const [pendingSubmitData, setPendingSubmitData] = useState(null);
+
+    const getOvernightInfo = (start, end) => {
+        if (!start || !end) return null;
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return null;
+
+        const startTotal = sh * 60 + sm;
+        const endTotal = eh * 60 + em;
+
+        if (startTotal === endTotal) {
+            return { isSame: true, isOvernight: false };
+        }
+
+        if (endTotal < startTotal) {
+            const totalMinutes = (24 * 60 - startTotal) + endTotal;
+            const hours = Math.floor(totalMinutes / 60);
+            const mins = totalMinutes % 60;
+            let durationText = `${hours} tiếng`;
+            if (mins > 0) durationText += ` ${mins} phút`;
+            return { isSame: false, isOvernight: true, durationText };
+        }
+
+        return { isSame: false, isOvernight: false };
+    };
     const [isMapOpen, setIsMapOpen] = useState(false);
 
     useEffect(() => {
@@ -134,6 +161,11 @@ const EventForm = () => {
     const selectedDept = watch('department');
     const startTime = watch('startTime');
     const endTime = watch('endTime');
+    const overnightInfo = getOvernightInfo(startTime, endTime);
+
+    useEffect(() => {
+        setConfirmedOvernightTimes(null);
+    }, [startTime, endTime]);
 
     useEffect(() => {
         if (selectedDept) {
@@ -191,6 +223,9 @@ const EventForm = () => {
                         // Populate eventEndDate from it so the form End Date field isn't empty
                         if (!event.eventEndDate && event.seriesEndDate) {
                             event.eventEndDate = event.seriesEndDate;
+                        }
+                        if (event.groupId && event.seriesStartDate) {
+                            event.eventDate = event.seriesStartDate;
                         }
                         reset(event);
                     } else {
@@ -394,6 +429,21 @@ const EventForm = () => {
     const onSubmit = async (data) => {
         const finalData = prepareSubmitData(data);
 
+        // Check if start time and end time are identical
+        if (data.startTime && data.endTime && data.startTime === data.endTime) {
+            showError('Giờ kết thúc không được trùng với giờ bắt đầu.');
+            return;
+        }
+
+        // Bug B2: If end time < start time, this is an overnight event (could be a typo).
+        // Require explicit confirmation before proceeding if not yet confirmed for these times.
+        const currentOvernight = getOvernightInfo(data.startTime, data.endTime);
+        if (currentOvernight?.isOvernight && confirmedOvernightTimes !== `${data.startTime}-${data.endTime}`) {
+            setPendingSubmitData(finalData);
+            setShowOvernightConfirm(true);
+            return;
+        }
+
         if (conflictWarning) {
             // Show confirmation dialog instead of blocking
             setPendingSubmitData(finalData);
@@ -402,6 +452,25 @@ const EventForm = () => {
         }
 
         await submitEvent(finalData);
+    };
+
+    const handleOvernightConfirm = async () => {
+        if (!pendingSubmitData) return;
+        setShowOvernightConfirm(false);
+        setConfirmedOvernightTimes(`${pendingSubmitData.startTime}-${pendingSubmitData.endTime}`);
+
+        if (conflictWarning) {
+            setShowConflictConfirm(true);
+            return;
+        }
+
+        await submitEvent(pendingSubmitData);
+        setPendingSubmitData(null);
+    };
+
+    const handleOvernightCancel = () => {
+        setShowOvernightConfirm(false);
+        setPendingSubmitData(null);
     };
 
     const handleConflictConfirm = async () => {
@@ -576,6 +645,20 @@ const EventForm = () => {
                                             <InputGroup label="End Time" error={errors.endTime}>
                                                 <Input type="time" {...register('endTime', { required: 'End time is required' })} startIcon={Clock} />
                                             </InputGroup>
+                                            {overnightInfo?.isSame && (
+                                                <div className="col-span-1 md:col-span-2 flex items-center gap-2 p-3 bg-rose-50 border-2 border-rose-300 rounded-lg text-rose-800 text-xs font-bold">
+                                                    <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                                                    <span>Giờ kết thúc không được trùng với giờ bắt đầu.</span>
+                                                </div>
+                                            )}
+                                            {overnightInfo?.isOvernight && (
+                                                <div className="col-span-1 md:col-span-2 flex items-center gap-2 p-3 bg-indigo-50 border-2 border-indigo-300 rounded-lg text-indigo-900 text-xs font-bold">
+                                                    <Moon size={16} className="text-indigo-600 shrink-0" />
+                                                    <span>
+                                                        Sự kiện qua đêm: Kết thúc lúc <strong>{endTime}</strong> của ngày hôm sau (Tổng thời lượng: <strong>{overnightInfo.durationText}</strong>).
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <InputGroup label="Location" error={errors.location}>
@@ -924,6 +1007,81 @@ const EventForm = () => {
                     selectedLocation={watch('location')}
                     bookedLocations={[]}
                 />
+
+                {/* Overnight Event Confirmation Dialog (Bug B2) */}
+                <AnimatePresence>
+                    {showOvernightConfirm && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+                            {/* Backdrop */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                                onClick={handleOvernightCancel}
+                            />
+                            {/* Dialog */}
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                                transition={{ type: 'spring', bounce: 0.3, duration: 0.4 }}
+                                className="relative w-full max-w-md mx-4 bg-white border-2 border-black rounded-2xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
+                            >
+                                {/* Header */}
+                                <div className="bg-indigo-600 border-b-2 border-black px-6 py-4 flex items-center gap-3">
+                                    <div className="p-2 bg-white border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                        <Moon size={20} className="text-indigo-600" />
+                                    </div>
+                                    <h3 className="text-lg font-black text-white">Xác nhận sự kiện qua đêm</h3>
+                                </div>
+
+                                {/* Body */}
+                                <div className="px-6 py-5 space-y-4">
+                                    <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4 space-y-2">
+                                        <div className="flex justify-between items-center text-xs text-indigo-900 font-bold">
+                                            <span>Giờ bắt đầu:</span>
+                                            <span className="font-black text-sm">{pendingSubmitData?.startTime} ({pendingSubmitData?.eventDate})</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs text-indigo-900 font-bold">
+                                            <span>Giờ kết thúc:</span>
+                                            <span className="font-black text-sm text-indigo-700">{pendingSubmitData?.endTime} (Ngày hôm sau)</span>
+                                        </div>
+                                        <div className="border-t border-indigo-200 pt-2 flex justify-between items-center text-xs text-indigo-900 font-bold">
+                                            <span>Tổng thời lượng:</span>
+                                            <span className="font-black text-sm text-indigo-700">{overnightInfo?.durationText}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-3">
+                                        <p className="text-xs text-amber-900 font-medium leading-relaxed">
+                                            ⚠️ Giờ kết thúc nhỏ hơn giờ bắt đầu. Nếu bạn gõ nhầm giờ, vui lòng chọn <strong>"Chỉnh sửa lại"</strong>. Nếu sự kiện này thực sự diễn ra xuyên đêm sang ngày hôm sau, hãy chọn <strong>"Xác nhận lưu"</strong>.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="px-6 pb-5 flex gap-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleOvernightCancel}
+                                        className="flex-1 border-2 border-black rounded-lg shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all font-bold"
+                                    >
+                                        Chỉnh sửa lại
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        onClick={handleOvernightConfirm}
+                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white border-2 border-black rounded-lg shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all font-bold"
+                                    >
+                                        Xác nhận lưu
+                                    </Button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
 
                 {/* Conflict Confirmation Dialog */}
                 <AnimatePresence>

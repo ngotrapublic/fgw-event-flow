@@ -17,7 +17,14 @@ class CalendarService {
             // Parse start/end times
             // Format is [year, month, day, hour, minute]
             const start = this.parseDateString(event.eventDate, event.timeStart || event.startTime);
-            const end = this.parseDateString(event.eventDate, event.timeEnd || event.endTime);
+            let end = this.parseDateString(event.eventDate, event.timeEnd || event.endTime);
+
+            // Overnight event (e.g. 22:00 - 02:00): end falls on the next day
+            if (start && end && start.length === 5 && end.length === 5 &&
+                end[3] * 60 + end[4] <= start[3] * 60 + start[4]) {
+                const next = new Date(Date.UTC(end[0], end[1] - 1, end[2] + 1));
+                end = [next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), end[3], end[4]];
+            }
 
             // Construct description with details
             let description = `Event: ${event.eventName}\nDepartment: ${event.department}`;

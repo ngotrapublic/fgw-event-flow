@@ -21,6 +21,8 @@ exports.getEventStartTime = (event) => {
 
 /**
  * Get event end time as Date object enforcing Vietnam Timezone (UTC+7)
+ * Overnight support: when an explicit endTime is on/before the start time,
+ * the event crosses midnight and the end rolls to the next day.
  */
 exports.getEventEndTime = (event) => {
     let hourStr = '11';
@@ -38,7 +40,17 @@ exports.getEventEndTime = (event) => {
 
     // Force UTC+7 timezone explicitly
     const isoString = `${event.eventDate}T${hourStr}:${minuteStr}:00+07:00`;
-    return new Date(isoString);
+    let end = new Date(isoString);
+
+    // Cross-midnight: an explicit endTime <= startTime means the event
+    // ends the following day (e.g. 22:00 - 02:00).
+    if (event.endTime) {
+        const start = exports.getEventStartTime(event);
+        if (end <= start) {
+            end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+        }
+    }
+    return end;
 };
 
 /**

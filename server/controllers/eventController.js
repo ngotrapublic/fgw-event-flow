@@ -9,11 +9,19 @@ const cacheService = require('../services/cacheService');
 
 // Helper: Check if user can modify event
 const canModifyEvent = (user, event) => {
-    // Admin and Manager can do anything
+    // Admin and Manager can do anything (including past events)
     if (user.role === 'admin' || user.role === 'manager') return true;
 
-    // User can only modify their own events
-    if (user.role === 'user' && event.createdBy === user.uid) return true;
+    // Regular users can only modify their own FUTURE events (Bug B6 fix)
+    if (user.role === 'user' && event.createdBy === user.uid) {
+        const tzOffset = 7 * 60 * 60 * 1000;
+        const todayVN = new Date(Date.now() + tzOffset).toISOString().split('T')[0];
+        const eventEndDateStr = event.seriesEndDate || event.eventEndDate || event.eventDate;
+        if (eventEndDateStr && eventEndDateStr < todayVN) {
+            return false;
+        }
+        return true;
+    }
 
     return false;
 };
@@ -26,7 +34,7 @@ const canModifyEvent = (user, event) => {
  */
 exports.getAllEvents = async (req, res, next) => {
     try {
-        const { startDate, endDate, limit = 12, lastDocId, department, location, dateFilter, sortOrder } = req.query;
+        const { startDate, endDate, limit = 12, lastDocId, department, location, dateFilter, sortOrder, search } = req.query;
         const parsedLimit = Math.min(parseInt(limit) || 12, 100);
 
         // ──────────────────────────────────────────────────────────────
@@ -37,10 +45,6 @@ exports.getAllEvents = async (req, res, next) => {
 
         if (department) {
             baseQuery = baseQuery.where('department', '==', department);
-        }
-
-        if (location) {
-            baseQuery = baseQuery.where('location', '==', location);
         }
 
         // dateFilter: 'today' | 'upcoming' | 'past' (Vietnam timezone UTC+7)
@@ -78,6 +82,116 @@ exports.getAllEvents = async (req, res, next) => {
         }
 
         baseQuery = baseQuery.orderBy('eventDate', direction);
+
+        // ──────────────────────────────────────────────────────────────
+        // LOCATION FILTER: `location` is stored as a string on legacy
+        // docs but as an array on multi-venue events. Firestore has no
+        // single operator matching both, so we merge two queries:
+        //   == (scalar)  +  array-contains (array)
+        // and paginate the merged result in memory.
+        // ──────────────────────────────────────────────────────────────
+        if (location) {
+            // allSettled: if one composite index is missing (FAILED_PRECONDITION),
+            // degrade to the other query instead of failing the whole request.
+            const settled = await Promise.allSettled([
+                baseQuery.where('location', '==', location).limit(500).get(),
+                baseQuery.where('location', 'array-contains', location).limit(500).get()
+            ]);
+            const okSnaps = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+            settled.filter(s => s.status === 'rejected').forEach(s =>
+                console.error('[getAllEvents] Location sub-query failed (missing index?):', s.reason?.message));
+            if (okSnaps.length === 0) throw settled[0].reason;
+
+            const mergedMap = new Map();
+            okSnaps.flatMap(s => s.docs).forEach(d => mergedMap.set(d.id, { id: d.id, ...d.data() }));
+
+            let merged = [...mergedMap.values()];
+            if (search && search.trim()) {
+                const sTerm = search.trim().toLowerCase();
+                merged = merged.filter(e => {
+                    const name = String(e.eventName || '').toLowerCase();
+                    const content = String(e.content || '').toLowerCase();
+                    const dept = String(e.department || '').toLowerCase();
+                    const reg = String(e.registrantEmail || '').toLowerCase();
+                    const loc = Array.isArray(e.location) ? e.location.join(' ').toLowerCase() : String(e.location || '').toLowerCase();
+                    return name.includes(sTerm) || content.includes(sTerm) || dept.includes(sTerm) || reg.includes(sTerm) || loc.includes(sTerm);
+                });
+            }
+            merged.sort((a, b) => {
+                if (a.eventDate !== b.eventDate) {
+                    return direction === 'asc'
+                        ? a.eventDate.localeCompare(b.eventDate)
+                        : b.eventDate.localeCompare(a.eventDate);
+                }
+                return direction === 'asc'
+                    ? String(a.id).localeCompare(String(b.id))
+                    : String(b.id).localeCompare(String(a.id));
+            });
+
+            let startIdx = 0;
+            if (lastDocId) {
+                const idx = merged.findIndex(e => String(e.id) === String(lastDocId));
+                if (idx >= 0) startIdx = idx + 1;
+            }
+
+            const hasMore = merged.length - startIdx > parsedLimit;
+            const pageDocs = merged.slice(startIdx, startIdx + parsedLimit);
+            const lastId = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1].id : null;
+
+            // Secondary sort: same date -> startTime ascending
+            const finalEvents = [...pageDocs];
+            finalEvents.sort((a, b) => {
+                if (a.eventDate === b.eventDate) {
+                    return (a.startTime || '00:00').localeCompare(b.startTime || '00:00');
+                }
+                return 0;
+            });
+
+            const meta = { total: merged.length, count: finalEvents.length, lastId, hasMore };
+            if (startDate && endDate) meta.range = { startDate, endDate };
+            return res.json({ events: finalEvents, meta });
+        }
+
+        // Bug B5: Server-side search across all pages when search term is provided
+        if (search && search.trim()) {
+            const sTerm = search.trim().toLowerCase();
+            const searchSnap = await baseQuery.limit(500).get();
+            let matchedDocs = searchSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(e => {
+                const name = String(e.eventName || '').toLowerCase();
+                const content = String(e.content || '').toLowerCase();
+                const dept = String(e.department || '').toLowerCase();
+                const reg = String(e.registrantEmail || '').toLowerCase();
+                const loc = Array.isArray(e.location) ? e.location.join(' ').toLowerCase() : String(e.location || '').toLowerCase();
+                return name.includes(sTerm) || content.includes(sTerm) || dept.includes(sTerm) || reg.includes(sTerm) || loc.includes(sTerm);
+            });
+
+            let startIdx = 0;
+            if (lastDocId) {
+                const idx = matchedDocs.findIndex(e => String(e.id) === String(lastDocId));
+                if (idx >= 0) startIdx = idx + 1;
+            }
+
+            const hasMore = matchedDocs.length - startIdx > parsedLimit;
+            const pageDocs = matchedDocs.slice(startIdx, startIdx + parsedLimit);
+            const lastId = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1].id : null;
+
+            pageDocs.sort((a, b) => {
+                if (a.eventDate === b.eventDate) {
+                    return (a.startTime || '00:00').localeCompare(b.startTime || '00:00');
+                }
+                return 0;
+            });
+
+            return res.json({
+                events: pageDocs,
+                meta: {
+                    total: matchedDocs.length,
+                    count: pageDocs.length,
+                    lastId,
+                    hasMore
+                }
+            });
+        }
 
         // Cursor-based pagination
         let paginatedQuery = baseQuery;
@@ -168,18 +282,14 @@ exports.getEventById = async (req, res, next) => {
 exports.getLogisticsEvents = async (req, res, next) => {
     try {
         const result = await cacheService.getOrFetch('logistics', async () => {
-            const today = new Date();
-            const formatDate = (d) => d.toISOString().split('T')[0];
+            // Bug B3 fix: Use Vietnam Timezone (UTC+7) so 00:00 - 07:00 AM VN does not lag behind
+            const tzOffset = 7 * 60 * 60 * 1000;
+            const nowVN = new Date(Date.now() + tzOffset);
+            const todayStr = nowVN.toISOString().split('T')[0];
+            const yesterdayStr = new Date(nowVN.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const tomorrowStr = new Date(nowVN.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-            const current = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-
-            const yesterday = new Date(current);
-            yesterday.setUTCDate(current.getUTCDate() - 1);
-
-            const tomorrow = new Date(current);
-            tomorrow.setUTCDate(current.getUTCDate() + 1);
-
-            const dateRange = [formatDate(yesterday), formatDate(current), formatDate(tomorrow)];
+            const dateRange = [yesterdayStr, todayStr, tomorrowStr];
 
             const snapshot = await eventsCollection
                 .where('eventDate', 'in', dateRange)
@@ -219,10 +329,16 @@ exports.getStats = async (req, res, next) => {
             }
             const todayStr = weekDates[0];
             const tomorrowStr = weekDates[1];
+            const yesterdayStr = new Date(todayLocal.getTime() - 24 * 60 * 60 * 1000)
+                .toISOString().split('T')[0];
+
+            // Scan yesterday too so overnight events (e.g. 22:00 -> 02:00)
+            // are still detected as "happening now" past midnight.
+            const scanDates = [yesterdayStr, ...weekDates];
 
             // Only query by eventDate (which is automatically indexed by Firestore)
             const snap = await eventsCollection
-                .where('eventDate', 'in', weekDates)
+                .where('eventDate', 'in', scanDates)
                 .get();
 
             let todayCount = 0;
@@ -233,6 +349,11 @@ exports.getStats = async (req, res, next) => {
             const currentHour = todayLocal.getUTCHours();
             const currentMin = todayLocal.getUTCMinutes();
             const nowVal = currentHour * 60 + currentMin;
+
+            const parseMins = (t) => {
+                const [h, m] = (t || '').split(':').map(Number);
+                return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+            };
             
             const uniqueGroups = new Set();
 
@@ -241,6 +362,16 @@ exports.getStats = async (req, res, next) => {
                 
                 // Filter by department if requested
                 if (department && data.department !== department) return;
+
+                // Yesterday's docs only matter for the overnight tail of "happening now"
+                if (data.eventDate === yesterdayStr) {
+                    const sMin = parseMins(data.startTime);
+                    const eMin = parseMins(data.endTime);
+                    if (sMin !== null && eMin !== null && eMin <= sMin && nowVal <= eMin) {
+                        happeningNow++;
+                    }
+                    return;
+                }
 
                 const key = data.groupId || doc.id;
 
@@ -254,16 +385,17 @@ exports.getStats = async (req, res, next) => {
                 if (data.eventDate === todayStr) {
                     todayCount++;
 
-                    // Check happening now
-                    try {
-                        const [startH, startM] = (data.startTime || '').split(':').map(Number);
-                        const [endH, endM] = (data.endTime || '').split(':').map(Number);
-                        if (!isNaN(startH) && !isNaN(endH)) {
-                            if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
-                                happeningNow++;
-                            }
+                    // Check happening now (overnight-aware)
+                    const sMin = parseMins(data.startTime);
+                    const eMin = parseMins(data.endTime);
+                    if (sMin !== null && eMin !== null) {
+                        if (eMin <= sMin) {
+                            // Overnight event on today: active only after it starts
+                            if (nowVal >= sMin) happeningNow++;
+                        } else if (nowVal >= sMin && nowVal <= eMin) {
+                            happeningNow++;
                         }
-                    } catch (_) {}
+                    }
                 } else if (data.eventDate === tomorrowStr) {
                     tomorrowCount++;
                 }
@@ -343,10 +475,15 @@ exports.getStatDetails = async (req, res, next) => {
         
         const todayStr = weekDates[0];
         const tomorrowStr = weekDates[1];
+        const yesterdayStr = new Date(todayLocal.getTime() - 24 * 60 * 60 * 1000)
+            .toISOString().split('T')[0];
 
         let targetDates = [];
-        if (type === 'today' || type === 'now') {
+        if (type === 'today') {
             targetDates = [todayStr];
+        } else if (type === 'now') {
+            // Include yesterday to catch the post-midnight tail of overnight events
+            targetDates = [yesterdayStr, todayStr];
         } else if (type === 'tomorrow') {
             targetDates = [tomorrowStr];
         } else if (type === 'week') {
@@ -362,6 +499,11 @@ exports.getStatDetails = async (req, res, next) => {
         const currentHour = todayLocal.getUTCHours();
         const currentMin = todayLocal.getUTCMinutes();
         const nowVal = currentHour * 60 + currentMin;
+
+        const parseMins = (t) => {
+            const [h, m] = (t || '').split(':').map(Number);
+            return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+        };
 
         let results = [];
         const uniqueGroups = new Set();
@@ -379,15 +521,21 @@ exports.getStatDetails = async (req, res, next) => {
                     results.push({ id: doc.id, ...data });
                 }
             } else if (type === 'now') {
-                try {
-                    const [startH, startM] = (data.startTime || '').split(':').map(Number);
-                    const [endH, endM] = (data.endTime || '').split(':').map(Number);
-                    if (!isNaN(startH) && !isNaN(endH)) {
-                        if (nowVal >= startH * 60 + startM && nowVal <= endH * 60 + endM) {
-                            results.push({ id: doc.id, ...data });
-                        }
+                const sMin = parseMins(data.startTime);
+                const eMin = parseMins(data.endTime);
+                if (sMin === null || eMin === null) return;
+
+                if (data.eventDate === yesterdayStr) {
+                    // Overnight tail: event started yesterday, ends early today
+                    if (eMin <= sMin && nowVal <= eMin) {
+                        results.push({ id: doc.id, ...data });
                     }
-                } catch (_) {}
+                } else if (eMin <= sMin) {
+                    // Overnight event on today: active only after it starts
+                    if (nowVal >= sMin) results.push({ id: doc.id, ...data });
+                } else if (nowVal >= sMin && nowVal <= eMin) {
+                    results.push({ id: doc.id, ...data });
+                }
             } else {
                 results.push({ id: doc.id, ...data });
             }
@@ -426,8 +574,12 @@ exports.getCalendarEvents = async (req, res, next) => {
             const snapshot = await eventsCollection
                 .where('eventDate', '>=', startDate)
                 .where('eventDate', '<=', endDate)
-                .limit(200) // generous safe limit for a single month's events
+                .limit(1000) // generous safe limit for a single month's events (Bug B10 fix)
                 .get();
+
+            if (snapshot.size >= 1000) {
+                console.warn(`[CALENDAR API] Limit of 1000 events reached for range ${startDate} - ${endDate}.`);
+            }
 
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         }, 15); // Cache for 15 minutes
@@ -444,6 +596,10 @@ exports.getCalendarEvents = async (req, res, next) => {
 exports.checkConflict = async (req, res, next) => {
     try {
         const { excludeId, excludeGroupId, ...eventData } = req.body;
+        // Bug B8 fix: Validate required fields before calling conflictService
+        if (!eventData.eventDate || !eventData.location) {
+            return res.status(400).json({ error: 'Missing required fields: eventDate and location are required.' });
+        }
         let resolvedGroupId = excludeGroupId;
         if (excludeId && !resolvedGroupId) {
             const existing = await eventsCollection.doc(excludeId).get();
@@ -524,6 +680,7 @@ exports.createEvent = async (req, res, next) => {
             if (isSeries) {
                 newEvent.groupId = groupId;
                 newEvent.isSeriesStart = isFirst;
+                newEvent.seriesStartDate = eventData.eventDate;
                 newEvent.seriesEndDate = eventData.eventEndDate;
                 newEvent.isUniqueEvent = isFirst; // true only for day 1, false for others
             } else {
@@ -592,7 +749,7 @@ exports.createEvent = async (req, res, next) => {
         res.status(201).json(firstDoc);
 
         // [CACHE] Invalidate analytics and stats cache after successful creation
-        cacheService.invalidate('stats');
+        cacheService.clearStats();
         cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
         cacheService.clearEventsCache();
@@ -616,6 +773,12 @@ exports.updateEvent = async (req, res, next) => {
         }
         const oldEvent = { id: doc.id, ...doc.data() };
 
+        // Strip server-managed fields: the edit form sends back the whole doc.
+        // `id` would be persisted into sibling docs (shadowing doc.id on read),
+        // and `createdBy` would allow ownership takeover.
+        ['id', 'createdBy', 'createdAt', 'groupId', 'isUniqueEvent', 'isSeriesStart', 'seriesStartDate', 'seriesEndDate', 'remindersSent']
+            .forEach(k => delete req.body[k]);
+
         // Fetch User Role to verify permissions
         // Note: verifyToken gives us req.user from Auth token. 
         // We need to know the Role. 
@@ -626,7 +789,7 @@ exports.updateEvent = async (req, res, next) => {
 
         // Check Permissions
         if (!canModifyEvent({ uid, ...userData }, oldEvent)) {
-            return res.status(403).json({ error: 'Permission denied: You can only edit your own events.' });
+            return res.status(403).json({ error: 'Permission denied: Regular users cannot modify past events or events owned by others.' });
         }
 
         const updatedEvent = { ...oldEvent, ...req.body };
@@ -640,12 +803,31 @@ exports.updateEvent = async (req, res, next) => {
             updatedEvent.remindersSent = { oneDay: false, oneHour: false };
         }
 
+        // Pre-fetch series siblings to resolve true series start date (Bug B1 fix)
+        let seriesSnap = null;
+        let resolvedSeriesStartDate = null;
+        if (oldEvent.groupId && req.body.eventEndDate) {
+            seriesSnap = await eventsCollection.where('groupId', '==', oldEvent.groupId).get();
+            const startDoc = seriesSnap.docs.find(d => d.data().isSeriesStart);
+            const existingDates = seriesSnap.docs.map(d => d.data().eventDate).filter(Boolean).sort();
+            const trueStart = startDoc ? startDoc.data().eventDate : existingDates[0];
+            if (trueStart && (!req.body.eventDate || req.body.eventDate === oldEvent.eventDate)) {
+                resolvedSeriesStartDate = trueStart;
+            }
+        }
+
         // Check for conflicts (excluding current event and all series siblings)
         // Skip conflict check if client explicitly passes skipConflictCheck: true
         if (!req.body.skipConflictCheck) {
-            if (oldEvent.groupId && req.body.eventEndDate) {
-                const newStartDate = req.body.eventDate || oldEvent.eventDate;
+            // Any provided eventEndDate means the update spans multiple days —
+            // either re-syncing an existing series or converting single -> series.
+            if (req.body.eventEndDate) {
+                const newStartDate = resolvedSeriesStartDate || req.body.eventDate || oldEvent.eventDate;
                 const newEndDate = req.body.eventEndDate;
+                // Bug B11 fix: Ensure eventEndDate is on or after the resolved start date
+                if (newStartDate && newEndDate < newStartDate) {
+                    return res.status(400).json({ error: 'eventEndDate must be on or after event start date.' });
+                }
                 const checkDates = [];
                 let cur = new Date(newStartDate);
                 const edEnd = new Date(newEndDate);
@@ -683,7 +865,7 @@ exports.updateEvent = async (req, res, next) => {
         // --- Series-aware update ---
         if (oldEvent.groupId && req.body.eventEndDate) {
             // This is a series event - we need to re-sync all docs in the group
-            const newStartDate = req.body.eventDate || oldEvent.eventDate;
+            const newStartDate = resolvedSeriesStartDate || req.body.eventDate || oldEvent.eventDate;
             const newEndDate = req.body.eventEndDate;
             const groupId = oldEvent.groupId;
 
@@ -696,8 +878,10 @@ exports.updateEvent = async (req, res, next) => {
                 cur.setDate(cur.getDate() + 1);
             }
 
-            // Fetch all existing sibling docs
-            const seriesSnap = await eventsCollection.where('groupId', '==', groupId).get();
+            // Fetch all existing sibling docs (reuse seriesSnap if already fetched)
+            if (!seriesSnap) {
+                seriesSnap = await eventsCollection.where('groupId', '==', groupId).get();
+            }
             const existingMap = {};
             seriesSnap.docs.forEach(d => { existingMap[d.data().eventDate] = d; });
 
@@ -705,6 +889,7 @@ exports.updateEvent = async (req, res, next) => {
             const commonFields = { ...req.body };
             delete commonFields.eventDate;
             delete commonFields.isSeriesStart;
+            commonFields.seriesStartDate = newStartDate;
             commonFields.seriesEndDate = newEndDate;
             commonFields.eventEndDate = newEndDate;
 
@@ -723,7 +908,9 @@ exports.updateEvent = async (req, res, next) => {
                         ...commonFields,
                         eventDate: dateStr,
                         isSeriesStart: i === 0,
-                        isUniqueEvent: i === 0
+                        isUniqueEvent: i === 0,
+                        seriesStartDate: newStartDate,
+                        seriesEndDate: newEndDate
                     });
                 } else {
                     // Create new doc for this date
@@ -736,6 +923,7 @@ exports.updateEvent = async (req, res, next) => {
                         groupId,
                         isSeriesStart: i === 0,
                         isUniqueEvent: i === 0,
+                        seriesStartDate: newStartDate,
                         seriesEndDate: newEndDate,
                         createdAt: oldEvent.createdAt,
                         remindersSent: { oneDay: false, oneHour: false }
@@ -753,6 +941,87 @@ exports.updateEvent = async (req, res, next) => {
 
             await batch.commit();
             console.log(`[UPDATE] Series ${groupId} re-synced: ${newDates.length} days (${newStartDate} → ${newEndDate})`);
+
+        } else if (!oldEvent.groupId && req.body.eventEndDate && req.body.eventEndDate > (req.body.eventDate || oldEvent.eventDate)) {
+            // Single event -> series conversion: generate a groupId and create
+            // sibling docs for the remaining days. The existing doc becomes day 1.
+            const newStartDate = req.body.eventDate || oldEvent.eventDate;
+            const newEndDate = req.body.eventEndDate;
+            const groupId = randomUUID();
+
+            const newDates = [];
+            let cur = new Date(newStartDate);
+            const edEnd = new Date(newEndDate);
+            while (cur <= edEnd && newDates.length < 30) {
+                newDates.push(cur.toISOString().split('T')[0]);
+                cur.setDate(cur.getDate() + 1);
+            }
+
+            const commonFields = { ...req.body };
+            delete commonFields.eventDate;
+            delete commonFields.isSeriesStart;
+            commonFields.seriesEndDate = newEndDate;
+            commonFields.eventEndDate = newEndDate;
+            if (dateChanged || startTimeChanged || sessionChanged) {
+                commonFields.remindersSent = { oneDay: false, oneHour: false };
+            }
+
+            const batch = db.batch();
+            const { id: _ignoredId, ...templateData } = oldEvent;
+
+            newDates.forEach((dateStr, i) => {
+                if (i === 0) {
+                    // Reuse the existing document as the first day of the series
+                    batch.update(eventsCollection.doc(id), {
+                        ...commonFields,
+                        eventDate: dateStr,
+                        groupId,
+                        isSeriesStart: true,
+                        isUniqueEvent: true
+                    });
+                } else {
+                    const newDocRef = eventsCollection.doc();
+                    batch.set(newDocRef, {
+                        ...templateData,
+                        ...commonFields,
+                        eventDate: dateStr,
+                        groupId,
+                        isSeriesStart: false,
+                        isUniqueEvent: false,
+                        seriesEndDate: newEndDate,
+                        createdAt: oldEvent.createdAt,
+                        remindersSent: { oneDay: false, oneHour: false }
+                    });
+                }
+            });
+
+            await batch.commit();
+            updatedEvent.groupId = groupId;
+            updatedEvent.isUniqueEvent = true;
+            console.log(`[UPDATE] Single event ${id} converted to series ${groupId} (${newDates.length} days: ${newStartDate} → ${newEndDate})`);
+
+        } else if (oldEvent.groupId && 'eventEndDate' in req.body && !req.body.eventEndDate) {
+            // Series -> single conversion: user cleared the End Date.
+            // Delete sibling docs and clear series fields on this doc.
+            const seriesSnap = await eventsCollection.where('groupId', '==', oldEvent.groupId).get();
+            const batch = db.batch();
+            seriesSnap.docs.forEach(d => {
+                if (d.id !== id) batch.delete(d.ref);
+            });
+
+            const updatePayload = { ...req.body };
+            updatePayload.eventEndDate = null;
+            updatePayload.seriesEndDate = null;
+            updatePayload.seriesStartDate = null;
+            updatePayload.groupId = null;
+            updatePayload.isSeriesStart = false;
+            updatePayload.isUniqueEvent = true;
+            if (dateChanged || startTimeChanged || sessionChanged) {
+                updatePayload.remindersSent = { oneDay: false, oneHour: false };
+            }
+            batch.update(eventsCollection.doc(id), updatePayload);
+            await batch.commit();
+            console.log(`[UPDATE] Series ${oldEvent.groupId} converted back to single event ${id} (deleted ${seriesSnap.size - 1} siblings)`);
 
         } else {
             // Single event OR series event without date range change - update single doc
@@ -831,7 +1100,7 @@ exports.updateEvent = async (req, res, next) => {
         res.json({ id, ...updatedEvent });
 
         // [CACHE] Invalidate analytics and stats cache after successful update
-        cacheService.invalidate('stats');
+        cacheService.clearStats();
         cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
         cacheService.clearEventsCache();
@@ -860,7 +1129,7 @@ exports.deleteEvent = async (req, res, next) => {
 
         // Check Permissions
         if (!canModifyEvent({ uid, ...userData }, deletedEvent)) {
-            return res.status(403).json({ error: 'Permission denied: You can only delete your own events.' });
+            return res.status(403).json({ error: 'Permission denied: Regular users cannot delete past events or events owned by others.' });
         }
 
         // If this is part of a multi-day series, delete ALL documents in the group
@@ -908,7 +1177,7 @@ exports.deleteEvent = async (req, res, next) => {
         res.json({ message: 'Event deleted successfully' });
 
         // [CACHE] Invalidate analytics and stats cache after successful deletion
-        cacheService.invalidate('stats');
+        cacheService.clearStats();
         cacheService.invalidate('logistics');
         cacheService.clearAnalytics();
         cacheService.clearEventsCache();
@@ -974,11 +1243,12 @@ exports.exportEventsCsv = async (req, res, next) => {
             } catch (e) { return isoDate; }
         };
 
-        // Helper: Get Day of Week
+        // Helper: Get Day of Week (Bug B13 fix: use calendar numbers to avoid UTC offset shifts)
         const getDayOfWeek = (isoDate) => {
             if (!isoDate) return '';
             try {
-                const date = new Date(isoDate);
+                const [y, m, d] = isoDate.split('-').map(Number);
+                const date = new Date(y, m - 1, d);
                 const days = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
                 return days[date.getDay()] || '';
             } catch (e) { return ''; }
@@ -1186,16 +1456,19 @@ exports.toggleContractorSign = async (req, res, next) => {
             updatedAt: new Date().toISOString()
         });
 
-        // Log action
+        // Log action (schema: { actor, role, action, target, details, ip })
         await logAction({
-            user,
+            actor: user.email || req.user.email || uid,
+            role: user.role,
             action: currentSigned ? 'CONTRACTOR_UNSIGNED' : 'CONTRACTOR_SIGNED',
-            targetType: 'event',
-            targetId: id,
+            target: `Event: ${eventData.eventName || id}`,
             details: {
+                eventId: id,
                 contractorName: packages[contractorIndex].contractorName,
+                contractorIndex,
                 signed: !currentSigned
-            }
+            },
+            ip: req.ip
         });
 
         res.json({
