@@ -46,6 +46,26 @@
                 { "fieldPath": "eventDate", "order": "DESCENDING" }
             ]
         }
+        ,
+        {
+            "collectionGroup": "events",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "isUniqueEvent", "order": "ASCENDING" },
+                { "fieldPath": "location", "order": "ASCENDING" },
+                { "fieldPath": "eventDate", "order": "ASCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "events",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "isUniqueEvent", "order": "ASCENDING" },
+                { "fieldPath": "department", "order": "ASCENDING" },
+                { "fieldPath": "location", "order": "ASCENDING" },
+                { "fieldPath": "eventDate", "order": "ASCENDING" }
+            ]
+        }
     ],
     "fieldOverrides": []
 }
