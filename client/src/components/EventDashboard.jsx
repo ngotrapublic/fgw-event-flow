@@ -631,6 +631,8 @@ const EventDashboard = () => {
 
     // Search & Filter states
     const [searchTerm, setSearchTerm] = useState('');
+    // Debounce search input (Bug N1 fix: declared before useEffect/useCallback)
+    const debouncedSearch = useDebounce(searchTerm, 400);
     const [filterMode, setFilterMode] = useState('all');
     const [filterDepartment, setFilterDepartment] = useState('all');
     const [filterLocation, setFilterLocation] = useState('all');
@@ -649,12 +651,16 @@ const EventDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filterMode, filterDepartment, filterLocation, filterDate, debouncedSearch]);
 
-    const fetchEvents = useCallback(async (lastDocId = null) => {
+    const fetchEvents = useCallback(async (lastDocId = null, pageNum = null) => {
         try {
             setPagination(prev => ({ ...prev, isLoading: true }));
 
             const params = { limit: itemsPerPage };
-            if (lastDocId) params.lastDocId = lastDocId;
+            if (lastDocId) {
+                params.lastDocId = lastDocId;
+                const effectivePage = pageNum || currentPage;
+                if (effectivePage > 1) params.page = effectivePage;
+            }
 
             // Backend-driven filters (Bug B12 fix)
             if (filterMode === 'my') {
@@ -671,7 +677,8 @@ const EventDashboard = () => {
             }
             if (filterLocation !== 'all') params.location = filterLocation;
             if (filterDate !== 'all') params.dateFilter = filterDate;
-            if (debouncedSearch && debouncedSearch.trim()) params.search = debouncedSearch.trim();
+            const trimmedSearch = debouncedSearch ? debouncedSearch.trim() : '';
+            if (trimmedSearch.length >= 2) params.search = trimmedSearch;
 
             const response = await api.get('/events', { params });
             const { events: newEvents, meta } = response.data;
@@ -688,23 +695,25 @@ const EventDashboard = () => {
             showError('Có lỗi xảy ra khi tải dữ liệu.');
             setPagination(prev => ({ ...prev, isLoading: false }));
         }
-    }, [showError, filterMode, filterDepartment, filterLocation, filterDate, debouncedSearch, user]);
+    }, [showError, filterMode, filterDepartment, filterLocation, filterDate, debouncedSearch, user, currentPage]);
 
     const handleNext = useCallback(() => {
         if (!pagination.hasMore || pagination.isLoading) return;
         const nextCursor = pagination.lastId;
+        const nextPage = currentPage + 1;
         setCursorStack(prev => [...prev, nextCursor]);
-        setCurrentPage(prev => prev + 1);
-        fetchEvents(nextCursor);
-    }, [pagination, fetchEvents]);
+        setCurrentPage(nextPage);
+        fetchEvents(nextCursor, nextPage);
+    }, [pagination, fetchEvents, currentPage]);
 
     const handlePrev = useCallback(() => {
         if (currentPage <= 1 || pagination.isLoading) return;
         const prevStack = cursorStack.slice(0, -1);
         const prevCursor = prevStack[prevStack.length - 1];
+        const prevPage = currentPage - 1;
         setCursorStack(prevStack);
-        setCurrentPage(prev => prev - 1);
-        fetchEvents(prevCursor);
+        setCurrentPage(prevPage);
+        fetchEvents(prevCursor, prevPage);
     }, [currentPage, cursorStack, pagination.isLoading, fetchEvents]);
 
     const fetchAppContext = async () => {
@@ -820,26 +829,9 @@ const EventDashboard = () => {
         }
     }, [showSuccess, showError]);
 
-    // Debounce search input to avoid filtering on every keystroke
-    const debouncedSearch = useDebounce(searchTerm, 300);
-
-    // Client-side search & secondary sort by startTime
+    // Secondary sort: when dates are the same, sort by startTime ascending (Bug N3 fix: no double filter)
     const filteredEvents = useMemo(() => {
-        let result = events;
-        if (debouncedSearch) {
-            const term = debouncedSearch.toLowerCase();
-            result = events.filter(event => {
-                const matchesName = String(event.eventName || '').toLowerCase().includes(term);
-                const matchesLocation = Array.isArray(event.location)
-                    ? event.location.some(l => String(l).toLowerCase().includes(term))
-                    : String(event.location || '').toLowerCase().includes(term);
-                const matchesDepartment = String(event.department || '').toLowerCase().includes(term);
-                return matchesName || matchesLocation || matchesDepartment;
-            });
-        }
-
-        // Secondary sort: when dates are the same, sort by startTime ascending (Sáng -> Chiều -> Tối)
-        return [...result].sort((a, b) => {
+        return [...events].sort((a, b) => {
             if (a.eventDate === b.eventDate) {
                 const timeA = a.startTime || '00:00';
                 const timeB = b.startTime || '00:00';
@@ -847,7 +839,7 @@ const EventDashboard = () => {
             }
             return 0; // maintain backend date order
         });
-    }, [events, debouncedSearch]);
+    }, [events]);
 
     const currentEvents = filteredEvents;
 
@@ -912,6 +904,11 @@ const EventDashboard = () => {
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
+                        {searchTerm.trim().length === 1 && (
+                            <p className="absolute left-1 -bottom-5 text-[11px] font-bold text-amber-600 whitespace-nowrap">
+                                Nhập ít nhất 2 ký tự để tìm kiếm
+                            </p>
+                        )}
                     </div>
                     <div className="relative">
                         <Button

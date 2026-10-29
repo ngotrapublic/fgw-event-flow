@@ -7,6 +7,21 @@ const { logAction } = require('../controllers/auditLogController');
 const { randomUUID } = require('crypto');
 const cacheService = require('../services/cacheService');
 
+// Bug N2 fix: Fields strictly managed by server that clients must never inject or overwrite
+const SERVER_MANAGED_FIELDS = [
+    'id', 'createdBy', 'createdAt', 'groupId',
+    'isUniqueEvent', 'isSeriesStart', 'seriesStartDate', 'seriesEndDate', 'remindersSent'
+];
+
+const sanitizeEventPayload = (data) => {
+    if (!data || typeof data !== 'object') return {};
+    const sanitized = { ...data };
+    for (const field of SERVER_MANAGED_FIELDS) {
+        delete sanitized[field];
+    }
+    return sanitized;
+};
+
 // Helper: Check if user can modify event
 const canModifyEvent = (user, event) => {
     // Admin and Manager can do anything (including past events)
@@ -131,7 +146,13 @@ exports.getAllEvents = async (req, res, next) => {
             let startIdx = 0;
             if (lastDocId) {
                 const idx = merged.findIndex(e => String(e.id) === String(lastDocId));
-                if (idx >= 0) startIdx = idx + 1;
+                if (idx >= 0) {
+                    startIdx = idx + 1;
+                } else if (req.query.page) {
+                    // Bug N9 fix: Fallback to page number if anchor doc was deleted/moved
+                    const pageNum = parseInt(req.query.page, 10);
+                    if (pageNum > 1) startIdx = (pageNum - 1) * parsedLimit;
+                }
             }
 
             const hasMore = merged.length - startIdx > parsedLimit;
@@ -152,10 +173,20 @@ exports.getAllEvents = async (req, res, next) => {
             return res.json({ events: finalEvents, meta });
         }
 
-        // Bug B5: Server-side search across all pages when search term is provided
+        // Bug B5 & N6: Server-side search across all pages with quota optimization
         if (search && search.trim()) {
             const sTerm = search.trim().toLowerCase();
+            // Bug N6 fix: Require at least 2 characters to avoid expensive scanning on single-character typos
+            if (sTerm.length < 2) {
+                return res.json({ events: [], meta: { total: 0, count: 0, lastId: null, hasMore: false } });
+            }
+
             const searchSnap = await baseQuery.limit(500).get();
+            const isTruncated = searchSnap.size >= 500;
+            if (isTruncated) {
+                console.warn(`[SEARCH API] Search scan limit of 500 reached for term "${sTerm}". Some results may be truncated.`);
+            }
+
             let matchedDocs = searchSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(e => {
                 const name = String(e.eventName || '').toLowerCase();
                 const content = String(e.content || '').toLowerCase();
@@ -168,7 +199,13 @@ exports.getAllEvents = async (req, res, next) => {
             let startIdx = 0;
             if (lastDocId) {
                 const idx = matchedDocs.findIndex(e => String(e.id) === String(lastDocId));
-                if (idx >= 0) startIdx = idx + 1;
+                if (idx >= 0) {
+                    startIdx = idx + 1;
+                } else if (req.query.page) {
+                    // Bug N9 fix: Fallback to page number if anchor doc was deleted/moved
+                    const pageNum = parseInt(req.query.page, 10);
+                    if (pageNum > 1) startIdx = (pageNum - 1) * parsedLimit;
+                }
             }
 
             const hasMore = matchedDocs.length - startIdx > parsedLimit;
@@ -188,7 +225,8 @@ exports.getAllEvents = async (req, res, next) => {
                     total: matchedDocs.length,
                     count: pageDocs.length,
                     lastId,
-                    hasMore
+                    hasMore,
+                    truncated: isTruncated
                 }
             });
         }
@@ -625,7 +663,8 @@ exports.checkConflict = async (req, res, next) => {
 exports.createEvent = async (req, res, next) => {
     try {
         const { uid } = req.user;
-        const eventData = req.body;
+        // Bug N2 fix: Strip server-managed fields (id, groupId, createdBy, etc.) from incoming payload
+        const eventData = sanitizeEventPayload(req.body);
 
         // Determine if this is a series
         let datesToCreate = [eventData.eventDate];
@@ -684,6 +723,11 @@ exports.createEvent = async (req, res, next) => {
                 newEvent.seriesEndDate = eventData.eventEndDate;
                 newEvent.isUniqueEvent = isFirst; // true only for day 1, false for others
             } else {
+                // Bug N2 fix: Explicitly enforce null for single-day event series fields
+                newEvent.groupId = null;
+                newEvent.isSeriesStart = false;
+                newEvent.seriesStartDate = null;
+                newEvent.seriesEndDate = null;
                 newEvent.isUniqueEvent = true; // single-day event is always unique
             }
 
@@ -773,11 +817,10 @@ exports.updateEvent = async (req, res, next) => {
         }
         const oldEvent = { id: doc.id, ...doc.data() };
 
-        // Strip server-managed fields: the edit form sends back the whole doc.
-        // `id` would be persisted into sibling docs (shadowing doc.id on read),
-        // and `createdBy` would allow ownership takeover.
-        ['id', 'createdBy', 'createdAt', 'groupId', 'isUniqueEvent', 'isSeriesStart', 'seriesStartDate', 'seriesEndDate', 'remindersSent']
-            .forEach(k => delete req.body[k]);
+        // Bug 4b & N2 fix: Strip all server-managed fields from req.body
+        for (const k of SERVER_MANAGED_FIELDS) {
+            delete req.body[k];
+        }
 
         // Fetch User Role to verify permissions
         // Note: verifyToken gives us req.user from Auth token. 
@@ -792,28 +835,61 @@ exports.updateEvent = async (req, res, next) => {
             return res.status(403).json({ error: 'Permission denied: Regular users cannot modify past events or events owned by others.' });
         }
 
-        const updatedEvent = { ...oldEvent, ...req.body };
+        // Pre-fetch series siblings to resolve true series start date (Bug B1 & N5 fix)
+        let seriesSnap = null;
+        let resolvedSeriesStartDate = null;
+        if (oldEvent.groupId) {
+            seriesSnap = await eventsCollection.where('groupId', '==', oldEvent.groupId).get();
+            const startDoc = seriesSnap.docs.find(d => d.data().isSeriesStart);
+            const existingDates = seriesSnap.docs.map(d => d.data().eventDate).filter(Boolean).sort();
+            const trueStart = startDoc ? startDoc.data().eventDate : existingDates[0];
+            resolvedSeriesStartDate = trueStart || oldEvent.seriesStartDate || oldEvent.eventDate;
+        }
 
-        // [FIX] Anti-Spam Issue #1: Reset reminder flags if date/time changed
-        const dateChanged = req.body.eventDate && req.body.eventDate !== oldEvent.eventDate;
+        const updatedEvent = { ...oldEvent, ...req.body };
+        const effectiveOldStartDate = resolvedSeriesStartDate || oldEvent.eventDate;
+
+        // Intended start date of this update (Bug R1 fix).
+        // Series: a submitted eventDate that differs from the opened doc's own date is an
+        // explicit move (the edit form sends seriesStartDate as eventDate). Otherwise
+        // (unchanged / legacy form sending the opened doc's date) keep the true series start.
+        const intendedStartDate = oldEvent.groupId
+            ? ((req.body.eventDate && req.body.eventDate !== oldEvent.eventDate) ? req.body.eventDate : effectiveOldStartDate)
+            : (req.body.eventDate || oldEvent.eventDate);
+
+        // Bug N5 fix: For series, compare against the true series start to avoid false alarms when editing from day 2
+        const dateChanged = oldEvent.groupId
+            ? intendedStartDate !== effectiveOldStartDate
+            : Boolean(req.body.eventDate && req.body.eventDate !== oldEvent.eventDate);
+
+        // Regular users cannot move an event into the past — they would lose the
+        // ability to edit/delete it afterwards (see canModifyEvent / Bug B6)
+        const isPrivileged = userData.role === 'admin' || userData.role === 'manager';
+        if (!isPrivileged && dateChanged) {
+            const todayVN = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
+            if (intendedStartDate < todayVN) {
+                return res.status(400).json({ error: 'Không thể dời sự kiện về ngày trong quá khứ.' });
+            }
+        }
+
+        // Date-range validation must run even when skipConflictCheck is set
+        if (req.body.eventEndDate) {
+            const newEndDate = req.body.eventEndDate;
+            // Bug B11 fix: eventEndDate must be on or after the intended start date
+            if (newEndDate < intendedStartDate) {
+                return res.status(400).json({ error: 'eventEndDate must be on or after event start date.' });
+            }
+            // Bug N8 fix: 30-day series limit
+            const daysDiff = Math.round((new Date(newEndDate) - new Date(intendedStartDate)) / (1000 * 60 * 60 * 24)) + 1;
+            if (daysDiff > 30) {
+                return res.status(400).json({ error: 'Series events cannot span more than 30 days.' });
+            }
+        }
         const startTimeChanged = req.body.startTime !== undefined && req.body.startTime !== oldEvent.startTime;
         const sessionChanged = req.body.eventSession !== undefined && req.body.eventSession !== oldEvent.eventSession;
 
         if (dateChanged || startTimeChanged || sessionChanged) {
             updatedEvent.remindersSent = { oneDay: false, oneHour: false };
-        }
-
-        // Pre-fetch series siblings to resolve true series start date (Bug B1 fix)
-        let seriesSnap = null;
-        let resolvedSeriesStartDate = null;
-        if (oldEvent.groupId && req.body.eventEndDate) {
-            seriesSnap = await eventsCollection.where('groupId', '==', oldEvent.groupId).get();
-            const startDoc = seriesSnap.docs.find(d => d.data().isSeriesStart);
-            const existingDates = seriesSnap.docs.map(d => d.data().eventDate).filter(Boolean).sort();
-            const trueStart = startDoc ? startDoc.data().eventDate : existingDates[0];
-            if (trueStart && (!req.body.eventDate || req.body.eventDate === oldEvent.eventDate)) {
-                resolvedSeriesStartDate = trueStart;
-            }
         }
 
         // Check for conflicts (excluding current event and all series siblings)
@@ -822,12 +898,8 @@ exports.updateEvent = async (req, res, next) => {
             // Any provided eventEndDate means the update spans multiple days —
             // either re-syncing an existing series or converting single -> series.
             if (req.body.eventEndDate) {
-                const newStartDate = resolvedSeriesStartDate || req.body.eventDate || oldEvent.eventDate;
+                const newStartDate = intendedStartDate;
                 const newEndDate = req.body.eventEndDate;
-                // Bug B11 fix: Ensure eventEndDate is on or after the resolved start date
-                if (newStartDate && newEndDate < newStartDate) {
-                    return res.status(400).json({ error: 'eventEndDate must be on or after event start date.' });
-                }
                 const checkDates = [];
                 let cur = new Date(newStartDate);
                 const edEnd = new Date(newEndDate);
@@ -865,7 +937,7 @@ exports.updateEvent = async (req, res, next) => {
         // --- Series-aware update ---
         if (oldEvent.groupId && req.body.eventEndDate) {
             // This is a series event - we need to re-sync all docs in the group
-            const newStartDate = resolvedSeriesStartDate || req.body.eventDate || oldEvent.eventDate;
+            const newStartDate = intendedStartDate;
             const newEndDate = req.body.eventEndDate;
             const groupId = oldEvent.groupId;
 
@@ -960,6 +1032,7 @@ exports.updateEvent = async (req, res, next) => {
             const commonFields = { ...req.body };
             delete commonFields.eventDate;
             delete commonFields.isSeriesStart;
+            commonFields.seriesStartDate = newStartDate; // Bug N7 fix: populate seriesStartDate
             commonFields.seriesEndDate = newEndDate;
             commonFields.eventEndDate = newEndDate;
             if (dateChanged || startTimeChanged || sessionChanged) {
@@ -988,6 +1061,7 @@ exports.updateEvent = async (req, res, next) => {
                         groupId,
                         isSeriesStart: false,
                         isUniqueEvent: false,
+                        seriesStartDate: newStartDate, // Bug N7 fix
                         seriesEndDate: newEndDate,
                         createdAt: oldEvent.createdAt,
                         remindersSent: { oneDay: false, oneHour: false }
@@ -1026,6 +1100,8 @@ exports.updateEvent = async (req, res, next) => {
         } else {
             // Single event OR series event without date range change - update single doc
             const updatePayload = { ...req.body };
+            // A series doc must keep its own day; date moves go through the re-sync branch
+            if (oldEvent.groupId) delete updatePayload.eventDate;
             // If eventEndDate was provided, also update seriesEndDate for consistency
             if (req.body.eventEndDate && oldEvent.groupId) {
                 updatePayload.seriesEndDate = req.body.eventEndDate;
@@ -1053,8 +1129,14 @@ exports.updateEvent = async (req, res, next) => {
             after: updatedEvent
         });
 
-        // Calculate changes
-        const changes = emailService.detectChanges(oldEvent, updatedEvent);
+        // Calculate changes (Bug N5 fix: normalize eventDate to series start date for diffing)
+        const oldEventForDiff = oldEvent.groupId
+            ? { ...oldEvent, eventDate: effectiveOldStartDate, eventEndDate: oldEvent.seriesEndDate || oldEvent.eventEndDate }
+            : oldEvent;
+        const updatedEventForDiff = oldEvent.groupId
+            ? { ...updatedEvent, eventDate: intendedStartDate, eventEndDate: req.body.eventEndDate || updatedEvent.seriesEndDate || updatedEvent.eventEndDate }
+            : updatedEvent;
+        const changes = emailService.detectChanges(oldEventForDiff, updatedEventForDiff);
 
         console.log(`[UPDATE] Event ID: ${id}`);
         console.log(`[UPDATE] Detected changes:`, changes);
@@ -1062,10 +1144,14 @@ exports.updateEvent = async (req, res, next) => {
         if (changes.length > 0) {
             updatedEvent.changes = changes;
             console.log('[UPDATE] Queueing notification email...');
-            const emailQueue = require('../services/emailQueue');
-            // Add the document ID to the event object before enqueuing
-            const eventWithId = { ...updatedEvent, id };
-            await emailQueue.enqueue(eventWithId, 'updated');
+            // Bug N4 fix: Wrap emailQueue.enqueue in try/catch to prevent unhandled 500 when queue errors
+            try {
+                const emailQueue = require('../services/emailQueue');
+                const eventWithId = { ...updatedEvent, id };
+                await emailQueue.enqueue(eventWithId, 'updated');
+            } catch (emailError) {
+                console.error('[UPDATE EVENT] Email queueing failed:', emailError.message);
+            }
 
             // [NEW] Send In-App Notification
             try {
@@ -1137,6 +1223,14 @@ exports.deleteEvent = async (req, res, next) => {
             const seriesSnapshot = await eventsCollection
                 .where('groupId', '==', deletedEvent.groupId)
                 .get();
+
+            // Bug N2 security fix: Ensure user has permission to delete the entire series.
+            // Privileged roles (admin, manager) can delete. Regular users can only delete if all docs were created by them.
+            const userIsPrivileged = userData.role === 'admin' || userData.role === 'manager';
+            const allOwnedByUser = seriesSnapshot.docs.every(d => d.data().createdBy === uid);
+            if (!userIsPrivileged && !allOwnedByUser) {
+                return res.status(403).json({ error: 'Permission denied: You do not own all events in this series.' });
+            }
 
             const deleteBatch = db.batch();
             seriesSnapshot.docs.forEach(seriesDoc => {
