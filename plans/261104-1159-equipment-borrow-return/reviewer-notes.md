@@ -29,6 +29,12 @@ Trả `undefined`, không ném lỗi → code mượn trả phải tự kiểm `
 ## 7. `npm test` của server là placeholder
 `"test": "echo \"Error: no test specified\" && exit 1"`. Chạy bằng `npx jest`. Không sửa trong phạm vi này.
 
+## 8. ✅ `/api/backup` thiếu kiểm tra quyền — đã đưa vào phase 01 §10
+- [routes/backup.js](../../server/routes/backup.js) chỉ có `verifyToken`, không có `requireRole(['admin'])`. Mọi user đã đăng nhập đều có thể tải toàn bộ backup (events, resources, audit_logs) hoặc validate + restore để ghi đè dữ liệu.
+- Sửa: `router.use(verifyToken, requireRole(['admin']))` ở đầu file `server/routes/backup.js`.
+- Client: `DataRetention.jsx` gọi qua `api.js` nên đã tự động gắn Bearer token.
+- **Đã thêm vào phase 01 §10 và checklist.**
+
 ## Điểm review trọng tâm theo phase
 | Phase | Soi kỹ |
 |---|---|

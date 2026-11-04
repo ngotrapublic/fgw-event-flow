@@ -97,10 +97,10 @@ Body: `{ name?, email?, phone, items, dueDate, note? }`
 7. → `201 { request: toPublicView(doc), accessToken }`
 
 ### `POST /api/borrow/verify` · `verifyLimiter`
-Body `{ token }`. Tìm theo `verifyTokenHash`. Không thấy → `404 'Link không hợp lệ'`. Đã `pending` trở đi → `200` idempotent (trả phiếu). Quá hạn → `410 'Link đã hết hạn, vui lòng tạo phiếu mới'` (job phase 03 sẽ đặt `expired`). Hợp lệ → `transition(→pending)`, xoá `verifyTokenHash`, thông báo admin/manager. → `200 { request }`.
+Body `{ token }`. Tìm theo `verifyTokenHash`. Không thấy → `404 'Link không hợp lệ'`. Đã `pending` trở đi → `200` idempotent (trả phiếu). Quá hạn → `410 'Link đã hết hạn, vui lòng tạo phiếu mới'` (job phase 03 sẽ đặt `expired`). Hợp lệ → `transition(→pending)`, gán `verifyTokenHash: null` (không dùng `FieldValue.delete()` vì schema quy định `string | null` và tránh lưu object `{__delete: true}` trong Firestore mock), thông báo admin/manager. → `200 { request }`.
 
 ### `POST /api/borrow/requests/:id/resend-verification` · `resendLimiter`
-Header `X-Borrow-Token` khớp phiếu, status `unverified` → sinh `verifyToken` **mới** + gia hạn 24h, gửi lại `sendVerify`. Khác → `404`.
+Kiểm tra `doc.exists` trước (không tồn tại → `404`, không dựa vào `update` ném lỗi). Header `X-Borrow-Token` khớp phiếu, status `unverified` → sinh `verifyToken` **mới** + gia hạn 24h, gửi lại `sendVerify`. Khác → `404`.
 
 ### `GET /api/borrow/my` · `optionalAuth`, `borrowRead`
 - Header `X-Borrow-Tokens: tok1,tok2,…` (tối đa `MAX_CLIENT_TOKENS`, thừa → bỏ).

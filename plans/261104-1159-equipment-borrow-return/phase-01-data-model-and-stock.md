@@ -1,8 +1,9 @@
-# Phase 01 — Data model, tồn kho, chặn lỗ hổng resources
+# Phase 01 — Data model, tồn kho, chặn lỗ hổng resources, settings và backup
 
 ## Context (đã kiểm trong code)
 - `resources` chỉ có `quantity` ([resourceController.js](../../server/controllers/resourceController.js)).
 - `PUT/POST/DELETE /api/resources` chỉ có `verifyToken` → **user thường sửa/xoá được thiết bị** ([routes/resources.js](../../server/routes/resources.js)). `updateResource` ghi thẳng `req.body`.
+- `GET/POST /api/backup` chỉ có `verifyToken`, thiếu `requireRole` ([routes/backup.js](../../server/routes/backup.js)) → **user thường tải hoặc ghi đè toàn bộ dữ liệu hệ thống**.
 - [firestore.rules](../../firestore.rules) có catch-all `allow read: if request.auth != null` → collection mới mặc định ai đăng nhập cũng đọc được.
 - `ResourceManager.jsx` (admin) gọi `GET/POST/PUT/DELETE /resources` — phải tiếp tục chạy.
 
@@ -145,9 +146,8 @@ router.delete('/', verifyToken, canManage, ...); router.delete('/:id', verifyTok
 ```
 Xoá các comment TODO cũ đã lỗi thời trong file này.
 
-## 10. Chặn lỗ hổng `/api/settings`
-[server/routes/settings.js](../../server/routes/settings.js) hiện mount trực tiếp không auth → ai cũng ghi được `POST/PUT /api/settings` → tắt email hoặc đổi SMTP → đọc được OTP của tính năng mượn trả.
-
+## 10. Chặn lỗ hổng `/api/settings` và `/api/backup`
+1. **`/api/settings`**: [server/routes/settings.js](../../server/routes/settings.js) hiện mount trực tiếp không auth → ai cũng ghi được `POST/PUT /api/settings` → tắt email hoặc đổi SMTP → đọc được OTP của tính năng mượn trả.
 Sửa đầu file:
 ```js
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
@@ -155,12 +155,27 @@ router.use(verifyToken, requireRole(['admin']));
 ```
 Kiểm client: [Settings.jsx](../../client/src/components/Settings.jsx), [NotificationSettings.jsx](../../client/src/components/settings/NotificationSettings.jsx), [EmailTemplateSettings.jsx](../../client/src/components/settings/EmailTemplateSettings.jsx) gọi qua `api.js` → tự gắn Bearer.
 
-Test thủ công: user role `user` gọi `GET /api/settings` → 403.
+2. **`/api/backup`**: [server/routes/backup.js](../../server/routes/backup.js) hiện chỉ có `verifyToken`, thiếu `requireRole` → mọi user đã đăng nhập đều có thể:
+- Tải toàn bộ dữ liệu `events`, `resources`, `audit_logs` (`GET /api/backup`).
+- Gọi `validate` + `restore` (`POST /api/backup/restore`) để **ghi đè** các collection này.
+Sửa:
+```js
+const { verifyToken, requireRole } = require('../middleware/authMiddleware');
+
+// Protect all backup routes - admin only
+router.use(verifyToken, requireRole(['admin']));
+```
+Kiểm client: [DataRetention.jsx](../../client/src/components/settings/DataRetention.jsx) gọi qua `api.js` → tự gắn Bearer.
+
+Test thủ công: user role `user` gọi:
+- `GET /api/settings` → 403
+- `GET /api/backup` → 403
+- `POST /api/backup/restore` → 403
 
 ## 11. `ResourceManager.jsx`
 Hiển thị `Còn: {item.availableQty ?? item.quantity} / {item.quantity}` thay cho dòng "In Stock". Bắt lỗi 409 và hiện `error.response.data.error` bằng toast hiện có.
 
-## 11. `firestore.rules` — thêm **trước** catch-all
+## 12. `firestore.rules` — thêm **trước** catch-all
 ```
     // Borrow data contains guest PII; only the server (Admin SDK) may touch it.
     match /borrow_requests/{docId} {
@@ -173,7 +188,7 @@ Hiển thị `Còn: {item.availableQty ?? item.quantity} / {item.quantity}` thay
 Thêm test vào [firestoreRules.test.js](../../server/tests/firestoreRules.test.js): hai block trên tồn tại với `allow read, write: if false`.
 **Chú ý:** test hiện có `expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:/)` sẽ **fail** với block mới. Sửa test đó thành chỉ cấm `allow read, write: if true` / `if request.auth != null` (pattern lỏng), giữ nguyên ý định ban đầu. Ghi rõ lý do trong comment test.
 
-## 12. `server/firestore.indexes.json` — thêm
+## 13. `server/firestore.indexes.json` — thêm
 ```json
 { "collectionGroup": "borrow_requests", "queryScope": "COLLECTION",
   "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
@@ -188,10 +203,10 @@ Thêm test vào [firestoreRules.test.js](../../server/tests/firestoreRules.test.
 ```
 Lookup theo `accessTokenHash` / `verifyTokenHash` là single-field equality → không cần index.
 
-## 13. `server/scripts/backfill-available-qty.js` (mới)
+## 14. `server/scripts/backfill-available-qty.js` (mới)
 Đọc tất cả `resources`; doc nào **chưa có** `availableQty` thì set `= quantity`. In số doc đã cập nhật. Chạy lại không đổi gì (idempotent). Chạy: `cd server && node scripts/backfill-available-qty.js`.
 
-## Tests — `server/tests/borrow-stock.test.js`
+## 15. Tests — `server/tests/borrow-stock.test.js`
 Theo pattern [round3Bugs.test.js](../../server/tests/round3Bugs.test.js) (mock `../config/firebase` bằng `buildFirebaseMock`, mock `auditLogController.logAction`).
 1. reserve đủ hàng → `availableQty` giảm đúng.
 2. reserve thiếu 1 món trong 2 → 409, `details.shortages` có đúng món đó, **không** món nào bị trừ.
@@ -203,7 +218,7 @@ Theo pattern [round3Bugs.test.js](../../server/tests/round3Bugs.test.js) (mock `
 8. `approved→cancelled` → kho cộng đủ.
 9. `updateResource` giảm `quantity` dưới số đang mượn → 409.
 
-## Validation
+## 16. Validation
 - `cd server && npx jest tests/borrow-stock.test.js tests/firestoreRules.test.js` pass.
 - `npx jest` toàn bộ: không giảm so với baseline phase 00.
 - Sau khi **đã backup** (phase 00): chạy backfill trên DB thật, chạy lần 2 báo `0 updated`.
@@ -211,3 +226,4 @@ Theo pattern [round3Bugs.test.js](../../server/tests/round3Bugs.test.js) (mock `
 - Thủ công: đăng nhập user role `user`:
   - `PUT /api/resources?id=mic` → 403
   - `GET /api/settings` → 403
+  - `GET /api/backup` → 403

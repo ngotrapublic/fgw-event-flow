@@ -45,7 +45,7 @@ Trang công khai `/borrow` (truy cập qua QR dán ở kho) dùng chung cho ngư
 | Phase | Nội dung | Commit |
 |---|---|---|
 | [00](phase-00-prerequisites.md) | Branch, backup, cài thư viện, bổ sung mock test | `chore: prepare equipment borrow feature` |
-| [01](phase-01-data-model-and-stock.md) | `availableQty`, collections, rules, index, service tồn kho, chặn lỗ hổng `/api/resources` | `feat(borrow): add stock tracking and borrow data model` |
+| [01](phase-01-data-model-and-stock.md) | `availableQty`, collections, rules, index, service tồn kho, chặn lỗ hổng `/api/resources`, `/api/settings`, `/api/backup` | `feat(borrow): add stock tracking and borrow data model` |
 | [02](phase-02-public-borrow-api.md) | API công khai: tạo phiếu, xác nhận email, tra phiếu, OTP, báo trả, rate-limit | `feat(borrow): add public borrow api` |
 | [03](phase-03-admin-api-and-jobs.md) | API admin/manager, thông báo, job nhắc hạn | `feat(borrow): add admin borrow api and reminder job` |
 | [04](phase-04-borrow-page-ui.md) | Trang `/borrow` mobile | `feat(borrow): add public borrow page` |

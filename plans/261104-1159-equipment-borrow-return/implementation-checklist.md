@@ -3,15 +3,16 @@
 Đây là checklist cho người review (Claude Code) khi agent antigravity code xong từng phase. Dựa trên [acceptance criteria](plan.md#acceptance-criteria-reviewer-kiểm-từng-mục) và validation trong từng phase.
 
 ## Phase 00 — Backup & chuẩn bị
-- [ ] File backup JSON nằm **ngoài** repo
-- [ ] `package.json` có `express-rate-limit@^7`, `qrcode@^1`
-- [ ] `firestoreMock.js` có `runTransaction`, `borrowRequestsCollection`, `borrowOtpsCollection`
-- [ ] Baseline test ghi trong báo cáo; số test pass không giảm sau khi sửa mock
+- [x] File backup JSON nằm **ngoài** repo
+- [x] `package.json` có `express-rate-limit@^7`, `qrcode@^1`
+- [x] `firestoreMock.js` có `runTransaction`, `borrowRequestsCollection`, `borrowOtpsCollection`
+- [x] Baseline test ghi trong báo cáo; số test pass không giảm sau khi sửa mock
 
 ## Phase 01 — Data model, tồn kho, lỗ hổng
 - [ ] `availableQty` đã được backfill (chạy script báo 0 updated lần 2)
 - [ ] `PUT /api/resources` role `user` → 403
 - [ ] `GET /api/settings` role `user` → 403
+- [ ] `GET /api/backup` role `user` → 403
 - [ ] `PUT /api/resources` giảm `quantity` dưới số mượn → 409
 - [ ] Rules deploy xong: user thường đọc `borrow_requests` qua SDK → permission denied
 - [ ] Test `borrow-stock.test.js`, `firestoreRules.test.js` pass; toàn bộ không giảm
