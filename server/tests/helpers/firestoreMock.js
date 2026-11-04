@@ -5,8 +5,21 @@
  *   collection.count().get(), collection.doc(id).get()/update(), db.batch()
  */
 
+// Resolve dotted Firestore field paths like 'borrower.phone'
+const getPath = (data, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), data);
+
+const setNested = (obj, path, val) => {
+    const parts = path.split('.');
+    let curr = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        if (!curr[parts[i]] || typeof curr[parts[i]] !== 'object') curr[parts[i]] = {};
+        curr = curr[parts[i]];
+    }
+    curr[parts[parts.length - 1]] = val;
+};
+
 const matchesWhere = (data, [field, op, val]) => {
-    const v = data[field];
+    const v = getPath(data, field);
     switch (op) {
         case '==': return v === val;
         case 'in': return Array.isArray(val) && val.includes(v);
@@ -39,8 +52,8 @@ const execute = (store, state) => {
     }
     rows.sort((a, b) => {
         for (const [field, dir] of orders) {
-            const va = field === '__id__' ? a.id : a.data[field];
-            const vb = field === '__id__' ? b.id : b.data[field];
+            const va = field === '__id__' ? a.id : getPath(a.data, field);
+            const vb = field === '__id__' ? b.id : getPath(b.data, field);
             const cmp = va === vb ? 0 : (va < vb ? -1 : 1);
             if (cmp !== 0) return dir === 'desc' ? -cmp : cmp;
         }
@@ -91,7 +104,19 @@ const makeDocRef = (store, id) => ({
             store.set(id, data);
         }
     },
-    update: async (data) => store.set(id, { ...store.get(id), ...data }),
+    update: async (data) => {
+        const current = store.get(id) || {};
+        const updated = JSON.parse(JSON.stringify(current));
+        for (const [k, v] of Object.entries(data)) {
+            const finalVal = (v && v.__increment) ? (getPath(current, k) || 0) + v.__increment : v;
+            if (k.includes('.')) {
+                setNested(updated, k, finalVal);
+            } else {
+                updated[k] = finalVal;
+            }
+        }
+        store.set(id, updated);
+    },
     delete: async () => store.delete(id)
 });
 
@@ -136,7 +161,24 @@ const buildFirebaseMock = (seed = {}) => {
             if (!collections[name]) collections[name] = makeCollection(stores[name] || (stores[name] = new Map()));
             return collections[name];
         },
-        batch: () => makeBatch()
+        batch: () => makeBatch(),
+        runTransaction: async (fn) => {
+            // Serialise transactions so concurrent calls behave like Firestore retries
+            const run = (db.__txChain || Promise.resolve()).then(async () => {
+                const writes = [];
+                const tx = {
+                    get: async (refOrQuery) => refOrQuery.get(),
+                    set: (ref, data, opts) => writes.push(() => ref.set(data, opts)),
+                    update: (ref, data) => writes.push(() => ref.update(data)),
+                    delete: (ref) => writes.push(() => ref.delete())
+                };
+                const result = await fn(tx);
+                for (const w of writes) await w();
+                return result;
+            });
+            db.__txChain = run.catch(() => {});
+            return run;
+        }
     };
 
     return {
@@ -146,8 +188,10 @@ const buildFirebaseMock = (seed = {}) => {
         departmentsCollection: db.collection('departments'),
         resourcesCollection: db.collection('resources'),
         auditLogsCollection: db.collection('audit_logs'),
+        borrowRequestsCollection: db.collection('borrow_requests'),
+        borrowOtpsCollection: db.collection('borrow_otps'),
         __stores: stores
     };
 };
 
-module.exports = { buildFirebaseMock };
+module.exports = { buildFirebaseMock, getPath };
