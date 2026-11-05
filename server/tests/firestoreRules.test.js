@@ -12,8 +12,11 @@ const rulesPath = path.resolve(__dirname, '../../firestore.rules');
 const rules = fs.readFileSync(rulesPath, 'utf8');
 
 describe('firestore.rules — security posture', () => {
+    // Replaced strict /allow\s+read\s*,\s*write\s*:/ because borrow collections explicitly use
+    // "allow read, write: if false;" to deny all client access. We still strictly forbid
+    // any permissive catch-all like "allow read, write: if true" or "if request.auth != null".
     test('no permissive read+write catch-all remains', () => {
-        expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:/);
+        expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s+(true|request\.auth)/);
     });
 
     test('catch-all is read-only (explicit write deny)', () => {
@@ -41,5 +44,15 @@ describe('firestore.rules — security posture', () => {
         expect(notifs[1]).toMatch(/resource\.data\.userId\s*==\s*request\.auth\.uid/);
         // owner may only flip isRead — cannot reassign userId or rewrite content
         expect(notifs[1]).toMatch(/affectedKeys\(\)\.hasOnly\(\['isRead'\]\)/);
+    });
+
+    test('borrow data collections are strictly closed to client SDK (Admin SDK only)', () => {
+        const borrowRequests = rules.match(/match\s*\/borrow_requests\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowRequests).not.toBeNull();
+        expect(borrowRequests[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowOtps = rules.match(/match\s*\/borrow_otps\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowOtps).not.toBeNull();
+        expect(borrowOtps[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
     });
 });

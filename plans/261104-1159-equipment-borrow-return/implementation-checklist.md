@@ -11,14 +11,14 @@
 
 ## Phase 01 — Data model, tồn kho, lỗ hổng
 
-- [ ] `availableQty` đã được backfill (chạy script báo 0 updated lần 2)
-- [ ] `PUT /api/resources` role `user` → 403
-- [ ] `GET /api/settings` role `user` → 403
-- [ ] `GET /api/backup` role `user` → 403
-- [ ] `PUT /api/resources` giảm `quantity` dưới số mượn → 409
-- [ ] Rules deploy xong: user thường đọc `borrow_requests` qua SDK → permission denied
-- [ ] Test `borrow-stock.test.js`, `firestoreRules.test.js` pass; toàn bộ không giảm
-- [ ] `ResourceManager.jsx` hiện "Còn x / tổng"
+- [x] `availableQty` đã được backfill (chạy script báo 0 updated lần 2)
+- [x] `PUT /api/resources` role `user` → 403
+- [x] `GET /api/settings` role `user` → 403
+- [x] `GET /api/backup` role `user` → 403
+- [x] `PUT /api/resources` giảm `quantity` dưới số mượn → 409
+- [x] Rules deploy xong: user thường đọc `borrow_requests` qua SDK → permission denied
+- [x] Test `borrow-stock.test.js`, `firestoreRules.test.js` pass; toàn bộ không giảm
+- [x] `ResourceManager.jsx` hiện "Còn x / tổng"
 
 ## Phase 02 — API công khai
 

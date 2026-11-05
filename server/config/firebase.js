@@ -40,11 +40,12 @@ try {
 const db = admin.firestore();
 
 // Collections references
-// Collections references
 const eventsCollection = db.collection('events');
 const departmentsCollection = db.collection('departments');
 const resourcesCollection = db.collection('resources');
-const auditLogsCollection = db.collection('audit_logs'); // ✅ NEW
+const auditLogsCollection = db.collection('audit_logs');
+const borrowRequestsCollection = db.collection('borrow_requests');
+const borrowOtpsCollection = db.collection('borrow_otps');
 
 module.exports = {
     admin,
@@ -52,5 +53,7 @@ module.exports = {
     eventsCollection,
     departmentsCollection,
     resourcesCollection,
-    auditLogsCollection
+    auditLogsCollection,
+    borrowRequestsCollection,
+    borrowOtpsCollection
 };

@@ -44,6 +44,14 @@ service cloud.firestore {
       allow create: if false;
     }
 
+    // Borrow data contains guest PII; only the server (Admin SDK) may touch it.
+    match /borrow_requests/{docId} {
+      allow read, write: if false;
+    }
+    match /borrow_otps/{docId} {
+      allow read, write: if false;
+    }
+
     // Default catch-all: read-only for authenticated users.
     // All server-side writes use the Admin SDK which bypasses rules.
     match /{document=**} {
