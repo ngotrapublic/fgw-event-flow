@@ -10,20 +10,20 @@ Trang công khai `/borrow` (truy cập qua QR dán ở kho) dùng chung cho ngư
 
 ## Quyết định đã chốt (KHÔNG thay đổi khi code)
 
-| # | Quyết định |
-|---|---|
-| D1 | Một QR tĩnh ở kho trỏ tới `/borrow`, trang có 2 nút Mượn / Trả. Không gắn QR lên thiết bị |
-| D2 | Khách điền tên, email, SĐT. Người có tài khoản: tên + email lấy từ profile, chỉ nhập SĐT |
-| D3 | Khách **bắt buộc** bấm link xác nhận email; phiếu chỉ tới admin sau khi xác nhận. Người có tài khoản bỏ qua bước này |
-| D4 | Không trả một phần. Người mượn báo trả cả phiếu; admin nhập số lượng thực nhận từng món |
-| D5 | Người có tài khoản dùng chung trang `/borrow` |
-| D6 | Nhận diện người trả theo thứ tự: token lưu trên điện thoại → link trong email → SĐT + OTP gửi về email |
-| D7 | Admin chỉ chốt trả khi thiết bị đã ở kho; kho cộng lại **số thực nhận** |
-| D8 | Không có mã 6 số khi giao/trả. Giao = admin bấm "Đã giao"; trả = người mượn báo trả → admin chốt |
-| D9 | Phiếu không gắn sự kiện. Code mượn trả không đọc collection `events` |
+| #   | Quyết định                                                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------------- |
+| D1  | Một QR tĩnh ở kho trỏ tới `/borrow`, trang có 2 nút Mượn / Trả. Không gắn QR lên thiết bị                            |
+| D2  | Khách điền tên, email, SĐT. Người có tài khoản: tên + email lấy từ profile, chỉ nhập SĐT                             |
+| D3  | Khách **bắt buộc** bấm link xác nhận email; phiếu chỉ tới admin sau khi xác nhận. Người có tài khoản bỏ qua bước này |
+| D4  | Không trả một phần. Người mượn báo trả cả phiếu; admin nhập số lượng thực nhận từng món                              |
+| D5  | Người có tài khoản dùng chung trang `/borrow`                                                                        |
+| D6  | Nhận diện người trả theo thứ tự: token lưu trên điện thoại → link trong email → SĐT + OTP gửi về email               |
+| D7  | Admin chỉ chốt trả khi thiết bị đã ở kho; kho cộng lại **số thực nhận**                                              |
+| D8  | Không có mã 6 số khi giao/trả. Giao = admin bấm "Đã giao"; trả = người mượn báo trả → admin chốt                     |
+| D9  | Phiếu không gắn sự kiện. Code mượn trả không đọc collection `events`                                                 |
 | D10 | Người mượn tự chọn hạn trả, không có giới hạn nghiệp vụ (chỉ validate: sau hôm nay, ≤ 365 ngày, để chặn dữ liệu rác) |
-| D11 | `admin` **và** `manager` đều được duyệt / giao / chốt trả |
-| D12 | Server chạy sau nginx → `app.set('trust proxy', 1)` |
+| D11 | `admin` **và** `manager` đều được duyệt / giao / chốt trả                                                            |
+| D12 | Server chạy sau nginx → `app.set('trust proxy', 1)`                                                                  |
 
 ## Vòng đời phiếu
 
@@ -36,20 +36,21 @@ Trang công khai `/borrow` (truy cập qua QR dán ở kho) dùng chung cho ngư
                                                                                        ▼
                                                                        returned  |  returned_with_issue
 ```
+
 - Kho **trừ** `availableQty` khi `pending → approved`; **cộng** toàn bộ khi `approved → cancelled`; **cộng `receivedQty`** khi chốt trả.
 - `isOverdue` là **cờ** trên phiếu `handed_over`, không phải status.
 - Trạng thái "mở" (đang chiếm chỗ của người mượn): `unverified, pending, approved, handed_over, return_pending`.
 
 ## Phases (làm tuần tự, mỗi phase 1 commit)
 
-| Phase | Nội dung | Commit |
-|---|---|---|
-| [00](phase-00-prerequisites.md) | Branch, backup, cài thư viện, bổ sung mock test | `chore: prepare equipment borrow feature` |
+| Phase                                  | Nội dung                                                                                                                  | Commit                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| [00](phase-00-prerequisites.md)        | Branch, backup, cài thư viện, bổ sung mock test                                                                           | `chore: prepare equipment borrow feature`                |
 | [01](phase-01-data-model-and-stock.md) | `availableQty`, collections, rules, index, service tồn kho, chặn lỗ hổng `/api/resources`, `/api/settings`, `/api/backup` | `feat(borrow): add stock tracking and borrow data model` |
-| [02](phase-02-public-borrow-api.md) | API công khai: tạo phiếu, xác nhận email, tra phiếu, OTP, báo trả, rate-limit | `feat(borrow): add public borrow api` |
-| [03](phase-03-admin-api-and-jobs.md) | API admin/manager, thông báo, job nhắc hạn | `feat(borrow): add admin borrow api and reminder job` |
-| [04](phase-04-borrow-page-ui.md) | Trang `/borrow` mobile | `feat(borrow): add public borrow page` |
-| [05](phase-05-admin-ui.md) | Trang quản lý `/equipment-loans`, sidebar, thông báo, in QR | `feat(borrow): add equipment loan management page` |
+| [02](phase-02-public-borrow-api.md)    | API công khai: tạo phiếu, xác nhận email, tra phiếu, OTP, báo trả, rate-limit                                             | `feat(borrow): add public borrow api`                    |
+| [03](phase-03-admin-api-and-jobs.md)   | API admin/manager, thông báo, job nhắc hạn                                                                                | `feat(borrow): add admin borrow api and reminder job`    |
+| [04](phase-04-borrow-page-ui.md)       | Trang `/borrow` mobile                                                                                                    | `feat(borrow): add public borrow page`                   |
+| [05](phase-05-admin-ui.md)             | Trang quản lý `/equipment-loans`, sidebar, thông báo, in QR                                                               | `feat(borrow): add equipment loan management page`       |
 
 **Sau mỗi phase: dừng lại, báo reviewer.** Không gộp phase.
 

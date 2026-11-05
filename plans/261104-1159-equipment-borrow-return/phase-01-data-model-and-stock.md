@@ -1,6 +1,7 @@
 # Phase 01 — Data model, tồn kho, chặn lỗ hổng resources, settings và backup
 
 ## Context (đã kiểm trong code)
+
 - `resources` chỉ có `quantity` ([resourceController.js](../../server/controllers/resourceController.js)).
 - `PUT/POST/DELETE /api/resources` chỉ có `verifyToken` → **user thường sửa/xoá được thiết bị** ([routes/resources.js](../../server/routes/resources.js)). `updateResource` ghi thẳng `req.body`.
 - `GET/POST /api/backup` chỉ có `verifyToken`, thiếu `requireRole` ([routes/backup.js](../../server/routes/backup.js)) → **user thường tải hoặc ghi đè toàn bộ dữ liệu hệ thống**.
@@ -8,26 +9,31 @@
 - `ResourceManager.jsx` (admin) gọi `GET/POST/PUT/DELETE /resources` — phải tiếp tục chạy.
 
 ## 1. `server/utils/http-error.js` (mới)
+
 ```js
 class HttpError extends Error {
-    constructor(statusCode, message, details) {
-        super(message);
-        this.statusCode = statusCode;
-        this.details = details; // optional, e.g. { shortages: [...] }
-    }
+  constructor(statusCode, message, details) {
+    super(message);
+    this.statusCode = statusCode;
+    this.details = details; // optional, e.g. { shortages: [...] }
+  }
 }
 module.exports = HttpError;
 ```
+
 Sửa [errorHandler.js](../../server/middleware/errorHandler.js): thêm `...(err.details && { details: err.details })` vào JSON response. Không đổi gì khác.
 
 ## 2. `server/config/firebase.js`
+
 Thêm và export:
+
 ```js
-const borrowRequestsCollection = db.collection('borrow_requests');
-const borrowOtpsCollection = db.collection('borrow_otps');
+const borrowRequestsCollection = db.collection("borrow_requests");
+const borrowOtpsCollection = db.collection("borrow_otps");
 ```
 
 ## 3. Schema `borrow_requests`
+
 ```js
 {
   borrower: {
@@ -64,37 +70,52 @@ const borrowOtpsCollection = db.collection('borrow_otps');
 ```
 
 ## 4. Schema `borrow_otps` (doc id = sha256(phone))
+
 ```js
-{ codeHash, expiresAt, attempts, sentAt, sentCountWindowStart, sentCount }
+// borrow_otps/{sha256(phone)}
+const otpDoc = { codeHash, expiresAt, attempts, sentAt, sentCountWindowStart, sentCount };
 ```
 
 ## 5. `server/services/borrow-constants.js` (mới)
+
 ```js
-const OPEN_STATUSES = ['unverified', 'pending', 'approved', 'handed_over', 'return_pending'];
+const OPEN_STATUSES = [
+  "unverified",
+  "pending",
+  "approved",
+  "handed_over",
+  "return_pending",
+];
 
 // from → allowed targets
 const TRANSITIONS = {
-    unverified:     ['pending', 'expired'],
-    pending:        ['approved', 'rejected'],
-    approved:       ['handed_over', 'cancelled'],
-    handed_over:    ['return_pending', 'returned', 'returned_with_issue'],
-    return_pending: ['returned', 'returned_with_issue'],
+  unverified: ["pending", "expired"],
+  pending: ["approved", "rejected"],
+  approved: ["handed_over", "cancelled"],
+  handed_over: ["return_pending", "returned", "returned_with_issue"],
+  return_pending: ["returned", "returned_with_issue"],
 };
 
 const LIMITS = {
-    MAX_ITEMS: 20, MAX_QTY: 999, MAX_DUE_DAYS: 365,
-    MAX_OPEN_PER_GUEST: 3,           // theo email và theo SĐT
-    VERIFY_TTL_MS: 24 * 3600e3,
-    OTP_TTL_MS: 10 * 60e3, OTP_MAX_ATTEMPTS: 5, OTP_RESEND_MS: 60e3,
-    MAX_CLIENT_TOKENS: 10,
-    APPROVED_STALE_MS: 3 * 24 * 3600e3,
-    DUE_SOON_MS: 24 * 3600e3,
+  MAX_ITEMS: 20,
+  MAX_QTY: 999,
+  MAX_DUE_DAYS: 365,
+  MAX_OPEN_PER_GUEST: 3, // theo email và theo SĐT
+  VERIFY_TTL_MS: 24 * 3600e3,
+  OTP_TTL_MS: 10 * 60e3,
+  OTP_MAX_ATTEMPTS: 5,
+  OTP_RESEND_MS: 60e3,
+  MAX_CLIENT_TOKENS: 10,
+  APPROVED_STALE_MS: 3 * 24 * 3600e3,
+  DUE_SOON_MS: 24 * 3600e3,
 };
 module.exports = { OPEN_STATUSES, TRANSITIONS, LIMITS };
 ```
 
 ## 6. `server/services/borrow-stock-service.js` (mới)
+
 Hàm nhận `tx` (Firestore transaction) để chạy **chung transaction** với việc đổi status:
+
 ```js
 // Reads every resource first (Firestore requires all reads before writes),
 // then throws 409 listing every shortage, or decrements availableQty.
@@ -102,12 +123,14 @@ async function reserveInTx(tx, items) { ... }
 // Adds back `pick(item)` units per resource; ignores resources that were deleted.
 async function restockInTx(tx, items, pick = (i) => i.qty) { ... }
 ```
+
 - Gộp `items` cùng `resourceId` trước khi kiểm.
 - Thiếu hàng → `throw new HttpError(409, 'Không đủ thiết bị trong kho', { shortages: [{ resourceId, label, requested, available }] })`.
 - Resource không tồn tại khi reserve → coi như `available: 0`.
 - Dùng `admin.firestore.FieldValue.increment()` cho ghi.
 
 ## 7. `server/services/borrow-transition-service.js` (mới)
+
 ```js
 /**
  * Single entry point for every status change.
@@ -116,6 +139,7 @@ async function restockInTx(tx, items, pick = (i) => i.qty) { ... }
  */
 async function transition(requestId, toStatus, { actor, note, patch = {}, expectFrom }) { ... }
 ```
+
 - `actor` = `{ uid, email }` hoặc `{ uid: null, email: borrowerEmail }` cho khách.
 - `expectFrom` (optional, mảng) — nếu status hiện tại không thuộc → `409 'Phiếu đã được xử lý'`.
 - Cạnh không có trong `TRANSITIONS` → `409`.
@@ -128,6 +152,7 @@ async function transition(requestId, toStatus, { actor, note, patch = {}, expect
 - Sau transaction thành công gọi `logAction({ actor: actor.email, role: actor.role || 'guest', action: 'UPDATE', target: \`BorrowRequest: ${id}\`, details: { from, to } })`. Lỗi log **không** làm fail request (try/catch, `console.error`).
 
 ## 8. Sửa `resourceController.js`
+
 - `createResource`: thêm `availableQty: parseInt(quantity)`.
 - `getAllResources`: khi seed `INITIAL_RESOURCES`, thêm `availableQty = quantity`. Với doc cũ thiếu field, **trả về** `availableQty ?? quantity` (không ghi).
 - `updateResource`: chạy trong transaction:
@@ -136,6 +161,7 @@ async function transition(requestId, toStatus, { actor, note, patch = {}, expect
 - `deleteResource`: nếu `(availableQty ?? quantity) < quantity` → `409 'Thiết bị đang có người mượn'`.
 
 ## 9. Sửa `routes/resources.js`
+
 ```js
 const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 const canManage = requireRole(['admin', 'manager']);
@@ -144,38 +170,48 @@ router.post('/', verifyToken, canManage, ...);
 router.put('/', verifyToken, canManage, ...);  router.put('/:id', verifyToken, canManage, ...);
 router.delete('/', verifyToken, canManage, ...); router.delete('/:id', verifyToken, canManage, ...);
 ```
+
 Xoá các comment TODO cũ đã lỗi thời trong file này.
 
 ## 10. Chặn lỗ hổng `/api/settings` và `/api/backup`
+
 1. **`/api/settings`**: [server/routes/settings.js](../../server/routes/settings.js) hiện mount trực tiếp không auth → ai cũng ghi được `POST/PUT /api/settings` → tắt email hoặc đổi SMTP → đọc được OTP của tính năng mượn trả.
-Sửa đầu file:
+   Sửa đầu file:
+
 ```js
-const { verifyToken, requireRole } = require('../middleware/authMiddleware');
-router.use(verifyToken, requireRole(['admin']));
+const { verifyToken, requireRole } = require("../middleware/authMiddleware");
+router.use(verifyToken, requireRole(["admin"]));
 ```
+
 Kiểm client: [Settings.jsx](../../client/src/components/Settings.jsx), [NotificationSettings.jsx](../../client/src/components/settings/NotificationSettings.jsx), [EmailTemplateSettings.jsx](../../client/src/components/settings/EmailTemplateSettings.jsx) gọi qua `api.js` → tự gắn Bearer.
 
 2. **`/api/backup`**: [server/routes/backup.js](../../server/routes/backup.js) hiện chỉ có `verifyToken`, thiếu `requireRole` → mọi user đã đăng nhập đều có thể:
+
 - Tải toàn bộ dữ liệu `events`, `resources`, `audit_logs` (`GET /api/backup`).
 - Gọi `validate` + `restore` (`POST /api/backup/restore`) để **ghi đè** các collection này.
-Sửa:
+  Sửa:
+
 ```js
-const { verifyToken, requireRole } = require('../middleware/authMiddleware');
+const { verifyToken, requireRole } = require("../middleware/authMiddleware");
 
 // Protect all backup routes - admin only
-router.use(verifyToken, requireRole(['admin']));
+router.use(verifyToken, requireRole(["admin"]));
 ```
+
 Kiểm client: [DataRetention.jsx](../../client/src/components/settings/DataRetention.jsx) gọi qua `api.js` → tự gắn Bearer.
 
 Test thủ công: user role `user` gọi:
+
 - `GET /api/settings` → 403
 - `GET /api/backup` → 403
 - `POST /api/backup/restore` → 403
 
 ## 11. `ResourceManager.jsx`
+
 Hiển thị `Còn: {item.availableQty ?? item.quantity} / {item.quantity}` thay cho dòng "In Stock". Bắt lỗi 409 và hiện `error.response.data.error` bằng toast hiện có.
 
 ## 12. `firestore.rules` — thêm **trước** catch-all
+
 ```
     // Borrow data contains guest PII; only the server (Admin SDK) may touch it.
     match /borrow_requests/{docId} {
@@ -185,10 +221,12 @@ Hiển thị `Còn: {item.availableQty ?? item.quantity} / {item.quantity}` thay
       allow read, write: if false;
     }
 ```
+
 Thêm test vào [firestoreRules.test.js](../../server/tests/firestoreRules.test.js): hai block trên tồn tại với `allow read, write: if false`.
 **Chú ý:** test hiện có `expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:/)` sẽ **fail** với block mới. Sửa test đó thành chỉ cấm `allow read, write: if true` / `if request.auth != null` (pattern lỏng), giữ nguyên ý định ban đầu. Ghi rõ lý do trong comment test.
 
 ## 13. `server/firestore.indexes.json` — thêm
+
 ```json
 { "collectionGroup": "borrow_requests", "queryScope": "COLLECTION",
   "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
@@ -201,13 +239,17 @@ Thêm test vào [firestoreRules.test.js](../../server/tests/firestoreRules.test.
 { "collectionGroup": "borrow_requests", "queryScope": "COLLECTION",
   "fields": [ { "fieldPath": "borrower.uid", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] }
 ```
+
 Lookup theo `accessTokenHash` / `verifyTokenHash` là single-field equality → không cần index.
 
 ## 14. `server/scripts/backfill-available-qty.js` (mới)
+
 Đọc tất cả `resources`; doc nào **chưa có** `availableQty` thì set `= quantity`. In số doc đã cập nhật. Chạy lại không đổi gì (idempotent). Chạy: `cd server && node scripts/backfill-available-qty.js`.
 
 ## 15. Tests — `server/tests/borrow-stock.test.js`
+
 Theo pattern [round3Bugs.test.js](../../server/tests/round3Bugs.test.js) (mock `../config/firebase` bằng `buildFirebaseMock`, mock `auditLogController.logAction`).
+
 1. reserve đủ hàng → `availableQty` giảm đúng.
 2. reserve thiếu 1 món trong 2 → 409, `details.shortages` có đúng món đó, **không** món nào bị trừ.
 3. items trùng `resourceId` được gộp (2+2 > 3 → 409).
@@ -219,6 +261,7 @@ Theo pattern [round3Bugs.test.js](../../server/tests/round3Bugs.test.js) (mock `
 9. `updateResource` giảm `quantity` dưới số đang mượn → 409.
 
 ## 16. Validation
+
 - `cd server && npx jest tests/borrow-stock.test.js tests/firestoreRules.test.js` pass.
 - `npx jest` toàn bộ: không giảm so với baseline phase 00.
 - Sau khi **đã backup** (phase 00): chạy backfill trên DB thật, chạy lần 2 báo `0 updated`.

@@ -3,12 +3,14 @@
 Đây là checklist cho người review (Claude Code) khi agent antigravity code xong từng phase. Dựa trên [acceptance criteria](plan.md#acceptance-criteria-reviewer-kiểm-từng-mục) và validation trong từng phase.
 
 ## Phase 00 — Backup & chuẩn bị
+
 - [x] File backup JSON nằm **ngoài** repo
 - [x] `package.json` có `express-rate-limit@^7`, `qrcode@^1`
 - [x] `firestoreMock.js` có `runTransaction`, `borrowRequestsCollection`, `borrowOtpsCollection`
 - [x] Baseline test ghi trong báo cáo; số test pass không giảm sau khi sửa mock
 
 ## Phase 01 — Data model, tồn kho, lỗ hổng
+
 - [ ] `availableQty` đã được backfill (chạy script báo 0 updated lần 2)
 - [ ] `PUT /api/resources` role `user` → 403
 - [ ] `GET /api/settings` role `user` → 403
@@ -19,6 +21,7 @@
 - [ ] `ResourceManager.jsx` hiện "Còn x / tổng"
 
 ## Phase 02 — API công khai
+
 - [ ] `.env` có `APP_PUBLIC_URL`; thiếu → server log warn
 - [ ] `server/index.js` có `trust proxy` trên dòng đầu tiên sau `const app`
 - [ ] Test `borrow-public.test.js` pass, đủ 15 case liệt kê trong phase 02; toàn bộ không giảm
@@ -27,6 +30,7 @@
 - [ ] Khách tạo phiếu → nhận email có 2 link (Xác nhận, Quản lý); link Xác nhận hết hạn sau 24h
 
 ## Phase 03 — Admin API & job
+
 - [ ] Test `borrow-admin.test.js` (9+ cases), `borrow-reminder-job.test.js` (5+ cases) pass
 - [ ] Server khởi động → log có "borrow reminder job"; Ctrl+C → log stop
 - [ ] Manager gọi `POST /api/borrow/admin/requests/:id/approve` → 200
@@ -34,6 +38,7 @@
 - [ ] confirm-return thiếu món → `returned_with_issue` + kho chỉ cộng số nhận
 
 ## Phase 04 — Trang `/borrow`
+
 - [ ] Tab ẩn danh mở `/borrow` → không có request `/api/events*`
 - [ ] Không có sidebar/header app; chỉ request `/api/borrow/*`
 - [ ] Chỉ thiết bị `availableQty > 0` hiện; nhập vượt → Submit disabled
@@ -44,6 +49,7 @@
 - [ ] `cd client && npm run build` thành công
 
 ## Phase 05 — Admin UI
+
 - [ ] Manager đăng nhập → thấy "Equipment Loans" sidebar → `/equipment-loans` → danh sách
 - [ ] User role `user` không thấy "Equipment Loans"; vào URL thủ công → Unauthorized
 - [ ] Tab **Chờ duyệt** badge = số phiếu `pending` đúng
@@ -53,6 +59,7 @@
 - [ ] Có thông báo `borrowRequestId` → click → mở `/equipment-loans`
 
 ## Cuối cùng
+
 - [ ] `cd server && npx jest` toàn bộ: số pass ≥ baseline phase 00
 - [ ] `cd client && npm run build` không lỗi
 - [ ] Review code dùng pattern đúng: HttpError cho lỗi nghiệp vụ; `transition()` cho mọi đổi status; không log token/OTP/SĐT/email đủ
