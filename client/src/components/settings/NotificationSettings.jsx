@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Bell, Mail, MessageSquare, Check, X,
-    Save, GripVertical, AlertCircle, RefreshCw, Send, Eye, Loader2
+    Save, GripVertical, AlertCircle, Send, Eye, Loader2
 } from 'lucide-react';
 import { Input } from '../ui/Input';
 import { cn } from '../../lib/utils';
 import { useToast } from '../Toast';
-import EmailTemplateSettings from './EmailTemplateSettings';
 
 import api from '../../services/api';
 
@@ -69,7 +68,41 @@ const NotificationSettings = () => {
     const [editingType, setEditingType] = useState(null);
 
     const [previewTemplate, setPreviewTemplate] = useState(null);
+    const [previewHtml, setPreviewHtml] = useState('');
+    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+    // Load email preview when previewTemplate changes
+    useEffect(() => {
+        if (!previewTemplate) {
+            setPreviewHtml('');
+            setIsLoadingPreview(false);
+            return;
+        }
+        let isCancelled = false;
+        setIsLoadingPreview(true);
+        setPreviewHtml('');
+        api.get('/settings/preview/email', {
+            params: {
+                type: previewTemplate.id,
+                ...(previewTemplate.designTemplateId ? { design: previewTemplate.designTemplateId } : {})
+            },
+            responseType: 'text'
+        })
+            .then(({ data }) => {
+                if (!isCancelled) setPreviewHtml(data);
+            })
+            .catch((error) => {
+                console.error('Failed to load email preview:', error);
+                if (!isCancelled) addToast('Không tải được bản xem trước', 'error');
+            })
+            .finally(() => {
+                if (!isCancelled) setIsLoadingPreview(false);
+            });
+        return () => {
+            isCancelled = true;
+        };
+    }, [previewTemplate, addToast]);
 
     // Fetch settings on mount
     useEffect(() => {
@@ -743,11 +776,16 @@ const NotificationSettings = () => {
 
                         {/* Email Preview Content - Iframe with Rendered HTML */}
                         <div className="relative bg-slate-50" style={{ height: '600px' }}>
+                            {isLoadingPreview && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
+                                    <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                                </div>
+                            )}
                             <iframe
-                                src={`${API_BASE}/settings/preview/email?type=${previewTemplate.id}`}
+                                srcDoc={previewHtml}
                                 className="w-full h-full border-0"
                                 title="Email Preview"
-                                sandbox="allow-same-origin"
+                                sandbox=""
                                 style={{ background: 'white' }}
                             />
                         </div>

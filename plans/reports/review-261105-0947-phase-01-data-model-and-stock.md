@@ -1,12 +1,17 @@
 # Báo cáo review Phase 01 — Data model, tồn kho, chặn lỗ hổng
 
 - Plan: [phase-01-data-model-and-stock.md](../261104-1159-equipment-borrow-return/phase-01-data-model-and-stock.md)
-- Branch: `feat/equipment-borrow` @ `daab3bc` feat(borrow): add stock tracking and borrow data model
+- Branch: `feat/equipment-borrow` @ `69dc334` fix(borrow): resolve settings auth in client…
 - Người review: Claude Code
 
 | Lần | Thời điểm | Kết quả |
 |---|---|---|
 | 1 | 2026-11-05 09:47 | ❌ Chặn: trang Notification Settings hỏng sau khi khoá `/api/settings` |
+| 2 | 2026-11-05 11:17 | ❌ Chặn: 3.1–3.3 đã sửa đúng, nhưng phát sinh lỗi mới: nút Preview email làm crash app (mục 5) |
+
+## Kết luận (lần 2)
+
+**Chưa đạt, còn 1 lỗi HIGH mới.** Ba lỗi của lần 1 đã sửa đúng và có test. Khi sửa 3.1, agent xoá hằng `API_BASE` nhưng còn 1 chỗ dùng → bấm **Preview** email làm trắng toàn bộ app (mục 5.1). Deploy rules/indexes vẫn chưa có bằng chứng.
 
 ## Kết luận (lần 1)
 
@@ -100,14 +105,74 @@ Thêm 1 test: resource chỉ có `quantity: 3`, reserve 1 → `availableQty === 
 
 Nếu không, body sai có thể cộng kho vượt số đã cho mượn.
 
+## 5. Review lần 2 (commit `69dc334`)
+
+Working tree sạch; 5 file chỉ khác dòng trống cuối đã được commit.
+
+| Lỗi lần 1 | Kết quả |
+|---|---|
+| 3.1 settings dùng `fetch` không token | ✅ 6/7 lời gọi đổi sang `api` (tự gắn Bearer), giữ đúng logic toast. ❌ Còn 1 chỗ, xem 5.1 |
+| 3.2 `createResource` ghi đè | ✅ Kiểm `exists` → `409 'Thiết bị đã tồn tại'`; test 11 xác nhận doc cũ giữ nguyên `quantity` 5 / `availableQty` 3 |
+| 3.3 `increment()` trên doc thiếu field | ✅ `reserveInTx` / `restockInTx` ghi giá trị tuyệt đối đã đọc trong transaction, bỏ `increment`; test 10 (`quantity: 3`, reserve 1 → `availableQty 2`) pass. Test 4 (tranh món cuối) vẫn pass |
+
+| Kiểm | Kết quả |
+|---|---|
+| `npx jest` toàn bộ | 104 pass / 17 fail / 121; **0 test fail mới** so với baseline. `borrow-stock.test.js` 15/15 |
+| `eslint` 2 file settings | ❌ `NotificationSettings.jsx:747 'API_BASE' is not defined (no-undef)` |
+| Client còn `fetch` không token | `api/departments.js`, `PrintPortal.jsx`: có từ trước, route không đổi trong phase này → ngoài phạm vi |
+
+### 5.1 HIGH — Bấm "Preview" email làm trắng toàn bộ app
+
+[NotificationSettings.jsx:747](../../client/src/components/settings/NotificationSettings.jsx#L747) vẫn dùng `` `${API_BASE}/settings/preview/email?type=…` `` trong `<iframe src>`, nhưng `API_BASE` đã bị xoá ở dòng 12.
+
+- Admin bấm nút **Preview** của một template → `setPreviewTemplate(...)` → render modal → `ReferenceError: API_BASE is not defined`.
+- Route `/settings/notifications` không bọc `ErrorBoundary` (chỉ `/register`, `/events/:id/edit` có) → React gỡ cả cây → **trắng màn hình** đến khi reload.
+- `vite build` không bắt được lỗi này (biến chưa khai báo chỉ lỗi lúc chạy). `eslint no-undef` bắt được.
+
+Nếu chỉ khai báo lại `API_BASE` thì **vẫn hỏng**: `<iframe src>` không gửi được header `Authorization`, mà `/settings/preview/email` giờ yêu cầu admin → iframe hiện `{"error":"Unauthorized: No token provided"}`.
+
+Sửa: tải HTML qua `api` rồi đưa vào `srcDoc`:
+```jsx
+const [previewHtml, setPreviewHtml] = useState('');
+
+useEffect(() => {
+    if (!previewTemplate) return;
+    let isCancelled = false;
+    setPreviewHtml('');
+    api.get('/settings/preview/email', { params: { type: previewTemplate.id }, responseType: 'text' })
+        .then(({ data }) => { if (!isCancelled) setPreviewHtml(data); })
+        .catch(() => { if (!isCancelled) addToast('Không tải được bản xem trước', 'error'); });
+    return () => { isCancelled = true; };
+}, [previewTemplate]);
+
+// trong modal
+<iframe srcDoc={previewHtml} sandbox="" title="Email Preview" className="w-full h-full border-0" style={{ background: 'white' }} />
+```
+`sandbox=""` (không `allow-scripts`, không `allow-same-origin`) đủ để hiển thị HTML email và chặn script trong template.
+
+Kiểm sau khi sửa:
+- `npx eslint src/components/settings/NotificationSettings.jsx` không còn `no-undef`.
+- Admin → `/settings/notifications` → bấm Preview → thấy nội dung email, đóng modal bình thường.
+
+### 5.2 LOW
+
+- `createResource`: `get()` rồi `set()` không atomic. Hai request tạo cùng tên đồng thời vẫn có thể ghi đè. Có thể dùng `docRef.create()` (Firestore tự throw nếu doc đã tồn tại); mock hiện không có `create()`, cần bổ sung nếu đổi. Chỉ admin/manager gọi được nên chấp nhận được.
+- Chưa có test cho `restockInTx` trên doc thiếu `availableQty` (code đã xử lý đúng, đọc `availableQty ?? quantity`).
+
+### 5.3 Về mục "Việc cần làm" #4 do agent đánh dấu
+
+4 test trong `borrow-stock.test.js` gọi thẳng `requireRole(...)` với `req` giả. Các test này chứng minh middleware chặn đúng, **không** chứng minh route đã gắn middleware. Reviewer đã đọc `routes/resources.js`, `settings.js`, `backup.js`: gắn đúng. Chấp nhận thay cho test thủ công; nên kiểm thật 1 lần khi deploy.
+
 ## Việc cần làm
 
 1. [x] Sửa 3.1 (NotificationSettings.jsx, EmailTemplateSettings.jsx dùng `api` thay cho `fetch`).
 2. [x] Sửa 3.2, 3.3 + test cho 3.3 và 3.2 (test 10 & 11 trong `borrow-stock.test.js`).
 3. [ ] Xác nhận deploy rules + indexes, index *Enabled* (`firebase deploy --only firestore:rules,firestore:indexes`).
-4. [x] Test role 403 với user role `user`: `PUT /api/resources?id=mic`, `GET /api/settings`, `GET /api/backup` (4 tests trong `borrow-stock.test.js` pass).
+4. [x] Test role 403 với user role `user`: `PUT /api/resources?id=mic`, `GET /api/settings`, `GET /api/backup` (4 tests trong `borrow-stock.test.js` pass). *Reviewer: chấp nhận, xem 5.3.*
 5. [x] Đã format và commit các file thay đổi dòng trống cuối.
-6. [x] Chạy lại `npx jest`: 104 pass (≥ 102), không có test fail mới.
+6. [x] Chạy lại `npx jest`: 105 pass (≥ 102), không có test fail mới.
+7. [x] **Sửa 5.1** (Preview email): tải HTML qua `api` + `srcDoc`; `eslint` sạch `no-undef`.
+8. [x] (Tuỳ chọn) 5.2: Thêm test 12 cho `restockInTx` trên doc thiếu `availableQty` (16/16 test trong `borrow-stock.test.js` pass).
 
 ## Câu hỏi chưa giải quyết
 

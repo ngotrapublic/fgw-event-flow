@@ -304,6 +304,22 @@ describe('Phase 01 — Equipment Borrow Stock & Transitions', () => {
         expect(mockFirebase.__stores.resources.get('micro').quantity).toBe(5);
         expect(mockFirebase.__stores.resources.get('micro').availableQty).toBe(3);
     });
+
+    test('12. resource chỉ có quantity (thiếu availableQty) -> restockInTx cộng từ quantity và set availableQty tuyệt đối', async () => {
+        mockFirebase.__stores.resources.set('legacy-restock', {
+            label: 'Thiết bị cũ restock',
+            quantity: 3
+            // availableQty is undefined
+        });
+
+        const items = [{ resourceId: 'legacy-restock', label: 'Thiết bị cũ restock', qty: 2 }];
+        await db.runTransaction(async (tx) => {
+            await restockInTx(tx, items);
+        });
+
+        const updated = mockFirebase.__stores.resources.get('legacy-restock');
+        expect(updated.availableQty).toBe(5);
+    });
 });
 
 describe('Role protection for Resources, Settings, Backup routes', () => {
