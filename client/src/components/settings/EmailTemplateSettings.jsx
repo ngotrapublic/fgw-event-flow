@@ -3,7 +3,7 @@ import { Palette, Check, Loader2 } from 'lucide-react';
 import { useToast } from '../Toast';
 import './EmailTemplateSettings.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+import api from '../../services/api';
 
 const EmailTemplateSettings = () => {
     const { addToast } = useToast();
@@ -26,13 +26,11 @@ const EmailTemplateSettings = () => {
         const loadData = async () => {
             try {
                 // Load available templates
-                const templatesRes = await fetch(`${API_BASE}/settings/email-templates`);
-                const templatesData = await templatesRes.json();
+                const { data: templatesData } = await api.get('/settings/email-templates');
                 setTemplates(templatesData);
 
                 // Load current assignments from settings
-                const settingsRes = await fetch(`${API_BASE}/settings`);
-                const settingsData = await settingsRes.json();
+                const { data: settingsData } = await api.get('/settings');
 
                 const assignments = {};
                 if (settingsData.templates) {
@@ -68,22 +66,13 @@ const EmailTemplateSettings = () => {
     const handleSelectTemplate = async (templateId) => {
         setIsSaving(true);
         try {
-            const response = await fetch(`${API_BASE}/settings/templates/${editingType}/assign`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ templateId })
-            });
-
-            if (response.ok) {
-                setCurrentAssignments(prev => ({
-                    ...prev,
-                    [editingType]: templateId
-                }));
-                addToast('Template saved successfully', 'success');
-                setShowGallery(false);
-            } else {
-                throw new Error('Failed to save');
-            }
+            await api.post(`/settings/templates/${editingType}/assign`, { templateId });
+            setCurrentAssignments(prev => ({
+                ...prev,
+                [editingType]: templateId
+            }));
+            addToast('Template saved successfully', 'success');
+            setShowGallery(false);
         } catch (error) {
             console.error('Error saving template:', error);
             addToast('Failed to save template', 'error');

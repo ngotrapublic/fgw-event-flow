@@ -9,7 +9,7 @@ import { cn } from '../../lib/utils';
 import { useToast } from '../Toast';
 import EmailTemplateSettings from './EmailTemplateSettings';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+import api from '../../services/api';
 
 // Sample event data for preview
 const SAMPLE_EVENT_DATA = {
@@ -75,9 +75,8 @@ const NotificationSettings = () => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const response = await fetch(`${API_BASE}/settings`);
-                if (response.ok) {
-                    const data = await response.json();
+                const { data } = await api.get('/settings');
+                if (data) {
                     setChannels({
                         ...data.channels,
                         smtp: data.smtp
@@ -114,9 +113,8 @@ const NotificationSettings = () => {
     useEffect(() => {
         const loadDesignTemplates = async () => {
             try {
-                const response = await fetch(`${API_BASE}/settings/email-templates`);
-                if (response.ok) {
-                    const data = await response.json();
+                const { data } = await api.get('/settings/email-templates');
+                if (data) {
                     setEmailDesignTemplates(data);
                 }
             } catch (error) {
@@ -135,20 +133,13 @@ const NotificationSettings = () => {
     // Handle template selection from gallery
     const handleSelectDesignTemplate = async (templateId) => {
         try {
-            const response = await fetch(`${API_BASE}/settings/templates/${editingType}/assign`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ templateId })
-            });
-
-            if (response.ok) {
-                setTemplateAssignments(prev => ({
-                    ...prev,
-                    [editingType]: templateId
-                }));
-                addToast('Design template updated', 'success');
-                setShowGallery(false);
-            }
+            await api.post(`/settings/templates/${editingType}/assign`, { templateId });
+            setTemplateAssignments(prev => ({
+                ...prev,
+                [editingType]: templateId
+            }));
+            addToast('Design template updated', 'success');
+            setShowGallery(false);
         } catch (error) {
             console.error('Failed to assign template:', error);
             addToast('Failed to update template', 'error');
@@ -165,18 +156,9 @@ const NotificationSettings = () => {
                 templates,
                 smtp: smtp
             };
-            const response = await fetch(`${API_BASE}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings)
-            });
-
-            if (response.ok) {
-                addToast('Settings saved successfully', 'success');
-                setHasUnsavedChanges(false);
-            } else {
-                throw new Error('Failed to save');
-            }
+            await api.post('/settings', settings);
+            addToast('Settings saved successfully', 'success');
+            setHasUnsavedChanges(false);
         } catch (error) {
             console.error('Error saving settings:', error);
             addToast('Failed to save settings', 'error');

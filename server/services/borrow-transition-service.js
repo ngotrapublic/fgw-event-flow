@@ -95,3 +95,4 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
 module.exports = {
     transition
 };
+

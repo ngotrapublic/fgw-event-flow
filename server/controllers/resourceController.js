@@ -60,6 +60,12 @@ const createResource = async (req, res, next) => {
         const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''); // Safe ID generation
         const parsedQty = parseInt(quantity, 10) || 0;
 
+        const docRef = resourcesCollection.doc(id);
+        const existingSnap = await docRef.get();
+        if (existingSnap.exists) {
+            throw new HttpError(409, 'Thiết bị đã tồn tại');
+        }
+
         const newResource = {
             label,
             category,
@@ -68,7 +74,7 @@ const createResource = async (req, res, next) => {
             icon
         };
 
-        await resourcesCollection.doc(id).set(newResource);
+        await docRef.set(newResource);
 
         // LOGGING
         await logAction({
@@ -79,8 +85,8 @@ const createResource = async (req, res, next) => {
         res.status(201).json({ id, ...newResource });
     } catch (error) {
         if (typeof next === 'function') return next(error);
-        console.error('Error creating resource:', error);
-        res.status(500).json({ error: 'Failed to create resource' });
+        const statusCode = error.statusCode || 500;
+        res.status(statusCode).json({ error: error.message || 'Failed to create resource' });
     }
 };
 

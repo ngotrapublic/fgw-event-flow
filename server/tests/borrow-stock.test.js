@@ -260,6 +260,50 @@ describe('Phase 01 — Equipment Borrow Stock & Transitions', () => {
         expect(mockFirebase.__stores.resources.get('mic').quantity).toBe(5);
         expect(mockFirebase.__stores.resources.get('mic').availableQty).toBe(3);
     });
+
+    test('10. resource chỉ có quantity (thiếu availableQty) -> reserve trừ từ quantity và set availableQty tuyệt đối', async () => {
+        // Resource restored from legacy backup missing availableQty
+        mockFirebase.__stores.resources.set('legacy-item', {
+            label: 'Thiết bị cũ',
+            quantity: 3
+            // availableQty is undefined
+        });
+
+        const items = [{ resourceId: 'legacy-item', label: 'Thiết bị cũ', qty: 1 }];
+        await db.runTransaction(async (tx) => {
+            await reserveInTx(tx, items);
+        });
+
+        const updated = mockFirebase.__stores.resources.get('legacy-item');
+        expect(updated.availableQty).toBe(2);
+    });
+
+    test('11. createResource trùng ID thiết bị đã tồn tại -> 409', async () => {
+        mockFirebase.__stores.resources.set('micro', {
+            label: 'Micro',
+            category: 'Audio',
+            quantity: 5,
+            availableQty: 3
+        });
+
+        const req = {
+            body: { label: 'Micro', category: 'Audio', quantity: 10, icon: 'Mic' },
+            user: { email: 'admin@test.com', role: 'admin' },
+            ip: '127.0.0.1'
+        };
+        const res = mkRes();
+        const next = jest.fn((err) => {
+            if (err) res.status(err.statusCode || 500).json({ error: err.message });
+        });
+
+        await resourceController.createResource(req, res, next);
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body.error).toBe('Thiết bị đã tồn tại');
+        // Existing micro resource was NOT overwritten: quantity remains 5, availableQty remains 3
+        expect(mockFirebase.__stores.resources.get('micro').quantity).toBe(5);
+        expect(mockFirebase.__stores.resources.get('micro').availableQty).toBe(3);
+    });
 });
 
 describe('Role protection for Resources, Settings, Backup routes', () => {

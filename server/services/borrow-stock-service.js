@@ -1,4 +1,4 @@
-const { admin, resourcesCollection } = require('../config/firebase');
+const { resourcesCollection } = require('../config/firebase');
 const HttpError = require('../utils/http-error');
 
 /**
@@ -37,20 +37,20 @@ async function reserveInTx(tx, items) {
         merged.map(async (m) => {
             const ref = resourcesCollection.doc(m.resourceId);
             const doc = await tx.get(ref);
-            return { m, ref, doc };
+            let available = 0;
+            let label = m.label;
+            if (doc.exists) {
+                const data = doc.data() || {};
+                available = data.availableQty !== undefined ? data.availableQty : (data.quantity || 0);
+                if (data.label) label = data.label;
+            }
+            return { m, ref, doc, available, label };
         })
     );
 
     // 2. Check stock
     const shortages = [];
-    for (const { m, doc } of reads) {
-        let available = 0;
-        let label = m.label;
-        if (doc.exists) {
-            const data = doc.data() || {};
-            available = data.availableQty !== undefined ? data.availableQty : (data.quantity || 0);
-            if (data.label) label = data.label;
-        }
+    for (const { m, available, label } of reads) {
         if (available < m.qty) {
             shortages.push({
                 resourceId: m.resourceId,
@@ -65,11 +65,11 @@ async function reserveInTx(tx, items) {
         throw new HttpError(409, 'Không đủ thiết bị trong kho', { shortages });
     }
 
-    // 3. All writes
-    for (const { m, ref } of reads) {
+    // 3. All writes (write absolute calculated availableQty to avoid negative values on legacy docs)
+    for (const { m, ref, available } of reads) {
         if (m.qty > 0) {
             tx.update(ref, {
-                availableQty: admin.firestore.FieldValue.increment(-m.qty)
+                availableQty: available - m.qty
             });
         }
     }
@@ -88,15 +88,20 @@ async function restockInTx(tx, items, pick = (i) => i.qty) {
         merged.map(async (m) => {
             const ref = resourcesCollection.doc(m.resourceId);
             const doc = await tx.get(ref);
-            return { m, ref, doc };
+            let currentAvail = 0;
+            if (doc.exists) {
+                const data = doc.data() || {};
+                currentAvail = data.availableQty !== undefined ? data.availableQty : (data.quantity || 0);
+            }
+            return { m, ref, doc, currentAvail };
         })
     );
 
     // 2. All writes for existing resources
-    for (const { m, ref, doc } of reads) {
+    for (const { m, ref, doc, currentAvail } of reads) {
         if (doc.exists && m.qty > 0) {
             tx.update(ref, {
-                availableQty: admin.firestore.FieldValue.increment(m.qty)
+                availableQty: currentAvail + m.qty
             });
         }
     }
