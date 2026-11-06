@@ -1,7 +1,7 @@
 # Báo cáo review Phase 01 — Data model, tồn kho, chặn lỗ hổng
 
 - Plan: [phase-01-data-model-and-stock.md](../261104-1159-equipment-borrow-return/phase-01-data-model-and-stock.md)
-- Branch: `feat/equipment-borrow` @ `ab85090` fix(settings): load email preview via api with srcDoc…
+- Branch: `feat/equipment-borrow` @ `36161d2` docs(borrow): record successful deployment of rules and indexes for phase 01
 - Người review: Claude Code
 
 | Lần | Thời điểm | Kết quả |
@@ -9,11 +9,17 @@
 | 1 | 2026-11-05 09:47 | ❌ Chặn: trang Notification Settings hỏng sau khi khoá `/api/settings` |
 | 2 | 2026-11-05 11:17 | ❌ Chặn: 3.1–3.3 đã sửa đúng, nhưng phát sinh lỗi mới: nút Preview email làm crash app (mục 5) |
 | 3 | 2026-11-05 18:00 | ⚠️ Code đạt. Còn chặn: **rules + 3 index chưa deploy** lên Firebase (mục 6) |
-| 4 | 2026-11-06 08:24 | ✅ Đạt: Rules & 5/5 index đã deploy thành công, mọi query READY |
+| 4 | 2026-11-06 08:30 | ✅ **Đạt, được sang phase 02.** Reviewer tự kiểm Firebase thật: rules + 5/5 index đúng, không mất index cũ (mục 7) |
+
+## Kết luận (lần 4)
+
+**Phase 01 đạt, được sang phase 02.** Không cần sửa gì thêm. Reviewer đã tự kiểm trên Firebase thật (chỉ đọc), không dựa vào ghi chú deploy của agent:
+- Rules đang chạy giống hệt `firestore.rules` local, có 2 block khoá `borrow_requests` / `borrow_otps`.
+- Cả 5 index mượn trả chạy được; 7 index cũ (`events`, `emailQueue`) vẫn chạy được → deploy không xoá index nào.
 
 ## Kết luận (lần 3)
 
-**Code phase 01 đạt, không cần sửa gì thêm.** 5.1 đã sửa đúng (preview tải qua `api` + `srcDoc` + `sandbox=""`); test, eslint, build đều sạch.
+**Code phase 01 đạt.** 5.1 đã sửa đúng (preview tải qua `api` + `srcDoc` + `sandbox=""`); test, eslint, build đều sạch.
 
 **Chưa được sang phase 02**: reviewer kiểm thẳng Firebase (chỉ đọc) và thấy rules đang chạy là bản 29/10, chưa có khoá `borrow_requests`/`borrow_otps`; 3/5 index mới chưa tồn tại. Chỉ cần chạy deploy (mục 6.1), **không phải sửa code**.
 
@@ -206,6 +212,22 @@ Cách làm (máy có Firebase CLI, đã `firebase login`, ở thư mục gốc r
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 Sau đó mở Firebase Console → Firestore → Indexes, chờ 3 index trên chuyển sang **Enabled**, rồi báo reviewer kiểm lại.
+
+## 7. Review lần 4 (sau deploy, commit `36161d2`)
+
+Commit `36161d2` chỉ sửa file báo cáo này; code giữ nguyên `ab85090` (đã đạt ở lần 3). Working tree sạch.
+
+Kiểm thẳng Firebase thật bằng Admin SDK, **chỉ đọc**:
+
+| Kiểm | Kết quả |
+|---|---|
+| Ruleset đang chạy | Tạo 06/11/2026 01:14 UTC; **giống hệt** `firestore.rules` local |
+| Block `borrow_requests`, `borrow_otps` | ✅ Có, đều `allow read, write: if false` |
+| 5 query mượn trả (`status+createdAt↓`, `status+dueAt`, `borrower.phone+isOpen`, `borrower.email+isOpen`, `borrower.uid+createdAt↓`) | ✅ 5/5 chạy được |
+| 7 index cũ trong `firestore.indexes.json` (`events` ×6 gồm 4 index `location` array-contains, `emailQueue` ×1) | ✅ 7/7 chạy được |
+| Trạng thái index trên Firestore | Tất cả `READY`, không có `CREATING` / `NEEDS_REPAIR`. Index `userId + createdAt↓` (không có trong file) vẫn còn → deploy không xoá index ngoài file |
+
+Rollback rules nếu cần: ruleset cũ ngày 29/10/2026 (giống `firestore.rules` trên `main`).
 
 ## Việc cần làm
 

@@ -25,6 +25,11 @@ const emailService = require('./services/emailService');
 const path = require('path'); // ✅ NEW
 
 const app = express();
+app.set('trust proxy', 1); // behind nginx — req.ip = real client IP
+
+if (!process.env.APP_PUBLIC_URL) {
+    console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');
+}
 const PORT = process.env.PORT || 5000;
 
 // Initialize Schedulers
@@ -71,6 +76,7 @@ app.use('/api/pdf', pdfRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/users', require('./routes/users'));
 app.use('/api/resources', require('./routes/resources'));
+app.use('/api/borrow', require('./routes/borrow'));
 app.use('/api/audit-logs', require('./routes/auditLogs')); // ✅ NEW: Audit Logs API
 app.use('/api/backup', require('./routes/backup')); // ✅ NEW: Backup & Restore API
 app.use('/api/import', require('./routes/importRoutes')); // ✅ NEW: Excel Import API

@@ -65,6 +65,24 @@ class NotificationService {
      * Get all admin user IDs
      * @returns {Promise<string[]>} Array of admin UIDs
      */
+    /**
+     * Get user IDs by roles (e.g. ['admin', 'manager'])
+     * @param {string[]} roles
+     * @returns {Promise<string[]>} Array of UIDs
+     */
+    async getUidsByRoles(roles) {
+        if (!roles || roles.length === 0) return [];
+        try {
+            const snapshot = await db.collection('users')
+                .where('role', 'in', roles).get();
+            const uids = snapshot.docs.map(doc => doc.id);
+            return uids;
+        } catch (error) {
+            console.error('[NOTIF SERVICE] Error getting uids by roles:', error);
+            return [];
+        }
+    }
+
     async getAdminUids() {
         try {
             const snapshot = await db.collection('users')
