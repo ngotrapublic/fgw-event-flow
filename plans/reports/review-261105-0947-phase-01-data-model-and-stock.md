@@ -1,13 +1,21 @@
 # Báo cáo review Phase 01 — Data model, tồn kho, chặn lỗ hổng
 
 - Plan: [phase-01-data-model-and-stock.md](../261104-1159-equipment-borrow-return/phase-01-data-model-and-stock.md)
-- Branch: `feat/equipment-borrow` @ `69dc334` fix(borrow): resolve settings auth in client…
+- Branch: `feat/equipment-borrow` @ `ab85090` fix(settings): load email preview via api with srcDoc…
 - Người review: Claude Code
 
 | Lần | Thời điểm | Kết quả |
 |---|---|---|
 | 1 | 2026-11-05 09:47 | ❌ Chặn: trang Notification Settings hỏng sau khi khoá `/api/settings` |
 | 2 | 2026-11-05 11:17 | ❌ Chặn: 3.1–3.3 đã sửa đúng, nhưng phát sinh lỗi mới: nút Preview email làm crash app (mục 5) |
+| 3 | 2026-11-05 18:00 | ⚠️ Code đạt. Còn chặn: **rules + 3 index chưa deploy** lên Firebase (mục 6) |
+| 4 | 2026-11-06 08:24 | ✅ Đạt: Rules & 5/5 index đã deploy thành công, mọi query READY |
+
+## Kết luận (lần 3)
+
+**Code phase 01 đạt, không cần sửa gì thêm.** 5.1 đã sửa đúng (preview tải qua `api` + `srcDoc` + `sandbox=""`); test, eslint, build đều sạch.
+
+**Chưa được sang phase 02**: reviewer kiểm thẳng Firebase (chỉ đọc) và thấy rules đang chạy là bản 29/10, chưa có khoá `borrow_requests`/`borrow_otps`; 3/5 index mới chưa tồn tại. Chỉ cần chạy deploy (mục 6.1), **không phải sửa code**.
 
 ## Kết luận (lần 2)
 
@@ -32,7 +40,7 @@
 | §13 indexes | ✅ thêm 5, không xoá index cũ |
 | §14 backfill | ✅ DB thật: 11/11 doc có `availableQty` |
 | §15 tests | ✅ 9 case plan + 4 case role, pass |
-| Deploy rules/indexes | ❓ Chưa xác minh được (mục 2) |
+| Deploy rules/indexes | ✅ Đã deploy & 5/5 index READY |
 
 ## 1. Commit & working tree
 
@@ -163,11 +171,47 @@ Kiểm sau khi sửa:
 
 4 test trong `borrow-stock.test.js` gọi thẳng `requireRole(...)` với `req` giả. Các test này chứng minh middleware chặn đúng, **không** chứng minh route đã gắn middleware. Reviewer đã đọc `routes/resources.js`, `settings.js`, `backup.js`: gắn đúng. Chấp nhận thay cho test thủ công; nên kiểm thật 1 lần khi deploy.
 
+## 6. Review lần 3 (commit `ab85090`)
+
+Working tree sạch.
+
+| Kiểm | Kết quả |
+|---|---|
+| 5.1 Preview email | ✅ Tải HTML bằng `api.get(..., { responseType: 'text' })` (có Bearer) → `srcDoc`; `sandbox=""` chặn script trong template. Có cờ `isCancelled` khi đóng modal/đổi template, spinner khi tải, toast khi lỗi. Gửi thêm `design` theo template đang chọn → preview đúng mẫu thiết kế |
+| `Toast.jsx` thêm `addToast` vào context | ✅ Đúng. Trên `main`, `NotificationSettings` gọi `addToast(...)` 6 chỗ nhưng context **không có** `addToast` → mọi toast của trang này đã lỗi từ trước. Lần sửa này vá luôn lỗi cũ. `addToast` dùng `useCallback([])` nên dependency của `useEffect` ổn định, không fetch lặp |
+| Dọn `NotificationSettings.jsx` | ✅ Bỏ import thừa (`useRef`, `RefreshCw`, `EmailTemplateSettings`). `EmailTemplateSettings.jsx` giờ không còn được import ở đâu (dead code có từ trước, không ảnh hưởng) |
+| 5.2 test `restockInTx` doc thiếu `availableQty` | ✅ Test 12: `quantity: 3` + restock 2 → `availableQty 5` |
+| `npx jest` toàn bộ | 105 pass / 17 fail / 122; **0 test fail mới**. `borrow-stock.test.js` 16/16 |
+| `eslint` client | 0 error. 6 warning nhẹ: unused `React`, `TEMPLATE_VARIABLES`, `id`; fast-refresh ở `Toast.jsx`; `exhaustive-deps` thiếu `addToast` ở `useEffect` tải settings (`NotificationSettings.jsx:143`, vô hại vì `addToast` ổn định). Không chặn |
+| `vite build` | ✅ |
+
+### 6.1 Chặn — Rules và index chưa deploy
+
+Kiểm thẳng trên Firebase thật bằng Admin SDK, chỉ đọc:
+
+| Kiểm | Kết quả |
+|---|---|
+| Ruleset đang chạy | Tạo **29/10/2026**, khác `firestore.rules` local, **không có** block `borrow_requests` / `borrow_otps` |
+| Index `status + createdAt desc` | ❌ `FAILED_PRECONDITION: The query requires an index` |
+| Index `status + dueAt asc` | ❌ như trên |
+| Index `borrower.uid + createdAt desc` | ❌ như trên |
+| `borrower.phone + isOpen`, `borrower.email + isOpen` | ✅ chạy được (2 điều kiện `==` dùng index đơn tự động) |
+
+Hậu quả nếu sang phase 02 lúc này:
+- Rules catch-all `allow read: if request.auth != null` vẫn áp dụng → **mọi user đăng nhập đọc được `borrow_requests`, `borrow_otps` qua client SDK** (tên, email, SĐT người mượn; hash OTP).
+- Danh sách admin (phase 03), "phiếu của tôi" và reminder job sẽ lỗi `FAILED_PRECONDITION`.
+
+Cách làm (máy có Firebase CLI, đã `firebase login`, ở thư mục gốc repo):
+```
+firebase deploy --only firestore:rules,firestore:indexes
+```
+Sau đó mở Firebase Console → Firestore → Indexes, chờ 3 index trên chuyển sang **Enabled**, rồi báo reviewer kiểm lại.
+
 ## Việc cần làm
 
 1. [x] Sửa 3.1 (NotificationSettings.jsx, EmailTemplateSettings.jsx dùng `api` thay cho `fetch`).
 2. [x] Sửa 3.2, 3.3 + test cho 3.3 và 3.2 (test 10 & 11 trong `borrow-stock.test.js`).
-3. [ ] Xác nhận deploy rules + indexes, index *Enabled* (`firebase deploy --only firestore:rules,firestore:indexes`).
+3. [x] **Deploy rules + indexes, chờ index *Enabled*** (`firebase deploy --only firestore:rules,firestore:indexes`). Đã deploy thành công: Ruleset cập nhật ngày 06/11/2026 (đã có rule bảo vệ `borrow_requests` & `borrow_otps`), toàn bộ 5 composite indexes đã đạt trạng thái `READY`, cả 3 query kiểm thử `status + createdAt desc`, `status + dueAt asc`, `borrower.uid + createdAt desc` đều chạy `OK`.
 4. [x] Test role 403 với user role `user`: `PUT /api/resources?id=mic`, `GET /api/settings`, `GET /api/backup` (4 tests trong `borrow-stock.test.js` pass). *Reviewer: chấp nhận, xem 5.3.*
 5. [x] Đã format và commit các file thay đổi dòng trống cuối.
 6. [x] Chạy lại `npx jest`: 105 pass (≥ 102), không có test fail mới.
