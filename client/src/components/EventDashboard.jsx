@@ -612,6 +612,7 @@ const EventDashboard = () => {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [dataVersion, setDataVersion] = useState(0); // Incremented on mutations to signal child views to re-fetch
     const { user } = useAuth();
+    const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
     // Dashboard Stats from dedicated API (not affected by pagination)
     const [dashboardStats, setDashboardStats] = useState({ today: 0, tomorrow: 0, week: 0, happeningNow: 0 });
@@ -880,13 +881,34 @@ const EventDashboard = () => {
                                     title="My Events" 
                                     value={dashboardStats.total || 0} 
                                     icon={Users} 
-                                    color={filterMode === 'my' ? "bg-violet-200 border-violet-500" : "bg-violet-50"} 
+                                    color="bg-violet-50" 
                                     labelColor="text-violet-600"
-                                    onClick={() => setFilterMode(filterMode === 'my' ? 'all' : 'my')} 
+                                    onClick={() => setDrilldownType('my')} 
                                 />
-                                <StatCard title="Upcoming" value={dashboardStats.upcoming || 0} icon={Clock} color="bg-teal-50" labelColor="text-teal-600" />
-                                <StatCard title="Completed" value={dashboardStats.completed || 0} icon={List} color="bg-slate-100" labelColor="text-slate-600" />
-                                <StatCard title="This Month" value={dashboardStats.thisMonthCount || 0} icon={CalendarIcon} color="bg-orange-50" labelColor="text-orange-600" />
+                                <StatCard 
+                                    title="Upcoming" 
+                                    value={dashboardStats.upcoming || 0} 
+                                    icon={Clock} 
+                                    color="bg-teal-50" 
+                                    labelColor="text-teal-600" 
+                                    onClick={() => setDrilldownType('upcoming')}
+                                />
+                                <StatCard 
+                                    title="Completed" 
+                                    value={dashboardStats.completed || 0} 
+                                    icon={List} 
+                                    color="bg-slate-100" 
+                                    labelColor="text-slate-600" 
+                                    onClick={() => setDrilldownType('completed')}
+                                />
+                                <StatCard 
+                                    title="This Month" 
+                                    value={dashboardStats.thisMonthCount || 0} 
+                                    icon={CalendarIcon} 
+                                    color="bg-orange-50" 
+                                    labelColor="text-orange-600" 
+                                    onClick={() => setDrilldownType('thisMonth')}
+                                />
                             </>
                         );
                     }
@@ -1208,7 +1230,7 @@ const EventDashboard = () => {
             <StatDrilldownModal 
                 isOpen={!!drilldownType}
                 type={drilldownType}
-                department={filterDepartment === 'all' ? '' : filterDepartment}
+                department={!isAdmin ? (user?.department || '') : (filterDepartment === 'all' ? '' : filterDepartment)}
                 onClose={() => setDrilldownType(null)}
             />
         </div>

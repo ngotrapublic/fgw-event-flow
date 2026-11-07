@@ -516,6 +516,48 @@ exports.getStatDetails = async (req, res, next) => {
         const yesterdayStr = new Date(todayLocal.getTime() - 24 * 60 * 60 * 1000)
             .toISOString().split('T')[0];
 
+        // Handle user dashboard categories (my/total, upcoming, completed, thisMonth)
+        if (['my', 'total', 'upcoming', 'completed', 'thisMonth'].includes(type)) {
+            const yyyy = todayLocal.getFullYear();
+            const mm = String(todayLocal.getMonth() + 1).padStart(2, '0');
+            const firstDayStr = `${yyyy}-${mm}-01`;
+            const lastDay = new Date(todayLocal.getFullYear(), todayLocal.getMonth() + 1, 0).getDate();
+            const lastDayStr = `${yyyy}-${mm}-${String(lastDay).padStart(2, '0')}`;
+
+            let q = eventsCollection.where('isUniqueEvent', '==', true);
+            if (department) {
+                q = q.where('department', '==', department);
+            }
+
+            if (type === 'upcoming') {
+                q = q.where('eventDate', '>=', todayStr).orderBy('eventDate', 'asc');
+            } else if (type === 'completed') {
+                q = q.where('eventDate', '<', todayStr).orderBy('eventDate', 'desc');
+            } else if (type === 'thisMonth') {
+                q = q.where('eventDate', '>=', firstDayStr).where('eventDate', '<=', lastDayStr).orderBy('eventDate', 'asc');
+            } else {
+                // 'my' or 'total'
+                q = q.orderBy('eventDate', 'desc');
+            }
+
+            const snap = await q.limit(100).get();
+            const results = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            if (type === 'upcoming' || type === 'thisMonth') {
+                results.sort((a, b) => {
+                    if (a.eventDate !== b.eventDate) return a.eventDate.localeCompare(b.eventDate);
+                    return (a.startTime || '').localeCompare(b.startTime || '');
+                });
+            } else {
+                results.sort((a, b) => {
+                    if (a.eventDate !== b.eventDate) return b.eventDate.localeCompare(a.eventDate);
+                    return (b.startTime || '').localeCompare(a.startTime || '');
+                });
+            }
+
+            return res.json(results);
+        }
+
         let targetDates = [];
         if (type === 'today') {
             targetDates = [todayStr];
