@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MapPin, Clock, Calendar, Box, Loader2 } from 'lucide-react';
+import { X, MapPin, Clock, Calendar, Box, Loader2, Users, List, BarChart2 } from 'lucide-react';
 import api from '../services/api';
 import EventPreviewModal from './EventPreviewModal';
 
@@ -9,14 +9,33 @@ const TYPE_TITLES = {
     today: 'Sự kiện Hôm nay',
     tomorrow: 'Sự kiện Ngày mai',
     week: 'Sự kiện 7 ngày tới',
-    now: 'Sự kiện Đang diễn ra'
+    now: 'Sự kiện Đang diễn ra',
+    my: 'Tất cả sự kiện của bộ phận',
+    upcoming: 'Sự kiện Sắp diễn ra',
+    completed: 'Sự kiện Đã kết thúc',
+    thisMonth: 'Sự kiện Trong tháng này'
+};
+
+const TYPE_ICONS = {
+    today: Calendar,
+    tomorrow: Clock,
+    week: Calendar,
+    now: BarChart2,
+    my: Users,
+    upcoming: Clock,
+    completed: List,
+    thisMonth: Calendar
 };
 
 const TYPE_COLORS = {
     today: { bg: 'bg-blue-500', shadow: 'shadow-[4px_4px_0_#1e3a8a]', border: 'border-blue-900', text: 'text-blue-900', lightBg: 'bg-blue-50' },
     tomorrow: { bg: 'bg-emerald-500', shadow: 'shadow-[4px_4px_0_#064e3b]', border: 'border-emerald-900', text: 'text-emerald-900', lightBg: 'bg-emerald-50' },
     week: { bg: 'bg-purple-500', shadow: 'shadow-[4px_4px_0_#4c1d95]', border: 'border-purple-900', text: 'text-purple-900', lightBg: 'bg-purple-50' },
-    now: { bg: 'bg-pink-500', shadow: 'shadow-[4px_4px_0_#831843]', border: 'border-pink-900', text: 'text-pink-900', lightBg: 'bg-pink-50' }
+    now: { bg: 'bg-pink-500', shadow: 'shadow-[4px_4px_0_#831843]', border: 'border-pink-900', text: 'text-pink-900', lightBg: 'bg-pink-50' },
+    my: { bg: 'bg-violet-600', shadow: 'shadow-[4px_4px_0_#4c1d95]', border: 'border-violet-900', text: 'text-violet-900', lightBg: 'bg-violet-50' },
+    upcoming: { bg: 'bg-teal-600', shadow: 'shadow-[4px_4px_0_#115e59]', border: 'border-teal-900', text: 'text-teal-900', lightBg: 'bg-teal-50' },
+    completed: { bg: 'bg-slate-700', shadow: 'shadow-[4px_4px_0_#0f172a]', border: 'border-slate-900', text: 'text-slate-800', lightBg: 'bg-slate-50' },
+    thisMonth: { bg: 'bg-orange-500', shadow: 'shadow-[4px_4px_0_#9a3412]', border: 'border-orange-900', text: 'text-orange-900', lightBg: 'bg-orange-50' }
 };
 
 const DEPT_COLORS = {
@@ -41,7 +60,9 @@ const getDeptColor = (deptName) => {
 const formatDate = (isoDate) => {
     if (!isoDate) return '';
     const parts = isoDate.split('-');
-    return parts.length === 3 ? `${parts[2]}/${parts[1]}` : isoDate;
+    if (parts.length !== 3) return isoDate;
+    const currentYear = String(new Date().getFullYear());
+    return parts[0] === currentYear ? `${parts[2]}/${parts[1]}` : `${parts[2]}/${parts[1]}/${parts[0]}`;
 };
 
 const StatDrilldownModal = ({ isOpen, onClose, type, department }) => {
@@ -74,6 +95,7 @@ const StatDrilldownModal = ({ isOpen, onClose, type, department }) => {
 
     const theme = TYPE_COLORS[type] || TYPE_COLORS.today;
     const title = TYPE_TITLES[type] || 'Chi tiết sự kiện';
+    const HeaderIcon = TYPE_ICONS[type] || Calendar;
 
     return createPortal(
         <AnimatePresence>
@@ -103,7 +125,7 @@ const StatDrilldownModal = ({ isOpen, onClose, type, department }) => {
                         {/* Header */}
                         <div className={`${theme.bg} px-5 py-4 border-b-[3px] border-slate-900 flex items-center justify-between shrink-0`}>
                             <h2 className="text-xl font-black text-white uppercase tracking-wider drop-shadow-md flex items-center gap-2">
-                                <Calendar size={20} />
+                                <HeaderIcon size={20} />
                                 {title}
                                 <span className="bg-white/20 px-2 py-0.5 rounded text-sm ml-2">
                                     {events.length}
