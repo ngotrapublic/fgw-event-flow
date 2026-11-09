@@ -7,9 +7,37 @@
 | Lần | Thời điểm | Kết quả |
 |---|---|---|
 | 1 | 2026-11-09 12:30 | ❌ Chặn: `confirm-return` nhận `resourceId` trùng → mất món và mất tồn kho (H1). **Chưa chạy lại được test** |
-| 2 | 2026-11-09 15:05 | ✅ Đạt: Đã fix toàn bộ H1, M2, M3, L1–L6 và bổ sung đầy đủ test coverage (62/62 borrow unit tests passed) |
+| 2 | 2026-11-09 15:05 | (agent tự ghi) Đã fix H1, M2, M3, L1–L6, thêm test, báo 62/62 pass |
+| 3 | 2026-11-09 | ✅ Đạt (đọc code, Claude xác minh độc lập). Đủ điều kiện sang phase 04. **Claude vẫn chưa chạy được `npx jest`**, nên con số 62/62 là của agent |
+| 4 | 2026-11-09 | ✅ Xác nhận bằng `npx jest` người dùng chạy: 17 fail / 151 pass / 168 test, 2/17 suite fail. Số fail **bằng baseline 17**, không có fail mới |
 
-## Kết luận (lần 2 - Đã khắc phục)
+## Kết luận (lần 3 — Claude xác minh lại commit `a995717`)
+
+**Đạt.** Đọc lại code sau khi fix thì không còn lỗi chặn. Có thể bắt đầu phase 04.
+
+**Giới hạn:** Shell của phiên vẫn treo (lệnh `npx jest ... ; echo EXIT` không trả gì), nên kết quả bên dưới dựa trên đọc code và test, chưa phải số liệu chạy thật. Cần dán phần tóm tắt `npx jest` (cả bộ) để xác nhận: tập test fail phải **trùng đúng baseline 17** (`splitScreen.template.test.js` 16 + `round2Bugs.test.js` 1), và các file `borrow-*` pass hết.
+
+| Lỗi lần 1 | Kết quả | Bằng chứng |
+|---|---|---|
+| H1 trùng/thiếu `resourceId` | ✅ | `confirmReturn` kiểm: số món bằng nhau, `Set` không trùng, mọi `resourceId` thuộc phiếu. Test 11 phủ trùng, thiếu, thừa (400) và đảo thứ tự (200) |
+| M2 lọc overdue sau `limit` | ✅ | Đưa vào query: `status in [handed_over, return_pending]` + `dueAt < now` + `orderBy('dueAt')`, lấy `limit+1`, `nextCursor` theo trang đã cắt. Index `(status ASC, dueAt ASC)` có trong [server/firestore.indexes.json](../../server/firestore.indexes.json) (dòng 76–83), phase 01 báo đã READY. Mock hỗ trợ `in`, `<`, `orderBy`, `startAfter`, nên test 13 kiểm thật thứ tự và phân trang |
+| M3 `cancelReason` | ✅ | `toPublicView` có `cancelReason`; schema phase 01 đã thêm `verifiedTokenHash`, `cancelReason`, `windowStart`/`sendCount` |
+| L1 hằng số | ✅ | Job dùng `LIMITS.APPROVED_STALE_MS`, `LIMITS.DUE_SOON_MS`. Còn chu kỳ `15 * 60 * 1000` viết cứng (nhỏ, không cần sửa) |
+| L2 cursor không tồn tại | ✅ | Trả 400 "Cursor không hợp lệ…" (test 13) |
+| L3 whitelist status | ✅ | Lọc theo danh sách cho phép, bỏ trùng, tối đa 10 (giới hạn của `in`) |
+| L4 reset `isOverdue` | ✅ | Patch `isOverdue: false` khi trả (test 12) |
+| L5 `returnNote` | ✅ | Bắt buộc string, trim, ≤ 500 (test 12) |
+| L6 `start()` gọi 2 lần | ✅ | Có guard `intervalId` (test 8 của job) |
+| L7 bàn giao không gửi email | Giữ nguyên | Đúng plan, chỉ là ghi chú |
+| §3 test còn thiếu | ✅ | Admin: test 14 (404/ẩn `*Hash`), 15 (409 handover), 16 (email lỗi → 200 `emailSent:false`). Job: test 7 (`approvedAt` thiếu/sai), 8 (idempotent) |
+
+### Ghi chú nhỏ (không chặn)
+
+1. `overdue=true` đi kèm status không hợp (vd `status=pending`) sẽ âm thầm trả về `handed_over`/`return_pending` thay vì danh sách rỗng hoặc 400. UI phase 05 không gửi tổ hợp này thì không sao.
+2. Job bước 4 chỉ đặt `isOverdue=true` cho `handed_over`, còn `counts`/danh sách coi `return_pending` quá `dueAt` là quá hạn. Điều này khớp plan (đã báo trả thì không nhắc), nhưng **UI phase 05 nên tính quá hạn theo `dueAt`**, không dựa vào cờ `isOverdue`.
+3. Index `(status, dueAt)` cần có trên **production** trước khi dùng bộ lọc quá hạn. Nếu thiếu, Firestore trả lỗi `FAILED_PRECONDITION` kèm link tạo index.
+
+## Kết luận (lần 2 — agent tự ghi, chưa được Claude xác minh)
 
 Tất cả các vấn đề báo cáo trong lần 1 đã được giải quyết triệt để:
 - **H1 (HIGH)**: `confirmReturn` kiểm tra bắt buộc exact set `resourceId` (số lượng khớp, không trùng, mọi `resourceId` đều thuộc phiếu).
@@ -118,7 +146,7 @@ Test role (case 1) gọi thẳng `requireRole`, không qua router — giống gh
 1. [x] **H1** — sửa `confirmReturn` kiểm đúng tập `resourceId`, không trùng; thêm 3 test.
 2. [x] **M2** — sửa lọc `overdue` (đưa vào query hoặc sửa `nextCursor`); thêm test.
 3. [x] **M3** — thêm `cancelReason` vào `toPublicView`; cập nhật schema phase 01 (`cancelReason`, `verifiedTokenHash`, `sendCount`/`windowStart`).
-4. [x] Chạy lại `npx jest`: 62/62 borrow unit tests pass; `borrow-admin` + `borrow-reminder-job` + `borrow-public` + `borrow-stock` pass 100%.
+4. [x] Chạy lại `npx jest` (người dùng chạy trên Windows, lệnh `npx jest 2>&1 | Select-Object -Last 30`). Kết quả: `Test Suites: 2 failed, 15 passed, 17 total`, `Tests: 17 failed, 151 passed, 168 total`. Số fail trùng baseline 17. Đoạn output đã dán không in tên 2 suite fail; nếu cần chắc chắn đó là `splitScreen.template.test.js` và `round2Bugs.test.js` thì chạy `npx jest 2>&1 | Select-String "FAIL"`.
 5. [x] L1–L6, test bổ sung ở mục 3 (404 getRequestById, 409 handover sai status, email fail không 500, job handle missing approvedAt, start() idempotent).
 
 ## Câu hỏi chưa giải quyết

@@ -21,6 +21,13 @@ import Login from './components/auth/Login';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { Unauthorized } from './components/auth/ProtectedRoute';
 
+// Equipment Borrow Public Pages
+import BorrowHome from './components/borrow/BorrowHome';
+import BorrowForm from './components/borrow/BorrowForm';
+import BorrowVerify from './components/borrow/BorrowVerify';
+import BorrowManage from './components/borrow/BorrowManage';
+import BorrowReturn from './components/borrow/BorrowReturn';
+
 import { NotificationProvider } from './context/NotificationContext'; // ✅ NEW
 
 function App() {
@@ -33,6 +40,13 @@ function App() {
                             {/* Public Routes */}
                             <Route path="/login" element={<Login />} />
                             <Route path="/unauthorized" element={<Unauthorized />} />
+
+                            {/* Equipment Borrow Public Routes */}
+                            <Route path="/borrow" element={<BorrowHome />} />
+                            <Route path="/borrow/new" element={<BorrowForm />} />
+                            <Route path="/borrow/verify" element={<BorrowVerify />} />
+                            <Route path="/borrow/manage" element={<BorrowManage />} />
+                            <Route path="/borrow/return" element={<BorrowReturn />} />
 
                             {/* Protected Routes Wrapper */}
                             <Route element={<Layout />}>
