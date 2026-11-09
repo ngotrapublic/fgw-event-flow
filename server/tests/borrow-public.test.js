@@ -634,6 +634,26 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         // Check account creation email was called
         expect(borrowEmailService.sendCreatedForAccount).toHaveBeenCalledTimes(1);
     });
+
+    test('16. toPublicView trả về cancelReason khi phiếu bị huỷ', async () => {
+        const token = 'token-cancelled-view';
+        mockFirebase.__stores.borrow_requests.set('req-canc-view', {
+            id: 'req-canc-view',
+            status: 'cancelled',
+            isOpen: false,
+            accessTokenHash: hash(token),
+            cancelReason: 'Không đủ thiết bị phục vụ đợt này',
+            borrower: { email: 'canc@test.com' },
+            items: []
+        });
+
+        const res = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': token }
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.body.requests).toHaveLength(1);
+        expect(res.body.requests[0].cancelReason).toBe('Không đủ thiết bị phục vụ đợt này');
+    });
 });
 
 describe('OptionalAuth Middleware', () => {

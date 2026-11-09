@@ -420,4 +420,271 @@ describe('Phase 03 — Borrow Admin API (/api/borrow/admin)', () => {
         expect(res.body.return_pending).toBe(1);
         expect(res.body.overdue).toBe(2); // c-ho-overdue + c-rp-overdue
     });
+
+    test('11. confirm-return kiểm tra tập resourceId (H1): trùng lặp, thiếu món -> 400; đảo thứ tự -> 200', async () => {
+        mockFirebase.__stores.borrow_requests.set('req-h1-test', {
+            id: 'req-h1-test',
+            status: 'handed_over',
+            isOpen: true,
+            borrower: { email: 'h1@test.com' },
+            items: [
+                { resourceId: 'loa', qty: 2 },
+                { resourceId: 'mic', qty: 1 }
+            ]
+        });
+
+        const adminUser = { uid: 'admin-1', email: 'admin@test.com', role: 'admin' };
+
+        // Duplicate resourceId (loa x 2) -> 400
+        const resDup = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-h1-test' },
+            body: {
+                items: [
+                    { resourceId: 'loa', receivedQty: 2 },
+                    { resourceId: 'loa', receivedQty: 0 }
+                ]
+            },
+            user: adminUser
+        });
+        expect(resDup.statusCode).toBe(400);
+        expect(resDup.body.error).toContain('không khớp');
+
+        // Missing resourceId (only loa, missing mic) -> 400
+        const resMissing = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-h1-test' },
+            body: {
+                items: [{ resourceId: 'loa', receivedQty: 2 }]
+            },
+            user: adminUser
+        });
+        expect(resMissing.statusCode).toBe(400);
+        expect(resMissing.body.error).toContain('không khớp');
+
+        // Extra unexpected resourceId -> 400
+        const resExtra = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-h1-test' },
+            body: {
+                items: [
+                    { resourceId: 'loa', receivedQty: 2 },
+                    { resourceId: 'mic', receivedQty: 1 },
+                    { resourceId: 'other', receivedQty: 1 }
+                ]
+            },
+            user: adminUser
+        });
+        expect(resExtra.statusCode).toBe(400);
+        expect(resExtra.body.error).toContain('không khớp');
+
+        // Out of order: [mic, loa] -> exact set matches -> 200
+        const resOutOfOrder = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-h1-test' },
+            body: {
+                items: [
+                    { resourceId: 'mic', receivedQty: 1 },
+                    { resourceId: 'loa', receivedQty: 2 }
+                ]
+            },
+            user: adminUser
+        });
+        expect(resOutOfOrder.statusCode).toBe(200);
+        expect(resOutOfOrder.body.request.status).toBe('returned');
+    });
+
+    test('12. confirm-return kiểm tra returnNote và reset isOverdue', async () => {
+        mockFirebase.__stores.borrow_requests.set('req-ret-note-check', {
+            id: 'req-ret-note-check',
+            status: 'handed_over',
+            isOpen: true,
+            isOverdue: true,
+            borrower: { email: 'overdue@test.com' },
+            items: [{ resourceId: 'loa', qty: 1 }]
+        });
+
+        const adminUser = { uid: 'admin-1', email: 'admin@test.com', role: 'admin' };
+
+        // returnNote not string -> 400
+        const resNonStr = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-ret-note-check' },
+            body: {
+                items: [{ resourceId: 'loa', receivedQty: 1 }],
+                returnNote: 12345
+            },
+            user: adminUser
+        });
+        expect(resNonStr.statusCode).toBe(400);
+
+        // returnNote > 500 chars -> 400
+        const resTooLong = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-ret-note-check' },
+            body: {
+                items: [{ resourceId: 'loa', receivedQty: 1 }],
+                returnNote: 'a'.repeat(501)
+            },
+            user: adminUser
+        });
+        expect(resTooLong.statusCode).toBe(400);
+
+        // Valid return -> sets isOverdue: false
+        const resSuccess = await callHandler(adminCtrl.confirmReturn, {
+            params: { id: 'req-ret-note-check' },
+            body: {
+                items: [{ resourceId: 'loa', receivedQty: 1 }]
+            },
+            user: adminUser
+        });
+        expect(resSuccess.statusCode).toBe(200);
+        expect(resSuccess.body.request.status).toBe('returned');
+
+        const saved = mockFirebase.__stores.borrow_requests.get('req-ret-note-check');
+        expect(saved.isOverdue).toBe(false);
+    });
+
+    test('13. getRequests lọc overdue=true qua Firestore query và phân trang cursor', async () => {
+        const now = Date.now();
+        const past1 = new Date(now - 3600e3).toISOString();
+        const past2 = new Date(now - 7200e3).toISOString(); // older dueAt
+        const future = new Date(now + 3600e3).toISOString();
+
+        mockFirebase.__stores.borrow_requests.set('req-od-1', {
+            id: 'req-od-1',
+            status: 'handed_over',
+            dueAt: past1,
+            createdAt: '2026-11-09T01:00:00Z'
+        });
+        mockFirebase.__stores.borrow_requests.set('req-od-2', {
+            id: 'req-od-2',
+            status: 'return_pending',
+            dueAt: past2,
+            createdAt: '2026-11-09T02:00:00Z'
+        });
+        mockFirebase.__stores.borrow_requests.set('req-not-od', {
+            id: 'req-not-od',
+            status: 'handed_over',
+            dueAt: future,
+            createdAt: '2026-11-09T03:00:00Z'
+        });
+        mockFirebase.__stores.borrow_requests.set('req-pend-past', {
+            id: 'req-pend-past',
+            status: 'pending', // not in handed_over or return_pending
+            dueAt: past1,
+            createdAt: '2026-11-09T04:00:00Z'
+        });
+
+        // 1. Filter overdue=true, limit=1
+        const resPage1 = await callHandler(adminCtrl.getRequests, {
+            query: { overdue: 'true', limit: '1' }
+        });
+        expect(resPage1.statusCode).toBe(200);
+        expect(resPage1.body.requests.length).toBe(1);
+        expect(resPage1.body.requests[0].id).toBe('req-od-2'); // past2 is earlier than past1
+        expect(resPage1.body.nextCursor).toBe('req-od-2');
+
+        // 2. Fetch page 2 using cursor
+        const resPage2 = await callHandler(adminCtrl.getRequests, {
+            query: { overdue: 'true', limit: '1', cursor: resPage1.body.nextCursor }
+        });
+        expect(resPage2.statusCode).toBe(200);
+        expect(resPage2.body.requests.length).toBe(1);
+        expect(resPage2.body.requests[0].id).toBe('req-od-1');
+        expect(resPage2.body.nextCursor).toBeNull();
+
+        // 3. Invalid cursor -> 400
+        const resBadCursor = await callHandler(adminCtrl.getRequests, {
+            query: { cursor: 'non-existent-cursor-id' }
+        });
+        expect(resBadCursor.statusCode).toBe(400);
+        expect(resBadCursor.body.error).toContain('Cursor không hợp lệ');
+    });
+
+    test('14. getRequestById: 404 khi không tồn tại, 200 khi tồn tại và ẩn *Hash', async () => {
+        // 404
+        const res404 = await callHandler(adminCtrl.getRequestById, {
+            params: { id: 'non-existent-id' }
+        });
+        expect(res404.statusCode).toBe(404);
+
+        // 200
+        mockFirebase.__stores.borrow_requests.set('req-detail-1', {
+            id: 'req-detail-1',
+            status: 'pending',
+            accessTokenHash: 'hidden-token',
+            verifyTokenHash: 'hidden-verify',
+            borrower: { name: 'Full Info', email: 'full@test.com' }
+        });
+        const res200 = await callHandler(adminCtrl.getRequestById, {
+            params: { id: 'req-detail-1' }
+        });
+        expect(res200.statusCode).toBe(200);
+        expect(res200.body.id).toBe('req-detail-1');
+        expect(res200.body.accessTokenHash).toBeUndefined();
+        expect(res200.body.verifyTokenHash).toBeUndefined();
+        expect(res200.body.borrower.email).toBe('full@test.com');
+    });
+
+    test('15. handoverRequest: 409 khi chuyển trạng thái sai; 200 khi hợp lệ', async () => {
+        const adminUser = { uid: 'admin-1', email: 'admin@test.com', role: 'admin' };
+
+        // 409: pending -> handed_over (not allowed directly)
+        mockFirebase.__stores.borrow_requests.set('req-invalid-ho', {
+            id: 'req-invalid-ho',
+            status: 'pending',
+            items: []
+        });
+        const res409 = await callHandler(adminCtrl.handoverRequest, {
+            params: { id: 'req-invalid-ho' },
+            user: adminUser
+        });
+        expect(res409.statusCode).toBe(409);
+
+        // 200: approved -> handed_over
+        mockFirebase.__stores.borrow_requests.set('req-valid-ho', {
+            id: 'req-valid-ho',
+            status: 'approved',
+            items: []
+        });
+        const res200 = await callHandler(adminCtrl.handoverRequest, {
+            params: { id: 'req-valid-ho' },
+            user: adminUser
+        });
+        expect(res200.statusCode).toBe(200);
+        expect(res200.body.request.status).toBe('handed_over');
+    });
+
+    test('16. reject và cancel khi email gửi lỗi vẫn trả 200 với emailSent: false', async () => {
+        const adminUser = { uid: 'admin-1', email: 'admin@test.com', role: 'admin' };
+
+        // Reject with email error
+        mockFirebase.__stores.borrow_requests.set('req-rej-fail-email', {
+            id: 'req-rej-fail-email',
+            status: 'pending',
+            items: []
+        });
+        borrowEmailService.sendRejected.mockRejectedValueOnce(new Error('SMTP timeout'));
+
+        const resRej = await callHandler(adminCtrl.rejectRequest, {
+            params: { id: 'req-rej-fail-email' },
+            body: { reason: 'Từ chối do lỗi SMTP kiểm tra' },
+            user: adminUser
+        });
+        expect(resRej.statusCode).toBe(200);
+        expect(resRej.body.request.status).toBe('rejected');
+        expect(resRej.body.emailSent).toBe(false);
+
+        // Cancel with email error
+        mockFirebase.__stores.borrow_requests.set('req-canc-fail-email', {
+            id: 'req-canc-fail-email',
+            status: 'approved',
+            items: []
+        });
+        borrowEmailService.sendCancelled.mockRejectedValueOnce(new Error('SMTP connection reset'));
+
+        const resCanc = await callHandler(adminCtrl.cancelRequest, {
+            params: { id: 'req-canc-fail-email' },
+            body: { reason: 'Huỷ do lý do kiểm tra SMTP' },
+            user: adminUser
+        });
+        expect(resCanc.statusCode).toBe(200);
+        expect(resCanc.body.request.status).toBe('cancelled');
+        expect(resCanc.body.emailSent).toBe(false);
+    });
 });

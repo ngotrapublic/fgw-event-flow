@@ -56,6 +56,7 @@ const borrowOtpsCollection = db.collection("borrow_otps");
   note: string,                // ghi chú người mượn, ≤ 500 ký tự, có thể rỗng
   accessTokenHash: string,     // sha256 hex
   verifyTokenHash: string|null,
+  verifiedTokenHash: string|null, // lưu hash token đã xác minh để hỗ trợ retry idempotent
   verifyExpiresAt: string|null,
   isOverdue: boolean,
   dueSoonRemindedAt: string|null,
@@ -63,6 +64,7 @@ const borrowOtpsCollection = db.collection("borrow_otps");
   approvedAt: string|null,     // set khi pending→approved, dùng cho job nhắc "chưa tới lấy"
   approvedStaleNotifiedAt: string|null,
   rejectReason: string|null,
+  cancelReason: string|null,   // lý do admin huỷ phiếu
   returnNote: string|null,     // ghi chú tình trạng khi chốt trả
   history: [{ status, at, byUid, byEmail, note }],
   createdAt: string, updatedAt: string
@@ -73,7 +75,7 @@ const borrowOtpsCollection = db.collection("borrow_otps");
 
 ```js
 // borrow_otps/{sha256(phone)}
-const otpDoc = { codeHash, expiresAt, attempts, sentAt, sentCountWindowStart, sentCount };
+const otpDoc = { codeHash, expiresAt, attempts, sentAt, windowStart, sendCount };
 ```
 
 ## 5. `server/services/borrow-constants.js` (mới)

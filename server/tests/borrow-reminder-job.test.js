@@ -187,4 +187,54 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
         await borrowReminderJob.run();
         expect(notificationService.create.mock.calls.length).toBe(prevCalls);
     });
+
+    test('7. approved nhưng thiếu approvedAt hoặc approvedAt không hợp lệ -> không gửi thông báo', async () => {
+        // Missing approvedAt
+        mockFirebase.__stores.borrow_requests.set('req-app-no-date', {
+            id: 'req-app-no-date',
+            status: 'approved',
+            isOpen: true,
+            borrower: { name: 'No Date Borrower' },
+            items: []
+        });
+
+        // Invalid date string
+        mockFirebase.__stores.borrow_requests.set('req-app-bad-date', {
+            id: 'req-app-bad-date',
+            status: 'approved',
+            isOpen: true,
+            approvedAt: 'invalid-date-string',
+            borrower: { name: 'Bad Date Borrower' },
+            items: []
+        });
+
+        await borrowReminderJob.run();
+
+        const doc1 = mockFirebase.__stores.borrow_requests.get('req-app-no-date');
+        expect(doc1.approvedStaleNotifiedAt).toBeUndefined();
+
+        const doc2 = mockFirebase.__stores.borrow_requests.get('req-app-bad-date');
+        expect(doc2.approvedStaleNotifiedAt).toBeUndefined();
+
+        expect(notificationService.create).not.toHaveBeenCalled();
+    });
+
+    test('8. start() an toàn khi gọi nhiều lần (idempotent), stop() xoá intervalId', () => {
+        const runSpy = jest.spyOn(borrowReminderJob, 'run').mockImplementation(() => Promise.resolve());
+        try {
+            borrowReminderJob.start();
+            const firstIntervalId = borrowReminderJob.intervalId;
+            expect(firstIntervalId).toBeDefined();
+
+            // Calling start() again should do nothing
+            borrowReminderJob.start();
+            expect(borrowReminderJob.intervalId).toBe(firstIntervalId);
+
+            borrowReminderJob.stop();
+            expect(borrowReminderJob.intervalId).toBeNull();
+        } finally {
+            runSpy.mockRestore();
+            borrowReminderJob.stop();
+        }
+    });
 });

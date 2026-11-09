@@ -43,44 +43,48 @@ async function getRequests(req, res, next) {
     try {
         const { status, overdue, limit = 50, cursor } = req.query;
         const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+        const isOverdueFilter = overdue === 'true';
+        const nowIso = new Date().toISOString();
 
         let targetStatuses = DEFAULT_ADMIN_STATUSES;
         if (status) {
             const rawStatuses = String(status)
                 .split(',')
                 .map((s) => s.trim())
-                .filter(Boolean);
+                .filter((s) => DEFAULT_ADMIN_STATUSES.includes(s) || s === 'unverified' || s === 'expired');
             if (rawStatuses.length > 0) {
-                targetStatuses = rawStatuses;
+                targetStatuses = Array.from(new Set(rawStatuses)).slice(0, 10);
             }
         }
 
-        const isOverdueFilter = overdue === 'true';
-        if (isOverdueFilter && !status) {
-            targetStatuses = ['handed_over', 'return_pending'];
+        if (isOverdueFilter) {
+            targetStatuses = targetStatuses.filter((s) => ['handed_over', 'return_pending'].includes(s));
+            if (targetStatuses.length === 0) {
+                targetStatuses = ['handed_over', 'return_pending'];
+            }
         }
 
-        let query = borrowRequestsCollection
-            .where('status', 'in', targetStatuses)
-            .orderBy('createdAt', 'desc');
+        let query = borrowRequestsCollection.where('status', 'in', targetStatuses);
+
+        if (isOverdueFilter) {
+            // Uses (status ASC, dueAt ASC) composite index
+            query = query.where('dueAt', '<', nowIso).orderBy('dueAt', 'asc');
+        } else {
+            // Uses (status ASC, createdAt DESC) composite index
+            query = query.orderBy('createdAt', 'desc');
+        }
 
         if (cursor) {
             const cursorDoc = await borrowRequestsCollection.doc(cursor).get();
-            if (cursorDoc.exists) {
-                query = query.startAfter(cursorDoc);
+            if (!cursorDoc.exists) {
+                throw new HttpError(400, 'Cursor không hợp lệ hoặc đã bị xoá');
             }
+            query = query.startAfter(cursorDoc);
         }
 
         // Fetch limit + 1 to detect hasMore
         const snap = await query.limit(parsedLimit + 1).get();
         let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-        if (isOverdueFilter) {
-            const nowMs = Date.now();
-            docs = docs.filter(
-                (d) => d.isOverdue || (d.dueAt && new Date(d.dueAt).getTime() < nowMs)
-            );
-        }
 
         let nextCursor = null;
         if (docs.length > parsedLimit) {
@@ -317,8 +321,30 @@ async function confirmReturn(req, res, next) {
         }
 
         const currentItems = current.items || [];
-        if (!Array.isArray(items) || items.length !== currentItems.length) {
+        if (!Array.isArray(items)) {
             throw new HttpError(400, 'Danh sách thiết bị trả không hợp lệ');
+        }
+
+        const submittedIds = items.map((it) => it && it.resourceId);
+        const submittedSet = new Set(submittedIds);
+        const isExactSet =
+            submittedIds.length === currentItems.length &&
+            submittedSet.size === currentItems.length &&
+            currentItems.every((ci) => submittedSet.has(ci.resourceId));
+
+        if (!isExactSet) {
+            throw new HttpError(
+                400,
+                'Danh sách thiết bị trả không khớp với phiếu (thiếu, thừa hoặc trùng mã)'
+            );
+        }
+
+        if (returnNote !== undefined && returnNote !== null && typeof returnNote !== 'string') {
+            throw new HttpError(400, 'Ghi chú sự cố phải là chuỗi ký tự');
+        }
+        const noteStr = returnNote ? String(returnNote).trim() : '';
+        if (noteStr.length > 500) {
+            throw new HttpError(400, 'Ghi chú sự cố không được vượt quá 500 ký tự');
         }
 
         const origMap = new Map();
@@ -330,9 +356,6 @@ async function confirmReturn(req, res, next) {
         let hasMissingQty = false;
 
         for (const item of items) {
-            if (!item || !item.resourceId || !origMap.has(item.resourceId)) {
-                throw new HttpError(400, 'Danh sách thiết bị trả không hợp lệ: tài nguyên không khớp');
-            }
             const orig = origMap.get(item.resourceId);
             const rQty = item.receivedQty;
             if (!Number.isInteger(rQty) || rQty < 0 || rQty > orig.qty) {
@@ -350,7 +373,6 @@ async function confirmReturn(req, res, next) {
             });
         }
 
-        const noteStr = returnNote && typeof returnNote === 'string' ? returnNote.trim() : '';
         const targetStatus = hasMissingQty || noteStr.length > 0 ? 'returned_with_issue' : 'returned';
 
         const actor = {
@@ -364,7 +386,8 @@ async function confirmReturn(req, res, next) {
             expectFrom: ['handed_over', 'return_pending'],
             patch: {
                 items: processedItems,
-                returnNote: noteStr
+                returnNote: noteStr,
+                isOverdue: false
             }
         });
 
@@ -396,3 +419,4 @@ module.exports = {
     cancelRequest,
     confirmReturn
 };
+

@@ -1,5 +1,6 @@
 const { borrowRequestsCollection } = require('../config/firebase');
 const { transition } = require('../services/borrow-transition-service');
+const { LIMITS } = require('../services/borrow-constants');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 
@@ -10,6 +11,9 @@ class BorrowReminderJob {
     }
 
     start() {
+        if (this.intervalId) {
+            return;
+        }
         console.log('[BORROW REMINDER JOB] Starting background borrow reminder job... (interval: 15m)');
         this.run().catch((err) =>
             console.error('[BORROW REMINDER JOB] Initial run error:', err.message)
@@ -72,12 +76,14 @@ class BorrowReminderJob {
                     .where('status', '==', 'approved')
                     .get();
 
-                const threeDaysMs = 3 * 24 * 3600 * 1000;
                 for (const doc of snap.docs) {
                     const data = doc.data() || {};
+                    if (!data.approvedAt) continue;
+
+                    const approvedMs = new Date(data.approvedAt).getTime();
                     if (
-                        data.approvedAt &&
-                        nowMs - new Date(data.approvedAt).getTime() > threeDaysMs &&
+                        !isNaN(approvedMs) &&
+                        nowMs - approvedMs > LIMITS.APPROVED_STALE_MS &&
                         !data.approvedStaleNotifiedAt
                     ) {
                         try {
@@ -115,14 +121,15 @@ class BorrowReminderJob {
                     .where('status', '==', 'handed_over')
                     .get();
 
-                const twentyFourHoursMs = 24 * 3600 * 1000;
                 for (const doc of snap.docs) {
                     const data = doc.data() || {};
                     if (!data.dueAt) continue;
 
                     const dueMs = new Date(data.dueAt).getTime();
-                    // dueAt trong (now, now + 24h] và chưa nhắc
-                    if (dueMs > nowMs && dueMs <= nowMs + twentyFourHoursMs && !data.dueSoonRemindedAt) {
+                    if (isNaN(dueMs)) continue;
+
+                    // dueAt trong (now, now + DUE_SOON_MS] và chưa nhắc
+                    if (dueMs > nowMs && dueMs <= nowMs + LIMITS.DUE_SOON_MS && !data.dueSoonRemindedAt) {
                         try {
                             // Ghi field reminder trước khi gửi email
                             await doc.ref.update({
@@ -148,13 +155,13 @@ class BorrowReminderJob {
                     .where('status', '==', 'handed_over')
                     .get();
 
-                const twentyFourHoursMs = 24 * 3600 * 1000;
+                const repeatIntervalMs = LIMITS.DUE_SOON_MS; // 24h
                 for (const doc of snap.docs) {
                     const data = doc.data() || {};
                     if (!data.dueAt) continue;
 
                     const dueMs = new Date(data.dueAt).getTime();
-                    if (dueMs < nowMs) {
+                    if (!isNaN(dueMs) && dueMs < nowMs) {
                         try {
                             const patch = {};
                             if (!data.isOverdue) {
@@ -165,7 +172,7 @@ class BorrowReminderJob {
                                 ? new Date(data.overdueRemindedAt).getTime()
                                 : 0;
                             const shouldSend =
-                                !data.overdueRemindedAt || nowMs - lastRemindedMs > twentyFourHoursMs;
+                                !data.overdueRemindedAt || nowMs - lastRemindedMs > repeatIntervalMs;
 
                             if (shouldSend) {
                                 patch.overdueRemindedAt = nowIso;
@@ -213,3 +220,4 @@ class BorrowReminderJob {
 }
 
 module.exports = new BorrowReminderJob();
+

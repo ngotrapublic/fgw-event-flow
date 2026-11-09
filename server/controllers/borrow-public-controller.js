@@ -32,6 +32,7 @@ function toPublicView(doc) {
         dueAt: doc.dueAt,
         note: doc.note || '',
         rejectReason: doc.rejectReason || '',
+        cancelReason: doc.cancelReason || '',
         returnNote: doc.returnNote || '',
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt
