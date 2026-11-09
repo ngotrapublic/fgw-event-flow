@@ -11,13 +11,15 @@ import {
     CheckCircle2,
     AlertCircle,
     Send,
-    Loader2
+    Loader2,
+    Plus,
+    Minus,
+    Check
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../Toast';
-import { Button } from '../ui/Button';
 
 function getTomorrowDateString() {
     const d = new Date();
@@ -102,22 +104,28 @@ export default function BorrowForm() {
         return Object.values(selectedItems).reduce((acc, qty) => acc + (qty > 0 ? qty : 0), 0);
     }, [selectedItems]);
 
-    // Handle quantity change
-    const handleQtyChange = (resourceId, val, maxQty) => {
-        const parsed = parseInt(val, 10);
-        if (isNaN(parsed) || parsed <= 0) {
+    // Stepper controls
+    const incrementQty = (resourceId, maxQty) => {
+        const cur = selectedItems[resourceId] || 0;
+        if (cur < maxQty) {
+            setSelectedItems((prev) => ({ ...prev, [resourceId]: cur + 1 }));
+        }
+    };
+
+    const decrementQty = (resourceId) => {
+        const cur = selectedItems[resourceId] || 0;
+        if (cur <= 1) {
             setSelectedItems((prev) => {
                 const copy = { ...prev };
                 delete copy[resourceId];
                 return copy;
             });
         } else {
-            const clamped = Math.min(parsed, maxQty);
-            setSelectedItems((prev) => ({ ...prev, [resourceId]: clamped }));
+            setSelectedItems((prev) => ({ ...prev, [resourceId]: cur - 1 }));
         }
     };
 
-    // Toggle resource selection
+    // Toggle resource item
     const handleToggleResource = (resourceId, maxQty) => {
         if (maxQty <= 0) return;
         setSelectedItems((prev) => {
@@ -136,7 +144,6 @@ export default function BorrowForm() {
         e.preventDefault();
         setSubmitError(null);
 
-        // Build items payload
         const itemsPayload = Object.entries(selectedItems)
             .filter(([, qty]) => qty > 0)
             .map(([resourceId, qty]) => ({ resourceId, qty }));
@@ -146,14 +153,12 @@ export default function BorrowForm() {
             return;
         }
 
-        // Phone validation
         const cleanPhone = phone.trim();
         if (!/^0\d{9}$/.test(cleanPhone)) {
             setSubmitError('Số điện thoại không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng số 0).');
             return;
         }
 
-        // Validate guest details
         if (!user) {
             const cleanName = name.trim();
             const cleanEmail = email.trim();
@@ -189,17 +194,14 @@ export default function BorrowForm() {
             const res = await borrowApi.create(payload);
             const { request, accessToken } = res.data || {};
 
-            // Save accessToken to store if returned
             if (accessToken) {
                 borrowTokenStore.add(accessToken);
             }
 
             if (user) {
-                // Logged-in user -> direct to pending, return to home
                 showSuccess('Đã tạo phiếu mượn thành công! Đang chờ Quản trị viên duyệt.');
                 navigate('/borrow');
             } else {
-                // Guest -> show email verification screen
                 setCreatedGuestRequest({
                     request,
                     accessToken,
@@ -219,10 +221,10 @@ export default function BorrowForm() {
                 const shortageDesc = resData.details.shortages
                     .map(
                         (s) =>
-                            `"${s.label || s.resourceId}" (còn ${s.available}, bạn yêu cầu ${s.requested})`
+                            `"${s.label || s.resourceId}" (còn ${s.available}, yêu cầu ${s.requested})`
                     )
                     .join('; ');
-                setSubmitError(`Kho không đủ số lượng cho các thiết bị: ${shortageDesc}.`);
+                setSubmitError(`Kho không đủ số lượng cho: ${shortageDesc}.`);
             } else {
                 setSubmitError(resData.error || 'Có lỗi xảy ra khi tạo yêu cầu. Vui lòng kiểm tra lại.');
             }
@@ -231,7 +233,7 @@ export default function BorrowForm() {
         }
     };
 
-    // Resend verification for guest
+    // Resend verification
     const handleResend = async () => {
         if (!createdGuestRequest || resendCooldown > 0) return;
         setIsResending(true);
@@ -250,194 +252,228 @@ export default function BorrowForm() {
     };
 
     // ==========================================
-    // RENDER: GUEST SUCCESS VERIFICATION SCREEN
+    // RENDER: GUEST SUCCESS SCREEN (NEO-GLASS PRO)
     // ==========================================
     if (createdGuestRequest) {
         return (
-            <div className="min-h-screen bg-slate-50 text-slate-900 pb-12">
-                <header className="bg-white border-b border-slate-200">
-                    <div className="max-w-2xl mx-auto px-4 py-3.5 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Package size={20} className="text-indigo-600" />
-                            <h1 className="text-base font-bold text-slate-900">Mượn Trả Thiết Bị</h1>
+            <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
+                {/* Multi-layer Neo shadow container */}
+                <div className="relative w-full max-w-md">
+                    <div
+                        className="absolute inset-0 rounded-2xl"
+                        style={{ background: '#ec4899', transform: 'translate(8px, 8px)' }}
+                    />
+                    <div
+                        className="absolute inset-0 rounded-2xl"
+                        style={{ background: '#8b5cf6', transform: 'translate(4px, 4px)' }}
+                    />
+
+                    {/* Main card */}
+                    <div className="relative bg-white border-2 border-black rounded-2xl p-6 sm:p-8 text-center space-y-5">
+                        {/* Corner decoration dots */}
+                        <div className="absolute top-3 left-3 flex gap-1">
+                            <span className="w-2.5 h-2.5 rounded-full bg-violet-500 border border-black inline-block"></span>
+                            <span className="w-2.5 h-2.5 rounded-full bg-pink-500 border border-black inline-block"></span>
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-black inline-block"></span>
+                        </div>
+
+                        <div className="w-16 h-16 bg-yellow-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] rotate-3 mt-2">
+                            <Mail size={32} strokeWidth={2.5} />
+                        </div>
+
+                        <div className="space-y-2">
+                            <h2 className="text-xl font-black text-black uppercase tracking-tight">
+                                Kiểm Tra Email Xác Nhận
+                            </h2>
+                            <p className="text-xs text-slate-600 font-medium">
+                                Hệ thống vừa gửi liên kết xác nhận đăng ký mượn thiết bị đến:
+                            </p>
+                            <div
+                                className="inline-block px-4 py-2 bg-violet-100 border-2 border-black rounded-xl font-black text-sm text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                                style={{ transform: 'rotate(-1deg)' }}
+                            >
+                                {createdGuestRequest.email}
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl text-left text-xs text-slate-700 space-y-1.5 font-medium">
+                            <p className="font-black text-black flex items-center gap-1.5">
+                                <AlertCircle size={15} className="text-amber-500" />
+                                Hướng dẫn tiếp theo:
+                            </p>
+                            <p>1. Mở email và bấm vào liên kết xác nhận trong vòng <strong>24 giờ</strong>.</p>
+                            <p>2. Kiểm tra cả thư mục <strong>Spam / Rác</strong> nếu không thấy.</p>
+                            <p>3. Sau khi xác nhận, phiếu sẽ chuyển tới Quản trị viên để xét duyệt.</p>
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                            <button
+                                onClick={handleResend}
+                                disabled={resendCooldown > 0 || isResending}
+                                className="w-full py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] active:bg-slate-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isResending ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" />
+                                        Đang gửi lại...
+                                    </>
+                                ) : resendCooldown > 0 ? (
+                                    `Gửi lại email sau (${resendCooldown}s)`
+                                ) : (
+                                    <>
+                                        <Send size={14} />
+                                        Gửi lại email xác nhận
+                                    </>
+                                )}
+                            </button>
+
+                            <button
+                                onClick={() => navigate('/borrow')}
+                                className="w-full py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-indigo-700 transition-all"
+                            >
+                                Về Trang Chủ Mượn Thiết Bị
+                            </button>
                         </div>
                     </div>
-                </header>
-
-                <main className="max-w-md mx-auto px-4 pt-10 text-center space-y-6">
-                    <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                        <Mail size={32} />
-                    </div>
-
-                    <div className="space-y-2">
-                        <h2 className="text-xl font-bold text-slate-900">Kiểm tra Email để xác nhận</h2>
-                        <p className="text-sm text-slate-600">
-                            Chúng tôi đã gửi một liên kết xác nhận đến địa chỉ:
-                        </p>
-                        <p className="font-semibold text-indigo-700 bg-indigo-50 py-1 px-3 rounded-lg inline-block text-sm border border-indigo-100">
-                            {createdGuestRequest.email}
-                        </p>
-                    </div>
-
-                    <div className="p-4 bg-white rounded-xl border border-slate-200 text-left text-xs text-slate-600 space-y-2 shadow-sm">
-                        <p className="font-semibold text-slate-800 flex items-center gap-1.5">
-                            <AlertCircle size={14} className="text-amber-500" /> Lưu ý quan trọng:
-                        </p>
-                        <ul className="list-disc list-inside space-y-1 text-slate-600">
-                            <li>Kiểm tra cả hòm thư <strong>Spam / Rác</strong> nếu không thấy trong Hộp thư đến.</li>
-                            <li>Liên kết xác nhận có hiệu lực trong vòng <strong>24 giờ</strong>.</li>
-                            <li>Sau khi bạn bấm xác nhận, phiếu mượn mới chính thức được chuyển tới Quản trị viên để phê duyệt.</li>
-                        </ul>
-                    </div>
-
-                    <div className="space-y-3 pt-2">
-                        <Button
-                            variant="secondary"
-                            onClick={handleResend}
-                            disabled={resendCooldown > 0 || isResending}
-                            className="w-full text-xs font-semibold"
-                        >
-                            {isResending ? (
-                                <>
-                                    <Loader2 size={14} className="mr-2 animate-spin" />
-                                    Đang gửi lại...
-                                </>
-                            ) : resendCooldown > 0 ? (
-                                `Gửi lại email sau (${resendCooldown}s)`
-                            ) : (
-                                <>
-                                    <Send size={14} className="mr-1.5" />
-                                    Gửi lại email xác nhận
-                                </>
-                            )}
-                        </Button>
-
-                        <Button
-                            variant="primary"
-                            onClick={() => navigate('/borrow')}
-                            className="w-full text-sm font-semibold bg-indigo-600 hover:bg-indigo-700"
-                        >
-                            Về trang chủ Mượn Thiết Bị
-                        </Button>
-                    </div>
-                </main>
+                </div>
             </div>
         );
     }
 
     // ==========================================
-    // RENDER: BORROW REQUEST FORM
+    // RENDER: BORROW REQUEST FORM (NEO-BRUTALISM)
     // ==========================================
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
+        <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-20">
             {/* Header */}
-            <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+            <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm">
                 <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
                     <button
                         onClick={() => navigate('/borrow')}
-                        className="p-1.5 -ml-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                        className="p-2 -ml-1.5 rounded-xl border-2 border-black bg-white hover:bg-slate-100 shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-all"
                         title="Quay lại"
                     >
-                        <ArrowLeft size={20} />
+                        <ArrowLeft size={18} strokeWidth={2.5} />
                     </button>
                     <div>
-                        <h1 className="text-base font-bold text-slate-900">Đăng Ký Mượn Thiết Bị</h1>
-                        <p className="text-xs text-slate-500">Điền thông tin và chọn thiết bị cần mượn</p>
+                        <h1 className="text-base font-black tracking-tight text-black uppercase">
+                            Đăng Ký Mượn Thiết Bị
+                        </h1>
+                        <p className="text-[11px] font-bold text-slate-500">
+                            Điền thông tin và chọn thiết bị cần dùng
+                        </p>
                     </div>
                 </div>
             </header>
 
-            {/* Form */}
+            {/* Form Container */}
             <main className="max-w-2xl mx-auto px-4 pt-5">
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    {/* Error Box */}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    {/* Error Banner */}
                     {submitError && (
-                        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-medium flex items-start gap-2 shadow-sm">
-                            <AlertCircle size={16} className="text-rose-600 flex-shrink-0 mt-0.5" />
+                        <div className="p-4 bg-rose-100 border-2 border-black rounded-2xl shadow-[4px_4px_0_#000] text-rose-950 text-xs font-bold flex items-start gap-3">
+                            <AlertCircle size={18} className="text-rose-600 flex-shrink-0 mt-0.5" />
                             <div className="flex-1">{submitError}</div>
                         </div>
                     )}
 
                     {/* Section 1: Equipment Selection */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3.5">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                <Package size={17} className="text-indigo-600" />
-                                1. Chọn Thiết Bị Cần Mượn
-                            </h2>
-                            <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                        <div className="flex items-center justify-between border-b-2 border-slate-100 pb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-lg bg-yellow-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
+                                    1
+                                </span>
+                                <h2 className="text-sm font-black text-black uppercase tracking-wider">
+                                    Chọn Thiết Bị
+                                </h2>
+                            </div>
+                            <span className="text-xs font-black px-2.5 py-1 bg-violet-100 border-2 border-black rounded-lg shadow-[2px_2px_0_#000] text-violet-800">
                                 Đã chọn: {totalSelectedQty} món
                             </span>
                         </div>
 
                         {loadingResources ? (
-                            <div className="py-8 text-center">
-                                <Loader2 size={24} className="animate-spin text-indigo-600 mx-auto mb-2" />
-                                <p className="text-xs text-slate-500">Đang tải danh sách thiết bị khả dụng...</p>
+                            <div className="py-10 text-center space-y-2">
+                                <Loader2 size={28} className="animate-spin text-indigo-600 mx-auto" />
+                                <p className="text-xs font-bold text-slate-500">
+                                    Đang tải danh mục thiết bị từ kho...
+                                </p>
                             </div>
                         ) : resources.length === 0 ? (
-                            <div className="p-6 text-center text-xs text-slate-500">
+                            <div className="p-6 text-center text-xs font-bold text-slate-500">
                                 Hiện không có thiết bị nào sẵn sàng trong kho.
                             </div>
                         ) : (
-                            <div className="divide-y divide-slate-100">
+                            <div className="grid grid-cols-1 gap-2.5">
                                 {resources.map((res) => {
                                     const isAvailable = res.availableQty > 0;
-                                    const isChecked = !!selectedItems[res.id];
+                                    const isSelected = !!selectedItems[res.id];
                                     const currentQty = selectedItems[res.id] || 0;
 
                                     return (
                                         <div
                                             key={res.id}
-                                            className={`py-3 flex items-center justify-between gap-3 ${
-                                                !isAvailable ? 'opacity-50' : ''
+                                            className={`p-3.5 rounded-xl border-2 transition-all flex items-center justify-between gap-3 ${
+                                                isSelected
+                                                    ? 'bg-violet-50/70 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] translate-x-[-1px] translate-y-[-1px]'
+                                                    : isAvailable
+                                                    ? 'bg-white border-slate-200 hover:border-black hover:shadow-[2px_2px_0_#000]'
+                                                    : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
                                             }`}
                                         >
-                                            <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isChecked}
-                                                    disabled={!isAvailable}
-                                                    onChange={() =>
-                                                        handleToggleResource(res.id, res.availableQty)
-                                                    }
-                                                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 disabled:cursor-not-allowed"
-                                                />
+                                            <div
+                                                onClick={() =>
+                                                    handleToggleResource(res.id, res.availableQty)
+                                                }
+                                                className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
+                                            >
+                                                <div
+                                                    className={`w-6 h-6 rounded-md border-2 border-black flex items-center justify-center flex-shrink-0 transition-colors shadow-[1px_1px_0_#000] ${
+                                                        isSelected ? 'bg-violet-600 text-white' : 'bg-white'
+                                                    }`}
+                                                >
+                                                    {isSelected && <Check size={14} strokeWidth={3} />}
+                                                </div>
+
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-semibold text-slate-900 truncate">
+                                                    <p className="text-sm font-black text-black truncate">
                                                         {res.label}
                                                     </p>
-                                                    <p className="text-xs text-slate-500">
+                                                    <p className="text-[11px] font-bold text-slate-500">
                                                         {res.category || 'Thiết bị'} • Còn sẵn:{' '}
-                                                        <strong
+                                                        <span
                                                             className={
                                                                 isAvailable ? 'text-emerald-700' : 'text-rose-600'
                                                             }
                                                         >
                                                             {res.availableQty}
-                                                        </strong>
+                                                        </span>
                                                     </p>
                                                 </div>
-                                            </label>
+                                            </div>
 
-                                            {/* Quantity input */}
-                                            {isChecked && isAvailable && (
+                                            {/* Neo Quantity Stepper */}
+                                            {isSelected && isAvailable && (
                                                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                                                    <span className="text-xs text-slate-500 font-medium">SL:</span>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        max={res.availableQty}
-                                                        value={currentQty || 1}
-                                                        onChange={(e) =>
-                                                            handleQtyChange(
-                                                                res.id,
-                                                                e.target.value,
-                                                                res.availableQty
-                                                            )
-                                                        }
-                                                        className="w-16 h-8 text-center text-sm font-bold border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none"
-                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => decrementQty(res.id)}
+                                                        className="w-8 h-8 rounded-lg bg-white border-2 border-black font-black flex items-center justify-center shadow-[2px_2px_0_#000] hover:bg-slate-100 active:translate-x-[1px] active:translate-y-[1px] transition-all"
+                                                    >
+                                                        <Minus size={14} strokeWidth={3} />
+                                                    </button>
+                                                    <span className="w-10 h-8 flex items-center justify-center font-mono font-black text-sm bg-white border-2 border-black rounded-lg">
+                                                        {currentQty}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => incrementQty(res.id, res.availableQty)}
+                                                        disabled={currentQty >= res.availableQty}
+                                                        className="w-8 h-8 rounded-lg bg-yellow-300 border-2 border-black font-black flex items-center justify-center shadow-[2px_2px_0_#000] hover:bg-yellow-400 active:translate-x-[1px] active:translate-y-[1px] transition-all disabled:opacity-40"
+                                                    >
+                                                        <Plus size={14} strokeWidth={3} />
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
@@ -448,25 +484,27 @@ export default function BorrowForm() {
                     </div>
 
                     {/* Section 2: Borrower Information */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3.5">
-                        <div className="border-b border-slate-100 pb-2.5">
-                            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                <User size={17} className="text-indigo-600" />
-                                2. Thông Tin Người Mượn
+                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                        <div className="flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+                            <span className="w-6 h-6 rounded-lg bg-cyan-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
+                                2
+                            </span>
+                            <h2 className="text-sm font-black text-black uppercase tracking-wider">
+                                Thông Tin Người Mượn
                             </h2>
                         </div>
 
                         {user ? (
-                            <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs space-y-1">
-                                <p className="font-semibold text-indigo-900">
+                            <div className="p-4 bg-violet-50 border-2 border-black rounded-xl space-y-1 shadow-[2px_2px_0_#000]">
+                                <p className="font-black text-xs text-black">
                                     Đang mượn bằng tài khoản: {user.name || user.email}
                                 </p>
-                                <p className="text-indigo-700">Email: {user.email}</p>
+                                <p className="text-xs font-bold text-violet-700">Email: {user.email}</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
                                         Họ và tên <span className="text-rose-500">*</span>
                                     </label>
                                     <input
@@ -475,12 +513,12 @@ export default function BorrowForm() {
                                         placeholder="Ví dụ: Nguyễn Văn A"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        className="w-full h-10 px-3 text-sm border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none"
+                                        className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all placeholder:font-normal placeholder:text-slate-400"
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
                                         Email nhận thông báo <span className="text-rose-500">*</span>
                                     </label>
                                     <input
@@ -489,14 +527,14 @@ export default function BorrowForm() {
                                         placeholder="email@fpt.edu.vn"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full h-10 px-3 text-sm border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none"
+                                        className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all placeholder:font-normal placeholder:text-slate-400"
                                     />
                                 </div>
                             </div>
                         )}
 
                         <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
                                 Số điện thoại liên hệ <span className="text-rose-500">*</span>
                             </label>
                             <input
@@ -505,25 +543,27 @@ export default function BorrowForm() {
                                 placeholder="0901234567"
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
-                                className="w-full h-10 px-3 text-sm border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none"
+                                className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all placeholder:font-normal placeholder:text-slate-400"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">
-                                Dùng để liên hệ khi nhận/trả và tra cứu phiếu mượn sau này.
+                            <p className="text-[11px] font-medium text-slate-400 mt-1">
+                                Dùng để liên hệ nhận/trả và tra cứu phiếu mượn qua mã OTP sau này.
                             </p>
                         </div>
                     </div>
 
                     {/* Section 3: Due Date & Note */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3.5">
-                        <div className="border-b border-slate-100 pb-2.5">
-                            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                <Calendar size={17} className="text-indigo-600" />
-                                3. Thời Gian Trả & Ghi Chú
+                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                        <div className="flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+                            <span className="w-6 h-6 rounded-lg bg-pink-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
+                                3
+                            </span>
+                            <h2 className="text-sm font-black text-black uppercase tracking-wider">
+                                Thời Gian & Ghi Chú
                             </h2>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
                                 Ngày hẹn trả thiết bị <span className="text-rose-500">*</span>
                             </label>
                             <input
@@ -533,46 +573,55 @@ export default function BorrowForm() {
                                 max={getMaxDueDateString()}
                                 value={dueDate}
                                 onChange={(e) => setDueDate(e.target.value)}
-                                className="w-full h-10 px-3 text-sm border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none"
+                                className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all cursor-pointer"
                             />
-                            <p className="text-[11px] text-slate-400 mt-1">
-                                Thiết bị mượn cần được hoàn trả trước 23:59 ngày hẹn.
+                            <p className="text-[11px] font-medium text-slate-400 mt-1">
+                                Thiết bị mượn cần được hoàn trả trước 23:59 ngày hẹn trả.
                             </p>
                         </div>
 
                         <div>
-                            <div className="flex items-center justify-between mb-1">
-                                <label className="text-xs font-semibold text-slate-700">
-                                    Ghi chú / Mục đích sử dụng (tuỳ chọn)
+                            <div className="flex items-center justify-between mb-1.5">
+                                <label className="text-xs font-black uppercase tracking-wider text-slate-700">
+                                    Mục đích sử dụng / Ghi chú (tuỳ chọn)
                                 </label>
-                                <span className="text-[11px] text-slate-400">{note.length}/500</span>
+                                <span className="text-[10px] font-black bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                                    {note.length}/500
+                                </span>
                             </div>
                             <textarea
                                 rows="3"
                                 maxLength="500"
-                                placeholder="Phục vụ sự kiện, bài tập nhóm, hội thảo..."
+                                placeholder="Phục vụ sự kiện CLB, bài tập nhóm, hội thảo..."
                                 value={note}
                                 onChange={(e) => setNote(e.target.value)}
-                                className="w-full p-2.5 text-sm border-2 border-slate-200 rounded-lg focus:border-indigo-600 focus:outline-none resize-none"
+                                className="w-full p-3 text-sm font-medium border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all resize-none placeholder:text-slate-400"
                             ></textarea>
                         </div>
                     </div>
 
                     {/* Submit Button */}
                     <div className="pt-2">
-                        <Button
+                        <button
                             type="submit"
-                            variant="primary"
-                            isLoading={submitting}
                             disabled={totalSelectedQty === 0 || submitting}
-                            className="w-full h-12 text-base font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md"
+                            className="w-full py-4 px-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-base border-2 border-black rounded-2xl shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:shadow-[7px_7px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
                         >
-                            {submitting ? 'Đang gửi yêu cầu...' : 'Gửi Đăng Ký Mượn Thiết Bị'}
-                        </Button>
+                            {submitting ? (
+                                <>
+                                    <Loader2 size={20} className="animate-spin" />
+                                    Đang gửi yêu cầu...
+                                </>
+                            ) : (
+                                <>
+                                    <Send size={18} strokeWidth={2.5} />
+                                    GỬI ĐĂNG KÝ MƯỢN THIẾT BỊ ({totalSelectedQty} MÓN)
+                                </>
+                            )}
+                        </button>
                     </div>
                 </form>
             </main>
         </div>
     );
 }
-

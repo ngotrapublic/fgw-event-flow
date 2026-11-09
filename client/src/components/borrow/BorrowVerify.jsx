@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { CheckCircle2, AlertTriangle, Loader2, Package, ArrowRight } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, Package, ArrowRight, Sparkles } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
-import { Button } from '../ui/Button';
 
 export default function BorrowVerify() {
     const [searchParams] = useSearchParams();
@@ -11,7 +10,7 @@ export default function BorrowVerify() {
 
     const token = searchParams.get('token');
 
-    const [status, setStatus] = useState('verifying'); // 'verifying' | 'success' | 'error'
+    const [status, setStatus] = useState('verifying');
     const [errorMessage, setErrorMessage] = useState('');
     const [requestData, setRequestData] = useState(null);
 
@@ -39,10 +38,10 @@ export default function BorrowVerify() {
             } catch (err) {
                 if (!isMounted) return;
                 console.error('[BORROW VERIFY] Verification error:', err);
-                const status = err.response?.status;
+                const statusCode = err.response?.status;
                 const errText = err.response?.data?.error;
 
-                if (status === 404 || status === 410) {
+                if (statusCode === 404 || statusCode === 410) {
                     setErrorMessage(
                         errText ||
                             'Liên kết xác nhận không hợp lệ hoặc đã hết hạn (24 giờ). Vui lòng gửi lại yêu cầu mượn mới.'
@@ -64,95 +63,115 @@ export default function BorrowVerify() {
     }, [token]);
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 pb-12">
-            <header className="bg-white border-b border-slate-200">
-                <div className="max-w-2xl mx-auto px-4 py-3.5 flex items-center gap-2">
-                    <Package size={20} className="text-indigo-600" />
-                    <h1 className="text-base font-bold text-slate-900">Mượn Trả Thiết Bị</h1>
-                </div>
-            </header>
+        <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
+            {/* Multi-layer Neo shadow container */}
+            <div className="relative w-full max-w-md">
+                <div
+                    className="absolute inset-0 rounded-2xl"
+                    style={{ background: '#ec4899', transform: 'translate(8px, 8px)' }}
+                />
+                <div
+                    className="absolute inset-0 rounded-2xl"
+                    style={{ background: '#8b5cf6', transform: 'translate(4px, 4px)' }}
+                />
 
-            <main className="max-w-md mx-auto px-4 pt-12 text-center space-y-6">
-                {status === 'verifying' && (
-                    <div className="p-8 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                        <Loader2 size={36} className="animate-spin text-indigo-600 mx-auto" />
-                        <div>
-                            <h2 className="text-base font-bold text-slate-900">Đang xác nhận email...</h2>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Vui lòng đợi trong giây lát, hệ thống đang xử lý mã xác nhận của bạn.
-                            </p>
-                        </div>
+                {/* Main card */}
+                <div className="relative bg-white border-[3px] border-black rounded-2xl p-6 sm:p-8 text-center space-y-5">
+                    {/* Decorative dots */}
+                    <div className="absolute top-3.5 left-3.5 flex gap-1">
+                        <span className="w-2.5 h-2.5 rounded-full bg-violet-500 border border-black inline-block"></span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-pink-500 border border-black inline-block"></span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-black inline-block"></span>
                     </div>
-                )}
 
-                {status === 'success' && (
-                    <div className="p-8 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-5 text-center">
-                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                            <CheckCircle2 size={36} />
+                    {status === 'verifying' && (
+                        <div className="py-6 space-y-4">
+                            <Loader2 size={40} className="animate-spin text-indigo-600 mx-auto" />
+                            <div>
+                                <h2 className="text-base font-black text-black uppercase tracking-tight">
+                                    Đang xác nhận mã email...
+                                </h2>
+                                <p className="text-xs font-medium text-slate-500 mt-1">
+                                    Hệ thống đang kiểm tra tính hợp lệ của phiếu mượn.
+                                </p>
+                            </div>
                         </div>
+                    )}
 
-                        <div className="space-y-1.5">
-                            <h2 className="text-xl font-bold text-slate-900">Xác Nhận Thành Công!</h2>
-                            <p className="text-sm text-slate-600">
-                                Yêu cầu mượn thiết bị{' '}
-                                {requestData?.id && (
-                                    <strong className="text-indigo-600">#{requestData.id}</strong>
-                                )}{' '}
-                                đã được xác thực và chuyển đến Quản trị viên để xét duyệt.
-                            </p>
-                        </div>
+                    {status === 'success' && (
+                        <div className="space-y-4 pt-2">
+                            <div className="w-16 h-16 bg-emerald-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] rotate-3">
+                                <CheckCircle2 size={36} strokeWidth={2.5} />
+                            </div>
 
-                        <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-xs text-emerald-800 text-left">
-                            <p className="font-semibold mb-1">Bước tiếp theo:</p>
-                            <p>
-                                Khi đơn được duyệt, bạn sẽ nhận được thông báo qua email và có thể đến kho
-                                để nhận thiết bị mượn.
-                            </p>
-                        </div>
+                            <div className="space-y-1.5">
+                                <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-900 border border-black rounded-md text-[10px] font-black uppercase tracking-widest shadow-[1px_1px_0_#000]">
+                                    Hoàn Tất
+                                </span>
+                                <h2 className="text-xl font-black text-black uppercase tracking-tight">
+                                    Xác Nhận Thành Công!
+                                </h2>
+                                <p className="text-xs font-medium text-slate-600">
+                                    Yêu cầu mượn thiết bị{' '}
+                                    {requestData?.id && (
+                                        <strong className="font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                            #{requestData.id}
+                                        </strong>
+                                    )}{' '}
+                                    đã được chuyển tới Quản trị viên để phê duyệt.
+                                </p>
+                            </div>
 
-                        <Button
-                            variant="primary"
-                            onClick={() => navigate('/borrow')}
-                            className="w-full font-bold bg-indigo-600 hover:bg-indigo-700"
-                        >
-                            Xem Phiếu Mượn Của Bạn
-                            <ArrowRight size={16} className="ml-1.5" />
-                        </Button>
-                    </div>
-                )}
+                            <div className="p-3.5 bg-slate-50 border-2 border-slate-200 rounded-xl text-left text-xs font-medium text-slate-700 space-y-1">
+                                <p className="font-black text-black">Bước tiếp theo:</p>
+                                <p>
+                                    Khi quản trị viên duyệt đơn, bạn sẽ nhận được thông báo qua email và có thể
+                                    đến nhận thiết bị tại <strong>Kho A102 (Tòa Gamma)</strong>.
+                                </p>
+                            </div>
 
-                {status === 'error' && (
-                    <div className="p-8 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-5 text-center">
-                        <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                            <AlertTriangle size={36} />
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <h2 className="text-xl font-bold text-slate-900">Xác Nhận Không Thành Công</h2>
-                            <p className="text-sm text-slate-600">{errorMessage}</p>
-                        </div>
-
-                        <div className="space-y-2 pt-2">
-                            <Button
-                                variant="primary"
-                                onClick={() => navigate('/borrow/new')}
-                                className="w-full font-bold bg-indigo-600 hover:bg-indigo-700"
-                            >
-                                Tạo Yêu Cầu Mượn Mới
-                            </Button>
-
-                            <Button
-                                variant="secondary"
+                            <button
                                 onClick={() => navigate('/borrow')}
-                                className="w-full text-xs font-semibold"
+                                className="w-full py-3.5 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
                             >
-                                Về Trang Chủ Mượn Thiết Bị
-                            </Button>
+                                Xem Phiếu Mượn Của Bạn
+                                <ArrowRight size={16} strokeWidth={2.5} />
+                            </button>
                         </div>
-                    </div>
-                )}
-            </main>
+                    )}
+
+                    {status === 'error' && (
+                        <div className="space-y-4 pt-2">
+                            <div className="w-16 h-16 bg-rose-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] -rotate-3">
+                                <AlertTriangle size={36} strokeWidth={2.5} />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <h2 className="text-lg font-black text-black uppercase tracking-tight">
+                                    Xác Nhận Không Thành Công
+                                </h2>
+                                <p className="text-xs font-medium text-slate-600">{errorMessage}</p>
+                            </div>
+
+                            <div className="space-y-2.5 pt-2">
+                                <button
+                                    onClick={() => navigate('/borrow/new')}
+                                    className="w-full py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:bg-indigo-700 transition-all"
+                                >
+                                    Tạo Yêu Cầu Mượn Mới
+                                </button>
+
+                                <button
+                                    onClick={() => navigate('/borrow')}
+                                    className="w-full py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-100 transition-all"
+                                >
+                                    Về Trang Chủ Mượn Thiết Bị
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
-
