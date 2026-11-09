@@ -481,17 +481,13 @@ async function requestOtp(req, res, next) {
             windowStart: newWindowStart
         });
 
-        // Send OTP to distinct emails associated with this phone
+        // Send OTP to distinct emails associated with this phone (non-blocking to prevent timing attacks)
         const distinctEmails = [...new Set(snap.docs.map((d) => d.data().borrower?.email).filter(Boolean))];
-        for (const email of distinctEmails) {
-            try {
-                await borrowEmailService.sendOtp(email, code);
-            } catch (err) {
-                console.error('[BORROW] Error sending OTP email:', err.message);
-            }
-        }
-
         res.status(200).json(standardResponse);
+
+        Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, code)))
+            .then((rs) => rs.filter((r) => r.status === 'rejected')
+                .forEach((r) => console.error('[BORROW] Error sending OTP email:', r.reason?.message)));
     } catch (err) {
         next(err);
     }
@@ -511,30 +507,24 @@ async function verifyOtp(req, res, next) {
         const normalizedPhone = borrowValidation.normalizePhone(phone);
         const phoneHash = hash(normalizedPhone);
         const otpRef = borrowOtpsCollection.doc(phoneHash);
-        const otpSnap = await otpRef.get();
 
-        if (!otpSnap.exists) {
+        const result = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(otpRef);
+            const otp = snap.exists ? snap.data() : null;
+            if (!otp) return 'invalid';
+            if (!otp.expiresAt || new Date(otp.expiresAt).getTime() < Date.now()) return 'invalid';
+            if ((otp.attempts || 0) >= LIMITS.OTP_MAX_ATTEMPTS) return 'invalid';
+            if (!safeEqualHex(hash(String(code).trim()), otp.codeHash)) {
+                tx.update(otpRef, { attempts: (otp.attempts || 0) + 1 });
+                return 'invalid';
+            }
+            tx.delete(otpRef);
+            return 'ok';
+        });
+
+        if (result !== 'ok') {
             throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
         }
-
-        const otpData = otpSnap.data() || {};
-        const isExpired = !otpData.expiresAt || new Date(otpData.expiresAt).getTime() < Date.now();
-        const tooManyAttempts = (otpData.attempts || 0) >= LIMITS.OTP_MAX_ATTEMPTS;
-
-        if (isExpired || tooManyAttempts) {
-            throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
-        }
-
-        const inputHash = hash(String(code).trim());
-        const isMatch = safeEqualHex(inputHash, otpData.codeHash);
-
-        if (!isMatch) {
-            await otpRef.update({ attempts: (otpData.attempts || 0) + 1 });
-            throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
-        }
-
-        // OTP verified successfully: delete OTP doc
-        await otpRef.delete();
 
         // Retrieve all open requests for this phone and issue new access tokens
         const snap = await borrowRequestsCollection

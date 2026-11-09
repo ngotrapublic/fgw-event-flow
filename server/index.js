@@ -18,6 +18,7 @@ const reminderJob = require('./jobs/reminderJob');
 const emailQueueWorker = require('./jobs/emailQueueWorker');
 const notificationCleanupJob = require('./jobs/notificationCleanupJob');
 const exportJob = require('./jobs/exportJob'); // ✅ NEW
+const borrowReminderJob = require('./jobs/borrow-reminder-job');
 
 // Services (for /api/notify endpoint)
 const retentionService = require('./services/retentionService');
@@ -115,6 +116,7 @@ app.use(errorHandler);
 
 // Start reminder job
 reminderJob.start();
+borrowReminderJob.start();
 
 // Start email queue worker
 emailQueueWorker.start();
@@ -139,6 +141,7 @@ const gracefulShutdown = (signal) => {
         // Stop background jobs and schedulers
         try {
             reminderJob.stop();
+            borrowReminderJob.stop();
             emailQueueWorker.stop();
             notificationCleanupJob.stop();
             exportJob.stop();

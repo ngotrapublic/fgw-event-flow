@@ -48,11 +48,11 @@ Trang công khai `/borrow` (truy cập qua QR dán ở kho) dùng chung cho ngư
 | [00](phase-00-prerequisites.md)        | Branch, backup, cài thư viện, bổ sung mock test                                                                           | `chore: prepare equipment borrow feature`                |
 | [01](phase-01-data-model-and-stock.md) | `availableQty`, collections, rules, index, service tồn kho, chặn lỗ hổng `/api/resources`, `/api/settings`, `/api/backup` | `feat(borrow): add stock tracking and borrow data model` |
 | [02](phase-02-public-borrow-api.md)    | API công khai: tạo phiếu, xác nhận email, tra phiếu, OTP, báo trả, rate-limit                                             | `feat(borrow): add public borrow api`                    |
-| [03](phase-03-admin-api-and-jobs.md)   | API admin/manager, thông báo, job nhắc hạn                                                                                | `feat(borrow): add admin borrow api and reminder job`    |
+| [03](phase-03-admin-api-and-jobs.md)   | API admin/manager, thông báo, job nhắc hạn + sửa M1/M2 còn lại của phase 02                                               | `feat(borrow): add admin borrow api and reminder job`    |
 | [04](phase-04-borrow-page-ui.md)       | Trang `/borrow` mobile                                                                                                    | `feat(borrow): add public borrow page`                   |
 | [05](phase-05-admin-ui.md)             | Trang quản lý `/equipment-loans`, sidebar, thông báo, in QR                                                               | `feat(borrow): add equipment loan management page`       |
 
-**Sau mỗi phase: dừng lại, báo reviewer.** Không gộp phase.
+**Sau mỗi phase: dừng lại, báo reviewer.** Ngoại lệ đã chấp nhận: phase 03 gánh 2 lỗi M1/M2 của phase 02 (xem phase-03 §4) để không deploy hai lần.
 
 ## Quy ước bắt buộc cho implementer
 

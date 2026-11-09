@@ -12,7 +12,7 @@
 - `.env.example`: thêm
   ```
   # --- Public URL used in borrow emails (no trailing slash) ---
-  APP_PUBLIC_URL=https://event.greenwich-it.com
+  APP_PUBLIC_URL=https://event.greenwichvietnam.edu.vn
   ```
 - `server/index.js`: ngay sau `const app = express();` thêm `app.set('trust proxy', 1); // behind nginx — req.ip = real client IP`.
 - Server khởi động thiếu `APP_PUBLIC_URL` → `console.warn` một lần, các route borrow gửi email trả `503 'Chưa cấu hình APP_PUBLIC_URL'`.

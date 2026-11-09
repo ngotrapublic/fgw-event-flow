@@ -1,5 +1,7 @@
 # Phase 03 — API admin/manager & job nhắc hạn
 
+> Gồm cả phần sửa M1/M2 của phase 02 (§4) — hai lỗi này nằm trong `borrow-public-controller.js`, sửa cùng commit để không phải deploy hai lần.
+
 ## 1. Endpoints — `server/controllers/borrow-admin-controller.js`, mount trong `routes/borrow.js`
 Tất cả: `verifyToken, requireRole(['admin', 'manager'])`. `actor = { uid, email, role }` từ `req.user`.
 
@@ -41,6 +43,50 @@ Theo cấu trúc [reminderJob.js](../../server/jobs/reminderJob.js): class có `
 - Các update ở bước 2–4 là update field trực tiếp (không đổi status) → **không** đi qua `transition()`.
 - Đăng ký trong `server/index.js`: `require` cạnh các job khác, `borrowReminderJob.start()` cạnh `reminderJob.start()`, `borrowReminderJob.stop()` trong `gracefulShutdown`.
 
+## 4. Sửa lỗi còn lại của phase 02 (gộp vào commit này)
+
+Hai lỗi dưới đây đã ghi ở [báo cáo review phase 02](../../plans/reports/review-261106-1005-phase-02-public-borrow-api.md). Sửa trong cùng commit phase 03, cùng file `server/controllers/borrow-public-controller.js`.
+
+### 4.1 `verifyOtp` — đếm số lần nhập sai trong transaction (M1)
+
+Hiện tại: đọc `attempts` → so mã → mới `update({ attempts: attempts + 1 })`, không transaction. N request gửi **đồng thời** cùng đọc `attempts = 0` → cả N lần đều được so mã, vượt giới hạn 5.
+
+Thay phần đọc/so/tăng/xoá doc OTP bằng:
+
+```js
+const result = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(otpRef);
+    const otp = snap.exists ? snap.data() : null;
+    if (!otp) return 'invalid';
+    if (!otp.expiresAt || new Date(otp.expiresAt).getTime() < Date.now()) return 'invalid';
+    if ((otp.attempts || 0) >= LIMITS.OTP_MAX_ATTEMPTS) return 'invalid';
+    if (!safeEqualHex(hash(String(code).trim()), otp.codeHash)) {
+        tx.update(otpRef, { attempts: (otp.attempts || 0) + 1 });
+        return 'invalid';
+    }
+    tx.delete(otpRef);
+    return 'ok';
+});
+if (result !== 'ok') throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
+```
+
+Sau transaction mới truy vấn phiếu và sinh `accessToken` như hiện tại. Giữ nguyên nguyên tắc: mọi trường hợp sai trả **cùng một** message.
+
+### 4.2 `requestOtp` — trả 200 trước khi gửi email (M2)
+
+`await sendOtp(...)` chỉ chạy khi SĐT có phiếu → chênh thời gian phản hồi → đo được SĐT nào đang mượn thiết bị.
+
+Trả response trước, gửi email sau (không `await`):
+
+```js
+res.status(200).json(standardResponse);
+Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, code)))
+    .then((rs) => rs.filter((r) => r.status === 'rejected')
+        .forEach((r) => console.error('[BORROW] Error sending OTP email:', r.reason?.message)));
+```
+
+Test 10, 11 hiện có: cho test chờ flush microtask (`await new Promise((r) => setImmediate(r))`) trước khi kiểm `sendOtp` đã được gọi.
+
 ## Tests
 `server/tests/borrow-admin.test.js`
 1. User role `user` gọi approve → 403 (test middleware `requireRole` với `req.user.role='user'`).
@@ -53,6 +99,11 @@ Theo cấu trúc [reminderJob.js](../../server/jobs/reminderJob.js): class có `
 8. cancel từ `approved` → kho cộng đủ.
 9. List mặc định không có `unverified`/`expired`; response không có `*Hash`.
 
+`server/tests/borrow-public.test.js` (thêm cho §4)
+10. 6 lần nhập sai OTP gửi bằng `Promise.all` → doc `attempts === 5`; sau đó nhập **đúng** vẫn `400`.
+11. Nhập đúng sau 4 lần sai → `200`, doc OTP bị xoá.
+12. `requestOtp`: SĐT có phiếu và SĐT không có phiếu trả về cùng status/body, không chờ gửi email (response xong trước khi `sendOtp` resolve).
+
 `server/tests/borrow-reminder-job.test.js`
 1. `unverified` quá hạn → `expired`, `isOpen=false`.
 2. `handed_over` quá hạn → `isOverdue=true`, `sendOverdue` 1 lần; chạy `run()` lần 2 ngay → không gửi thêm.
@@ -61,5 +112,6 @@ Theo cấu trúc [reminderJob.js](../../server/jobs/reminderJob.js): class có `
 5. Bước 1 ném lỗi → bước 4 vẫn chạy.
 
 ## Validation
-- `cd server && npx jest tests/borrow-admin.test.js tests/borrow-reminder-job.test.js` pass; toàn bộ `npx jest` không giảm.
+- `cd server && npx jest tests/borrow-admin.test.js tests/borrow-reminder-job.test.js tests/borrow-public.test.js` pass; toàn bộ `npx jest` không giảm so với 124 pass hiện tại.
 - Khởi động server: log có dòng start của borrow reminder job; Ctrl+C → log stop.
+- `grep -n "runTransaction" server/controllers/borrow-public-controller.js` → có (M1); `grep -n "await borrowEmailService.sendOtp" server/controllers/borrow-public-controller.js` → không có kết quả (M2).

@@ -25,17 +25,21 @@
 - [ ] `.env` có `APP_PUBLIC_URL`; thiếu → server log warn
 - [ ] `server/index.js` có `trust proxy` trên dòng đầu tiên sau `const app`
 - [ ] Test `borrow-public.test.js` pass, đủ 15 case liệt kê trong phase 02; toàn bộ không giảm
+- [x] (Chuyển sang phase 03) M1: 6 lần nhập sai OTP đồng thời → `attempts === 5`, mã đúng sau đó vẫn 400
+- [x] (Chuyển sang phase 03) M2: `requestOtp` trả 200 không chờ `sendOtp`
 - [ ] Curl sau nginx: 6 POST liên tiếp → lần 6 nhận 429; log server có IP client thật (không phải IP nginx)
 - [ ] `grep -rn "eventsCollection\|eventController" server/{routes,controllers,services}/borrow-*.js` → không có kết quả
 - [ ] Khách tạo phiếu → nhận email có 2 link (Xác nhận, Quản lý); link Xác nhận hết hạn sau 24h
 
 ## Phase 03 — Admin API & job
 
-- [ ] Test `borrow-admin.test.js` (9+ cases), `borrow-reminder-job.test.js` (5+ cases) pass
-- [ ] Server khởi động → log có "borrow reminder job"; Ctrl+C → log stop
-- [ ] Manager gọi `POST /api/borrow/admin/requests/:id/approve` → 200
-- [ ] User role `user` gọi → 403
-- [ ] confirm-return thiếu món → `returned_with_issue` + kho chỉ cộng số nhận
+- [x] Test `borrow-admin.test.js` (9+ cases), `borrow-reminder-job.test.js` (5+ cases) pass
+- [x] Test M1/M2 (3 case mới trong `borrow-public.test.js`) pass
+- [x] `borrow-public-controller.js`: `verifyOtp` dùng `runTransaction`; không còn `await borrowEmailService.sendOtp(`
+- [x] Server khởi động → log có "borrow reminder job"; Ctrl+C → log stop
+- [x] Manager gọi `POST /api/borrow/admin/requests/:id/approve` → 200
+- [x] User role `user` gọi → 403
+- [x] confirm-return thiếu món → `returned_with_issue` + kho chỉ cộng số nhận
 
 ## Phase 04 — Trang `/borrow`
 

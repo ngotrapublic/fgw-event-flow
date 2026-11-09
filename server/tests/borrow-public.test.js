@@ -369,6 +369,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         // 1. Phone with NO open request
         const resNone = await callHandler(borrowCtrl.requestOtp, { body: { phone: '0999999999' } });
         expect(resNone.statusCode).toBe(200);
+        await new Promise((r) => setImmediate(r));
         expect(borrowEmailService.sendOtp).not.toHaveBeenCalled();
 
         // 2. Phone WITH open request
@@ -376,6 +377,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(resExist.statusCode).toBe(200);
         // Body matches exactly
         expect(resNone.body).toEqual(resExist.body);
+        await new Promise((r) => setImmediate(r));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
     });
 
@@ -390,16 +392,46 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         // Call 1
         const res1 = await callHandler(borrowCtrl.requestOtp, { body: { phone: '0901234567' } });
         expect(res1.statusCode).toBe(200);
+        await new Promise((r) => setImmediate(r));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
 
         // Call 2 immediately (within 60s)
         const res2 = await callHandler(borrowCtrl.requestOtp, { body: { phone: '0901234567' } });
         expect(res2.statusCode).toBe(200);
+        await new Promise((r) => setImmediate(r));
         // sendOtp was NOT called a second time
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
     });
 
-    test('12. lookup/verify sai 5 lần -> lần 6 dù đúng mã vẫn 400', async () => {
+    test('11b. lookup/otp: trả về response trước khi sendOtp resolve (không chờ gửi email)', async () => {
+        mockFirebase.__stores.borrow_requests.set('req-timing-test', {
+            id: 'req-timing-test',
+            status: 'pending',
+            isOpen: true,
+            borrower: { phone: '0901234567', email: 'timing@test.com' }
+        });
+
+        let emailResolved = false;
+        borrowEmailService.sendOtp.mockImplementationOnce(() => {
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    emailResolved = true;
+                    resolve();
+                }, 50);
+            });
+        });
+
+        const res = await callHandler(borrowCtrl.requestOtp, { body: { phone: '0901234567' } });
+        expect(res.statusCode).toBe(200);
+        // Response finished BEFORE email promise resolved
+        expect(emailResolved).toBe(false);
+
+        // Wait for async email to finish
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        expect(emailResolved).toBe(true);
+    });
+
+    test('12. lookup/verify: 6 lần nhập sai gửi bằng Promise.all -> attempts === 5, sau đó nhập đúng vẫn 400', async () => {
         const phone = '0901234567';
         const code = '123456';
         const phoneHash = hash(phone);
@@ -411,17 +443,66 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             attempts: 0
         });
 
-        // 5 incorrect attempts
-        for (let i = 1; i <= 5; i++) {
-            const res = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000000' } });
-            expect(res.statusCode).toBe(400);
-            expect(res.body.error).toBe('Mã không đúng hoặc đã hết hạn');
+        // 6 concurrent incorrect attempts sent with Promise.all
+        const results = await Promise.all([
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000001' } }),
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000002' } }),
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000003' } }),
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000004' } }),
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000005' } }),
+            callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000006' } })
+        ]);
+
+        results.forEach((r) => {
+            expect(r.statusCode).toBe(400);
+            expect(r.body.error).toBe('Mã không đúng hoặc đã hết hạn');
+        });
+
+        const otpDoc = mockFirebase.__stores.borrow_otps.get(phoneHash);
+        expect(otpDoc.attempts).toBe(5);
+
+        // 7th attempt with CORRECT code -> still 400
+        const resCorrect = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
+        expect(resCorrect.statusCode).toBe(400);
+        expect(resCorrect.body.error).toBe('Mã không đúng hoặc đã hết hạn');
+    });
+
+    test('12b. lookup/verify: nhập đúng sau 4 lần sai -> 200, doc OTP bị xoá', async () => {
+        const phone = '0901234567';
+        const code = '777888';
+        const phoneHash = hash(phone);
+
+        mockFirebase.__stores.borrow_otps.set(phoneHash, {
+            phoneHash,
+            codeHash: hash(code),
+            expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
+            attempts: 0
+        });
+
+        mockFirebase.__stores.borrow_requests.set('req-after-4-fails', {
+            id: 'req-after-4-fails',
+            status: 'pending',
+            isOpen: true,
+            borrower: { phone: '0901234567' },
+            items: []
+        });
+
+        // 4 incorrect attempts
+        for (let i = 1; i <= 4; i++) {
+            const r = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code: 'wrong' } });
+            expect(r.statusCode).toBe(400);
         }
 
-        // 6th attempt with CORRECT code -> still 400
-        const res6 = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
-        expect(res6.statusCode).toBe(400);
-        expect(res6.body.error).toBe('Mã không đúng hoặc đã hết hạn');
+        const otpDocBefore = mockFirebase.__stores.borrow_otps.get(phoneHash);
+        expect(otpDocBefore.attempts).toBe(4);
+
+        // 5th attempt with CORRECT code -> 200
+        const rCorrect = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
+        expect(rCorrect.statusCode).toBe(200);
+        expect(rCorrect.body.accessTokens).toHaveLength(1);
+
+        // OTP doc must be deleted
+        expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
     });
 
     test('13. lookup/verify đúng -> token mới mở được phiếu; token cũ -> my trả trong invalidTokens', async () => {
