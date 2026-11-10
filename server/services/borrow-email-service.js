@@ -286,13 +286,15 @@ const borrowEmailService = {
         await emailService.send([email], subject, html);
     },
 
-    async sendDueSoon(req) {
+    async sendDueSoon(req, accessToken) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
-        const manageUrl = `${appUrl}/borrow/manage`;
+        const manageUrl = accessToken
+            ? `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`
+            : `${appUrl}/borrow/manage`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `
@@ -322,13 +324,15 @@ const borrowEmailService = {
         await emailService.send([recipient], subject, html);
     },
 
-    async sendOverdue(req) {
+    async sendOverdue(req, accessToken) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
-        const manageUrl = `${appUrl}/borrow/manage`;
+        const manageUrl = accessToken
+            ? `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`
+            : `${appUrl}/borrow/manage`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `

@@ -275,14 +275,16 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(res.body.error).toBe('Bạn đang có quá nhiều phiếu chưa hoàn tất');
     });
 
-    test('8. verify token đúng -> pending, thông báo được gọi; gọi lại -> 200 idempotent; token sai -> 404; quá hạn -> 410', async () => {
+    test('8. verify token đúng -> pending, thông báo được gọi; gọi lại -> 200 idempotent kèm accessToken mới; token sai -> 404; quá hạn -> 410', async () => {
         const rawToken = 'secret-verify-token-123';
         const verifyTokenHash = hash(rawToken);
+        const origAccessToken = 'original-manage-token-123';
 
         mockFirebase.__stores.borrow_requests.set('req-verify-1', {
             id: 'req-verify-1',
             status: 'unverified',
             isOpen: true,
+            accessTokenHash: hash(origAccessToken),
             verifyTokenHash,
             verifyExpiresAt: new Date(Date.now() + 24 * 3600e3).toISOString(),
             borrower: { name: 'Test Verify', email: 'verify@test.com', phone: '0901111222' },
@@ -295,18 +297,31 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         const resWrong = await callHandler(borrowCtrl.verifyEmail, { body: { token: 'invalid-token' } });
         expect(resWrong.statusCode).toBe(404);
 
-        // Correct token -> 200, status pending, notification called
+        // Correct token -> 200, status pending, notification called, accessToken returned
         const resCorrect = await callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } });
         expect(resCorrect.statusCode).toBe(200);
         expect(resCorrect.body.request.status).toBe('pending');
+        expect(typeof resCorrect.body.accessToken).toBe('string');
+        expect(resCorrect.body.accessToken.length).toBeGreaterThan(10);
         expect(notificationService.create).toHaveBeenCalled();
 
-        // Idempotent call again -> 200
+        // Idempotent call again -> 200 AND issues accessToken so reopening link on another device works
         const resAgain = await callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } });
         expect(resAgain.statusCode).toBe(200);
         expect(resAgain.body.request.status).toBe('pending');
+        expect(typeof resAgain.body.accessToken).toBe('string');
+        expect(resAgain.body.accessToken).not.toBe(resCorrect.body.accessToken);
 
-        // Expired token -> 410
+        // Both the newly issued token (idempotent) AND the original manageUrl token open GET /my
+        const resMy = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': `${resAgain.body.accessToken},${origAccessToken}` }
+        });
+        expect(resMy.statusCode).toBe(200);
+        expect(resMy.body.requests).toHaveLength(1);
+        expect(resMy.body.requests[0].id).toBe('req-verify-1');
+        expect(resMy.body.invalidTokens).toEqual([]);
+
+        // Expired unverified token -> 410
         const expiredToken = 'expired-token-456';
         mockFirebase.__stores.borrow_requests.set('req-verify-expired', {
             id: 'req-verify-expired',
@@ -320,6 +335,57 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
 
         const resExpired = await callHandler(borrowCtrl.verifyEmail, { body: { token: expiredToken } });
         expect(resExpired.statusCode).toBe(410);
+
+        // Already transitioned to expired by reminder job -> 410
+        const jobExpiredToken = 'job-expired-token-789';
+        mockFirebase.__stores.borrow_requests.set('req-job-expired', {
+            id: 'req-job-expired',
+            status: 'expired',
+            isOpen: false,
+            verifyTokenHash: hash(jobExpiredToken),
+            verifyExpiresAt: new Date(Date.now() - 1000).toISOString(),
+            borrower: { email: 'jobexp@test.com' },
+            history: []
+        });
+
+        const resJobExpired = await callHandler(borrowCtrl.verifyEmail, { body: { token: jobExpiredToken } });
+        expect(resJobExpired.statusCode).toBe(410);
+    });
+
+    test('8b. verify gọi đồng thời 2 lần (StrictMode / double-click) -> cả 2 đều 200 kèm accessToken hợp lệ', async () => {
+        const rawToken = 'race-verify-token-123';
+        mockFirebase.__stores.borrow_requests.set('req-verify-race', {
+            id: 'req-verify-race',
+            status: 'unverified',
+            isOpen: true,
+            accessTokenHash: hash('orig-race-tok'),
+            verifyTokenHash: hash(rawToken),
+            verifyExpiresAt: new Date(Date.now() + 24 * 3600e3).toISOString(),
+            borrower: { name: 'Race Verify', email: 'race@test.com', phone: '0901119999' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            dueDate: getTomorrowVnDate(),
+            history: []
+        });
+
+        const [res1, res2] = await Promise.all([
+            callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } }),
+            callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } })
+        ]);
+
+        expect(res1.statusCode).toBe(200);
+        expect(res2.statusCode).toBe(200);
+        expect(res1.body.request.status).toBe('pending');
+        expect(res2.body.request.status).toBe('pending');
+        expect(typeof res1.body.accessToken).toBe('string');
+        expect(typeof res2.body.accessToken).toBe('string');
+
+        // Both tokens are valid in /my
+        const resMy = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': `${res1.body.accessToken},${res2.body.accessToken}` }
+        });
+        expect(resMy.statusCode).toBe(200);
+        expect(resMy.body.requests).toHaveLength(1);
+        expect(resMy.body.invalidTokens).toEqual([]);
     });
 
     test('9. my với 1 token đúng + 1 token rác -> 1 phiếu, invalidTokens chứa token rác. Response không có history/*Hash/uid', async () => {
@@ -545,6 +611,73 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         });
         expect(resMyNew.body.requests).toHaveLength(1);
         expect(resMyNew.body.requests[0].id).toBe('req-lookup-1');
+    });
+
+    test('13b. token từ email nhắc hạn mở được phiếu và báo trả; token gốc vẫn dùng được; OTP thu hồi token nhắc hạn', async () => {
+        const originalToken = 'original-access-token';
+        const reminderToken = 'reminder-access-token';
+        const phone = '0907654321';
+        const code = '111222';
+
+        mockFirebase.__stores.borrow_requests.set('req-reminder-1', {
+            id: 'req-reminder-1',
+            status: 'handed_over',
+            isOpen: true,
+            accessTokenHash: hash(originalToken),
+            accessTokenHashes: [hash(reminderToken)],
+            borrower: { phone, email: 'reminder@test.com' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            history: []
+        });
+
+        // Both tokens sent together: both are recognised, neither is reported invalid.
+        const resBoth = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': `${reminderToken},${originalToken}` }
+        });
+        expect(resBoth.body.requests).toHaveLength(1);
+        expect(resBoth.body.invalidTokens).toEqual([]);
+
+        // Reminder token alone opens the request.
+        const resReminder = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': reminderToken }
+        });
+        expect(resReminder.body.requests).toHaveLength(1);
+        expect(resReminder.body.requests[0].accessTokenHashes).toBeUndefined();
+
+        // OTP lookup revokes the reminder token.
+        mockFirebase.__stores.borrow_otps.set(hash(phone), {
+            phoneHash: hash(phone),
+            codeHash: hash(code),
+            expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
+            attempts: 0
+        });
+        await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
+        const resAfterOtp = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': reminderToken }
+        });
+        expect(resAfterOtp.body.requests).toHaveLength(0);
+        expect(resAfterOtp.body.invalidTokens).toContain(reminderToken);
+    });
+
+    test('13c. báo trả bằng token từ email nhắc hạn -> return_pending', async () => {
+        const reminderToken = 'reminder-return-token';
+        mockFirebase.__stores.borrow_requests.set('req-reminder-return', {
+            id: 'req-reminder-return',
+            status: 'handed_over',
+            isOpen: true,
+            accessTokenHash: hash('some-original-token'),
+            accessTokenHashes: [hash(reminderToken)],
+            borrower: { email: 'remret@test.com' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            history: []
+        });
+
+        const res = await callHandler(borrowCtrl.requestReturn, {
+            params: { id: 'req-reminder-return' },
+            headers: { 'x-borrow-token': reminderToken }
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.body.request.status).toBe('return_pending');
     });
 
     test('14. return với token đúng khi handed_over -> return_pending; khi approved -> 409; token phiếu khác -> 404', async () => {

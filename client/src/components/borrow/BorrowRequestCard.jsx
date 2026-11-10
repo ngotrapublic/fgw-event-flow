@@ -192,11 +192,6 @@ export default function BorrowRequestCard({
                         <p className="text-sm font-black text-black">
                             {request.borrower?.name || 'Khách vãng lai'}
                         </p>
-                        {request.borrower?.email && (
-                            <p className="text-[11px] font-medium text-slate-500 truncate max-w-[220px]">
-                                {request.borrower.email}
-                            </p>
-                        )}
                     </div>
 
                     <div

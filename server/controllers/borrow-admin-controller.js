@@ -28,7 +28,7 @@ function toAdminView(doc) {
     const out = { id, ...data };
 
     for (const key of Object.keys(out)) {
-        if (key.endsWith('Hash')) {
+        if (key.endsWith('Hash') || key.endsWith('Hashes')) {
             delete out[key];
         }
     }

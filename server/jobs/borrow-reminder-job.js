@@ -1,4 +1,5 @@
 const { borrowRequestsCollection } = require('../config/firebase');
+const { issueReminderToken } = require('../services/borrow-token-service');
 const { transition } = require('../services/borrow-transition-service');
 const { LIMITS } = require('../services/borrow-constants');
 const borrowEmailService = require('../services/borrow-email-service');
@@ -137,7 +138,8 @@ class BorrowReminderJob {
                                 updatedAt: nowIso
                             });
 
-                            await borrowEmailService.sendDueSoon({ id: doc.id, ...data });
+                            const reminderToken = await issueReminderToken(doc, data.accessTokenHashes);
+                            await borrowEmailService.sendDueSoon({ id: doc.id, ...data }, reminderToken);
                         } catch (stepErr) {
                             console.error(`[BORROW REMINDER] Step 3 error on ${doc.id}:`, stepErr.message);
                         }
@@ -184,11 +186,11 @@ class BorrowReminderJob {
                             }
 
                             if (shouldSend) {
-                                await borrowEmailService.sendOverdue({
-                                    id: doc.id,
-                                    ...data,
-                                    isOverdue: true
-                                });
+                                const reminderToken = await issueReminderToken(doc, data.accessTokenHashes);
+                                await borrowEmailService.sendOverdue(
+                                    { id: doc.id, ...data, isOverdue: true },
+                                    reminderToken
+                                );
 
                                 const adminUids = await notificationService.getUidsByRoles([
                                     'admin',

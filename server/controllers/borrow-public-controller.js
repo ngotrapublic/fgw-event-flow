@@ -3,7 +3,7 @@ const HttpError = require('../utils/http-error');
 const { LIMITS } = require('../services/borrow-constants');
 const { transition } = require('../services/borrow-transition-service');
 const borrowValidation = require('../services/borrow-validation');
-const { newToken, hash, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
+const { newToken, hash, issueReminderToken, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 
@@ -41,11 +41,15 @@ function toPublicView(doc) {
 
 /**
  * Find matching raw token from request headers (supports both X-Borrow-Token and X-Borrow-Tokens).
+ * Matches the current accessTokenHash or any reminder token hash issued by the reminder emails.
  */
-function findMatchingToken(req, expectedHash) {
-    if (!expectedHash) return null;
+function findMatchingToken(req, expectedHash, extraHashes) {
+    if (!expectedHash && !(Array.isArray(extraHashes) && extraHashes.length)) return null;
+    const accepted = new Set(
+        [expectedHash, ...(Array.isArray(extraHashes) ? extraHashes : [])].filter(Boolean)
+    );
     const single = req.headers['x-borrow-token'];
-    if (single && typeof single === 'string' && safeEqualHex(hash(single.trim()), expectedHash)) {
+    if (single && typeof single === 'string' && accepted.has(hash(single.trim()))) {
         return single.trim();
     }
     const multiHeader = req.headers['x-borrow-tokens'] || '';
@@ -56,7 +60,7 @@ function findMatchingToken(req, expectedHash) {
             .filter(Boolean)
             .slice(0, LIMITS.MAX_CLIENT_TOKENS);
         for (const candidate of candidates) {
-            if (safeEqualHex(hash(candidate), expectedHash)) {
+            if (accepted.has(hash(candidate))) {
                 return candidate;
             }
         }
@@ -313,9 +317,15 @@ async function verifyEmail(req, res, next) {
         const docSnap = snap.docs[0];
         const docData = docSnap.data();
 
-        // Idempotent: already transitioned past unverified
+        if (docData.status === 'expired') {
+            throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
+        }
+
+        // Idempotent: already transitioned past unverified — issue an extra access token
+        // so opening the verify link again or on another device still unlocks /borrow.
         if (docData.status !== 'unverified') {
-            return res.status(200).json({ request: toPublicView(docData) });
+            const accessToken = await issueReminderToken(docSnap, docData.accessTokenHashes);
+            return res.status(200).json({ request: toPublicView(docData), accessToken });
         }
 
         // Expired check
@@ -323,11 +333,37 @@ async function verifyEmail(req, res, next) {
             throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
         }
 
+        const extraAccessToken = newToken();
+        const extraHashes = [
+            hash(extraAccessToken),
+            ...(Array.isArray(docData.accessTokenHashes) ? docData.accessTokenHashes : [])
+        ].slice(0, LIMITS.MAX_REMINDER_TOKENS);
+
         // Transition unverified -> pending, null verifyTokenHash, keep verifiedTokenHash for idempotent retries
-        const updated = await transition(docSnap.id, 'pending', {
-            actor: { uid: 'guest', email: docData.borrower?.email },
-            patch: { verifyTokenHash: null, verifiedTokenHash: tokenHash }
-        });
+        let updated;
+        try {
+            updated = await transition(docSnap.id, 'pending', {
+                actor: { uid: 'guest', email: docData.borrower?.email },
+                patch: {
+                    verifyTokenHash: null,
+                    verifiedTokenHash: tokenHash,
+                    accessTokenHashes: extraHashes
+                }
+            });
+        } catch (transErr) {
+            if (transErr?.statusCode === 409) {
+                const latestSnap = await docSnap.ref.get();
+                const latestData = latestSnap.data();
+                if (latestData && latestData.status === 'expired') {
+                    throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
+                }
+                if (latestData && latestData.status !== 'unverified') {
+                    const accessToken = await issueReminderToken(latestSnap, latestData.accessTokenHashes);
+                    return res.status(200).json({ request: toPublicView(latestData), accessToken });
+                }
+            }
+            throw transErr;
+        }
 
         // Notify admins/managers
         try {
@@ -346,7 +382,7 @@ async function verifyEmail(req, res, next) {
             console.error('[BORROW] Notification error:', notifErr.message);
         }
 
-        res.status(200).json({ request: toPublicView(updated) });
+        res.status(200).json({ request: toPublicView(updated), accessToken: extraAccessToken });
     } catch (err) {
         next(err);
     }
@@ -365,7 +401,7 @@ async function resendVerification(req, res, next) {
         }
 
         const data = docSnap.data();
-        const matchedToken = findMatchingToken(req, data.accessTokenHash);
+        const matchedToken = findMatchingToken(req, data.accessTokenHash, data.accessTokenHashes);
 
         if (!matchedToken) {
             throw new HttpError(404, 'Phiếu không tồn tại hoặc token không hợp lệ');
@@ -428,6 +464,26 @@ async function getMyRequests(req, res, next) {
                 matchedDocs.set(doc.id, data);
                 const matched = rawTokens.find((t) => hash(t) === data.accessTokenHash);
                 if (matched) matchedTokens.add(matched);
+            });
+
+            // Reminder emails issue extra tokens stored in accessTokenHashes. A token is only
+            // accepted here when its hash sits in that array, so `in` cannot express it.
+            // hashedList holds at most MAX_CLIENT_TOKENS (10), under Firestore's 30-value cap.
+            const reminderSnap = await borrowRequestsCollection
+                .where('accessTokenHashes', 'array-contains-any', hashedList)
+                .get();
+
+            reminderSnap.docs.forEach((doc) => {
+                const data = doc.data();
+                if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
+                    return;
+                }
+                const hashes = new Set(data.accessTokenHashes || []);
+                // A doc can match through several tokens; keep all so none is reported invalid.
+                const matched = rawTokens.filter((t) => hashes.has(hash(t)));
+                if (matched.length === 0) return;
+                matchedDocs.set(doc.id, data);
+                matched.forEach((t) => matchedTokens.add(t));
             });
         }
 
@@ -571,8 +627,10 @@ async function verifyOtp(req, res, next) {
             const newAccessToken = newToken();
             const newAccessTokenHash = hash(newAccessToken);
 
+            // OTP lookup revokes every earlier token, including reminder-email tokens.
             await doc.ref.update({
                 accessTokenHash: newAccessTokenHash,
+                accessTokenHashes: [],
                 updatedAt: new Date().toISOString()
             });
 
@@ -600,7 +658,7 @@ async function requestReturn(req, res, next) {
         }
 
         const data = docSnap.data();
-        const isTokenValid = Boolean(findMatchingToken(req, data.accessTokenHash));
+        const isTokenValid = Boolean(findMatchingToken(req, data.accessTokenHash, data.accessTokenHashes));
         const isUserValid = req.user?.uid && req.user.uid === data.borrower?.uid;
 
         if (!isTokenValid && !isUserValid) {

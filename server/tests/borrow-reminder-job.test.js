@@ -23,6 +23,7 @@ jest.mock('../services/notificationService', () => ({
 const borrowReminderJob = require('../jobs/borrow-reminder-job');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
+const { hash } = require('../services/borrow-token-service');
 
 beforeEach(() => {
     mockFirebase.__stores.borrow_requests.clear();
@@ -217,6 +218,45 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
         expect(doc2.approvedStaleNotifiedAt).toBeUndefined();
 
         expect(notificationService.create).not.toHaveBeenCalled();
+    });
+
+    test('9. nhắc sắp hạn và quá hạn cấp access token mới, token gốc vẫn còn hiệu lực', async () => {
+        const in10h = new Date(Date.now() + 10 * 3600e3).toISOString();
+        const pastDue = new Date(Date.now() - 2 * 3600e3).toISOString();
+        const originalHash = hash('original-token');
+
+        mockFirebase.__stores.borrow_requests.set('req-duesoon-token', {
+            id: 'req-duesoon-token',
+            status: 'handed_over',
+            isOpen: true,
+            dueAt: in10h,
+            accessTokenHash: originalHash,
+            borrower: { name: 'Due Soon', email: 'duesoon@test.com' },
+            items: []
+        });
+        mockFirebase.__stores.borrow_requests.set('req-overdue-token', {
+            id: 'req-overdue-token',
+            status: 'handed_over',
+            isOpen: true,
+            dueAt: pastDue,
+            accessTokenHash: originalHash,
+            borrower: { name: 'Overdue', email: 'overdue@test.com' },
+            items: []
+        });
+
+        await borrowReminderJob.run();
+
+        const dueSoonDoc = mockFirebase.__stores.borrow_requests.get('req-duesoon-token');
+        expect(dueSoonDoc.accessTokenHash).toBe(originalHash);
+        expect(dueSoonDoc.accessTokenHashes).toHaveLength(1);
+        const dueSoonToken = borrowEmailService.sendDueSoon.mock.calls[0][1];
+        expect(hash(dueSoonToken)).toBe(dueSoonDoc.accessTokenHashes[0]);
+
+        const overdueDoc = mockFirebase.__stores.borrow_requests.get('req-overdue-token');
+        expect(overdueDoc.accessTokenHash).toBe(originalHash);
+        expect(overdueDoc.accessTokenHashes).toHaveLength(1);
+        const overdueToken = borrowEmailService.sendOverdue.mock.calls[0][1];
+        expect(hash(overdueToken)).toBe(overdueDoc.accessTokenHashes[0]);
     });
 
     test('8. start() an toàn khi gọi nhiều lần (idempotent), stop() xoá intervalId', () => {

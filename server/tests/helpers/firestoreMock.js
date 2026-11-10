@@ -28,6 +28,8 @@ const matchesWhere = (data, [field, op, val]) => {
         case '<': return v < val;
         case '>': return v > val;
         case 'array-contains': return Array.isArray(v) && v.includes(val);
+        case 'array-contains-any':
+            return Array.isArray(v) && Array.isArray(val) && v.some((item) => val.includes(item));
         default: throw new Error(`Unsupported where op: ${op}`);
     }
 };
