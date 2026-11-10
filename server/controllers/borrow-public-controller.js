@@ -570,12 +570,27 @@ async function requestOtp(req, res, next) {
         });
 
         // Send OTP to distinct emails associated with this phone (non-blocking to prevent timing attacks)
-        const distinctEmails = [...new Set(snap.docs.map((d) => d.data().borrower?.email).filter(Boolean))];
+        const distinctEmails = [
+            ...new Set(
+                snap.docs
+                    .map((d) => d.data().borrower?.email)
+                    .filter((e) => typeof e === 'string' && e.trim())
+                    .map((e) => e.trim().toLowerCase())
+            )
+        ];
         res.status(200).json(standardResponse);
 
         Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, code)))
-            .then((rs) => rs.filter((r) => r.status === 'rejected')
-                .forEach((r) => console.error('[BORROW] Error sending OTP email:', r.reason?.message)));
+            .then((rs) => {
+                rs.forEach((r, idx) => {
+                    if (r.status === 'rejected') {
+                        console.error(
+                            `[BORROW] Error sending OTP email to ${maskEmail(distinctEmails[idx])}:`,
+                            r.reason?.message
+                        );
+                    }
+                });
+            });
     } catch (err) {
         next(err);
     }
@@ -588,7 +603,8 @@ async function requestOtp(req, res, next) {
 async function verifyOtp(req, res, next) {
     try {
         const { phone, code } = req.body || {};
-        if (!phone || !code) {
+        const cleanCode = code !== undefined && code !== null ? String(code).replace(/\s+/g, '') : '';
+        if (!phone || !cleanCode) {
             throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
         }
 
@@ -602,7 +618,7 @@ async function verifyOtp(req, res, next) {
             if (!otp) return 'invalid';
             if (!otp.expiresAt || new Date(otp.expiresAt).getTime() < Date.now()) return 'invalid';
             if ((otp.attempts || 0) >= LIMITS.OTP_MAX_ATTEMPTS) return 'invalid';
-            if (!safeEqualHex(hash(String(code).trim()), otp.codeHash)) {
+            if (!safeEqualHex(hash(cleanCode), otp.codeHash)) {
                 tx.update(otpRef, { attempts: (otp.attempts || 0) + 1 });
                 return 'invalid';
             }

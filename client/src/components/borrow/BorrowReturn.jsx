@@ -92,6 +92,17 @@ function OtpInputBoxes({ code, setCode }) {
 
 const CLOSED_STATUSES = ['returned', 'returned_with_issue', 'rejected', 'cancelled', 'expired'];
 
+function normalizePhoneInput(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let p = raw.replace(/[\s.\-_()]/g, '');
+    if (p.startsWith('+84')) {
+        p = '0' + p.slice(3);
+    } else if (p.startsWith('84') && p.length > 9) {
+        p = '0' + p.slice(2);
+    }
+    return p;
+}
+
 const NON_RETURNABLE_HINTS = {
     pending: 'Phiếu đang chờ Quản trị viên duyệt — Chưa nhận thiết bị nên chưa thể báo trả.',
     approved: 'Phiếu đã duyệt! Vui lòng tới Phòng IT - Floor 2 - Campus HCM nhận thiết bị trước khi trả.',
@@ -107,6 +118,7 @@ export default function BorrowReturn() {
     // Requests state
     const [handedOverRequests, setHandedOverRequests] = useState([]);
     const [otherOpenRequests, setOtherOpenRequests] = useState([]);
+    const [closedRequestsCount, setClosedRequestsCount] = useState(0);
     const [loading, setLoading] = useState(true);
 
     // Return confirmation modal
@@ -117,6 +129,7 @@ export default function BorrowReturn() {
     const [phone, setPhone] = useState('');
     const [otpCode, setOtpCode] = useState('');
     const [otpSent, setOtpSent] = useState(false);
+    const [otpCooldown, setOtpCooldown] = useState(0);
     const [sendingOtp, setSendingOtp] = useState(false);
     const [verifyingOtp, setVerifyingOtp] = useState(false);
     const [lookupError, setLookupError] = useState(null);
@@ -138,10 +151,12 @@ export default function BorrowReturn() {
             }
 
             const allRequests = data.requests || [];
+            const closedRequests = allRequests.filter((r) => CLOSED_STATUSES.includes(r.status));
             const openRequests = allRequests.filter((r) => !CLOSED_STATUSES.includes(r.status));
             const activeToReturn = openRequests.filter((r) => r.status === 'handed_over');
             const otherOpen = openRequests.filter((r) => r.status !== 'handed_over');
 
+            setClosedRequestsCount(closedRequests.length);
             setHandedOverRequests(activeToReturn);
             setOtherOpenRequests(otherOpen);
 
@@ -160,11 +175,20 @@ export default function BorrowReturn() {
         if (!authLoading) {
             setHandedOverRequests([]);
             setOtherOpenRequests([]);
+            setClosedRequestsCount(0);
             setLookedUpInfo(null);
             setLookedUpTokens([]);
             fetchRequests();
         }
     }, [user?.uid, authLoading, fetchRequests]);
+
+    useEffect(() => {
+        if (otpCooldown <= 0) return;
+        const timer = setInterval(() => {
+            setOtpCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [otpCooldown]);
 
     // Handle Confirm Return Request
     const handleConfirmReturn = async () => {
@@ -195,29 +219,38 @@ export default function BorrowReturn() {
         }
     };
 
-    // Step 1: Request OTP
-    const handleRequestOtp = async (e) => {
-        e.preventDefault();
+    // Step 1: Request OTP (also reused for explicit resend)
+    const requestOtpForPhone = async () => {
         setLookupError(null);
 
-        const cleanPhone = phone.trim();
+        const cleanPhone = normalizePhoneInput(phone);
         if (!/^0\d{9}$/.test(cleanPhone)) {
             setLookupError('Số điện thoại không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng số 0).');
             return;
         }
 
+        setPhone(cleanPhone);
         setSendingOtp(true);
         try {
-            await borrowApi.lookupOtp(cleanPhone);
+            const res = await borrowApi.lookupOtp(cleanPhone);
             setOtpSent(true);
-            showSuccess('Mã xác thực OTP đã được gửi đến email đăng ký của bạn.');
+            setOtpCooldown(60);
+            showSuccess(
+                res.data?.message ||
+                    'Nếu số điện thoại có phiếu đang mở, mã xác thực đã được gửi tới email đã đăng ký.'
+            );
         } catch (err) {
             console.error('[BORROW RETURN] Lookup OTP error:', err);
             const resData = err.response?.data || {};
-            setLookupError(resData.error || 'Không tìm thấy phiếu mượn với số điện thoại này.');
+            setLookupError(resData.error || 'Không thể gửi yêu cầu OTP lúc này, vui lòng thử lại sau.');
         } finally {
             setSendingOtp(false);
         }
+    };
+
+    const handleRequestOtp = async (e) => {
+        e.preventDefault();
+        await requestOtpForPhone();
     };
 
     // Step 2: Verify OTP
@@ -225,7 +258,7 @@ export default function BorrowReturn() {
         e.preventDefault();
         setLookupError(null);
 
-        const cleanPhone = phone.trim();
+        const cleanPhone = normalizePhoneInput(phone);
         const cleanCode = otpCode.replace(/\s+/g, '');
 
         if (cleanCode.length !== 6) {
@@ -269,6 +302,7 @@ export default function BorrowReturn() {
                 showSuccess(`Xác thực thành công! Tìm thấy ${lookedUpRequests.length} phiếu mượn của bạn.`);
                 setOtpSent(false);
                 setOtpCode('');
+                setOtpCooldown(0);
                 setPhone('');
                 setShowLookupBox(false);
             } else {
@@ -276,6 +310,7 @@ export default function BorrowReturn() {
                 showSuccess('Xác thực thành công nhưng hiện không có phiếu mượn nào đang mở với SĐT này.');
                 setOtpSent(false);
                 setOtpCode('');
+                setOtpCooldown(0);
             }
         } catch (err) {
             console.error('[BORROW RETURN] Lookup Verify error:', err);
@@ -336,6 +371,7 @@ export default function BorrowReturn() {
                                 setShowLookupBox(true);
                                 setOtpSent(false);
                                 setOtpCode('');
+                                setOtpCooldown(0);
                                 setPhone('');
                             }}
                             className="px-3 py-1.5 bg-white border-2 border-black rounded-xl text-[11px] font-black shadow-[2px_2px_0_#000] hover:bg-slate-50 active:translate-x-[1px] active:translate-y-[1px] transition-all flex-shrink-0 self-start sm:self-center"
@@ -396,17 +432,38 @@ export default function BorrowReturn() {
                             </div>
                         </div>
                     ) : (
-                        <div className="text-center p-8 bg-white rounded-3xl border-2 border-black shadow-[4px_4px_0_#000] space-y-2.5">
+                        <div className="text-center p-8 bg-white rounded-3xl border-2 border-black shadow-[4px_4px_0_#000] space-y-3">
                             <div className="w-14 h-14 bg-slate-100 text-slate-500 border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[2px_2px_0_#000]">
                                 <Package size={28} strokeWidth={2.5} />
                             </div>
                             <h3 className="text-sm font-black text-black">
-                                Không tìm thấy thiết bị nào đang mượn trên trình duyệt này
+                                {closedRequestsCount > 0
+                                    ? 'Tất cả phiếu mượn của bạn đã hoàn tất'
+                                    : 'Không tìm thấy thiết bị nào đang mượn trên trình duyệt này'}
                             </h3>
                             <p className="text-xs text-slate-500 max-w-sm mx-auto font-medium">
-                                Nếu bạn đăng ký trên điện thoại hoặc máy khác, hãy dùng chức năng tra cứu bằng
-                                Số Điện Thoại bên dưới để tìm lại nhé!
+                                {closedRequestsCount > 0 ? (
+                                    <>
+                                        Bạn có <strong>{closedRequestsCount} phiếu</strong> đã hoàn tất
+                                        (Đã trả / Đã huỷ / Từ chối). Nếu muốn tra cứu phiếu đang mở đăng ký trên
+                                        thiết bị khác, hãy dùng mục Số Điện Thoại bên dưới.
+                                    </>
+                                ) : (
+                                    <>
+                                        Nếu bạn đăng ký trên điện thoại hoặc máy khác, hãy dùng chức năng tra
+                                        cứu bằng Số Điện Thoại bên dưới để tìm lại phiếu đang mở nhé!
+                                    </>
+                                )}
                             </p>
+                            {closedRequestsCount > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/borrow')}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] transition-all"
+                                >
+                                    Xem lịch sử tại Trang chủ <ArrowRight size={13} />
+                                </button>
+                            )}
                         </div>
                     )}
                 </section>
@@ -476,8 +533,9 @@ export default function BorrowReturn() {
                     {(showLookupBox || (handedOverRequests.length === 0 && otherOpenRequests.length === 0)) && (
                         <div className="space-y-4 pt-1">
                             <p className="text-xs text-slate-600 font-medium">
-                                Nhập số điện thoại bạn đã dùng lúc đăng ký mượn. Hệ thống sẽ gửi mã OTP 6 số
-                                đến email bảo mật để xác thực.
+                                Nhập số điện thoại gắn với <strong>phiếu đang mở</strong> (chờ duyệt, đã duyệt,
+                                đang mượn hoặc chờ kiểm tra). Hệ thống sẽ gửi mã OTP 6 số đến email đăng ký của
+                                phiếu đó.
                             </p>
 
                             {lookupError && (
@@ -528,14 +586,20 @@ export default function BorrowReturn() {
                                 </form>
                             ) : (
                                 <form onSubmit={handleVerifyOtp} className="space-y-4">
-                                    <div className="p-3.5 bg-amber-100 border-2 border-black rounded-2xl text-xs text-amber-950 font-bold space-y-1 shadow-[2px_2px_0_#000]">
+                                    <div className="p-3.5 bg-amber-100 border-2 border-black rounded-2xl text-xs text-amber-950 font-bold space-y-1.5 shadow-[2px_2px_0_#000]">
                                         <p className="flex items-center gap-1.5 font-black">
-                                            <Mail size={15} /> Mã OTP đã được gửi đến email!
+                                            <Mail size={15} /> Kiểm tra email để lấy mã OTP
                                         </p>
-                                        <p className="font-medium text-[11px]">
-                                            Kiểm tra hộp thư đến (và thư rác) của email liên kết với SĐT{' '}
-                                            <strong>{phone}</strong> và điền mã 6 chữ số bên dưới.
+                                        <p className="font-medium text-[11px] leading-relaxed">
+                                            Nếu SĐT <strong>{phone}</strong> có <strong>phiếu đang mở</strong>,
+                                            mã 6 số đã được gửi tới email đã đăng ký phiếu đó. Vui lòng kiểm tra
+                                            cả thư mục <strong>Spam / Thư rác</strong>.
                                         </p>
+                                        <ul className="font-medium text-[11px] text-amber-900 list-disc pl-4 space-y-0.5">
+                                            <li>Phiếu đã trả / đã huỷ / bị từ chối sẽ không phát sinh OTP.</li>
+                                            <li>Phiếu lập bằng tài khoản nội bộ không có hộp thư thật (vd: @fgw-event.com) sẽ không nhận được email.</li>
+                                            <li>Giới hạn gửi OTP: tối đa 1 lần / 60 giây và 3 lần / giờ.</li>
+                                        </ul>
                                     </div>
 
                                     {/* 6-box OTP input */}
@@ -546,38 +610,57 @@ export default function BorrowReturn() {
                                         <OtpInputBoxes code={otpCode} setCode={setOtpCode} />
                                     </div>
 
-                                    <div className="flex gap-2.5 pt-2">
+                                    <div className="flex items-center justify-between gap-2 text-xs">
                                         <button
                                             type="button"
                                             onClick={() => {
                                                 setOtpSent(false);
                                                 setOtpCode('');
+                                                setOtpCooldown(0);
                                                 setLookupError(null);
                                             }}
-                                            className="w-1/3 py-3 px-3 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-100 active:translate-x-[1px] active:translate-y-[1px] transition-all"
+                                            className="font-black text-slate-600 hover:text-black underline"
                                         >
-                                            Đổi SĐT
+                                            ← Đổi số điện thoại khác
                                         </button>
 
-                                        <motion.button
-                                            whileTap={{ scale: 0.98 }}
-                                            type="submit"
-                                            disabled={verifyingOtp || otpCode.replace(/\s+/g, '').length !== 6}
-                                            className="w-2/3 py-3 px-4 bg-emerald-400 text-slate-900 border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                                        <button
+                                            type="button"
+                                            onClick={requestOtpForPhone}
+                                            disabled={sendingOtp || otpCooldown > 0}
+                                            className="font-black text-indigo-700 hover:text-indigo-900 disabled:text-slate-400 disabled:cursor-not-allowed flex items-center gap-1"
                                         >
-                                            {verifyingOtp ? (
+                                            {sendingOtp ? (
                                                 <>
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                    Đang xác thực...
+                                                    <Loader2 size={12} className="animate-spin" />
+                                                    Đang gửi lại...
                                                 </>
+                                            ) : otpCooldown > 0 ? (
+                                                `Gửi lại OTP sau ${otpCooldown}s`
                                             ) : (
-                                                <>
-                                                    <Check size={16} strokeWidth={3} />
-                                                    Xác Nhận & Tra Cứu
-                                                </>
+                                                'Gửi lại mã OTP'
                                             )}
-                                        </motion.button>
+                                        </button>
                                     </div>
+
+                                    <motion.button
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        disabled={verifyingOtp || otpCode.replace(/\s+/g, '').length !== 6}
+                                        className="w-full py-3 px-4 bg-emerald-400 text-slate-900 border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                                    >
+                                        {verifyingOtp ? (
+                                            <>
+                                                <Loader2 size={16} className="animate-spin" />
+                                                Đang xác thực...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Check size={16} strokeWidth={3} />
+                                                Xác Nhận & Tra Cứu
+                                            </>
+                                        )}
+                                    </motion.button>
                                 </form>
                             )}
                         </div>

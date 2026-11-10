@@ -54,10 +54,11 @@ class EmailService {
 
         console.log(`[EMAIL SERVICE] Email channel enabled. Proceeding with send...`);
 
-        this.transporter = this.createTransporter();
+        const transporter = this.createTransporter();
+        this.transporter = transporter;
 
         const mailOptions = {
-            from: `"EventFlow Management" <${this.transporter.options.auth.user}>`,
+            from: `"EventFlow Management" <${transporter.options.auth.user}>`,
             to: recipients.join(','),
             subject,
             html: htmlContent,
@@ -66,7 +67,7 @@ class EmailService {
 
         try {
             console.log(`[EMAIL SERVICE] Sending to: ${recipients.join(', ')}`);
-            const info = await this.transporter.sendMail(mailOptions);
+            const info = await transporter.sendMail(mailOptions);
             console.log(`[EMAIL SERVICE] Email sent: ${info.response}`);
             return info;
         } catch (error) {

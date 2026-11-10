@@ -497,6 +497,27 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(emailResolved).toBe(true);
     });
 
+    test('11c. lookup/otp: gộp email trùng không phân biệt chữ hoa/thường và chuẩn hoá trước khi gửi OTP', async () => {
+        mockFirebase.__stores.borrow_requests.set('req-case-1', {
+            id: 'req-case-1',
+            status: 'pending',
+            isOpen: true,
+            borrower: { phone: '0901234567', email: 'User@Fpt.edu.vn' }
+        });
+        mockFirebase.__stores.borrow_requests.set('req-case-2', {
+            id: 'req-case-2',
+            status: 'approved',
+            isOpen: true,
+            borrower: { phone: '0901234567', email: ' user@fpt.edu.vn ' }
+        });
+
+        const res = await callHandler(borrowCtrl.requestOtp, { body: { phone: '+84 901 234 567' } });
+        expect(res.statusCode).toBe(200);
+        await new Promise((r) => setImmediate(r));
+        expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
+        expect(borrowEmailService.sendOtp).toHaveBeenCalledWith('user@fpt.edu.vn', expect.stringMatching(/^\d{6}$/));
+    });
+
     test('12. lookup/verify: 6 lần nhập sai gửi bằng Promise.all -> attempts === 5, sau đó nhập đúng vẫn 400', async () => {
         const phone = '0901234567';
         const code = '123456';
@@ -568,6 +589,32 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(rCorrect.body.accessTokens).toHaveLength(1);
 
         // OTP doc must be deleted
+        expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
+    });
+
+    test('12c. lookup/verify: chấp nhận mã OTP dán có khoảng trắng ở giữa', async () => {
+        const phone = '0901234567';
+        const code = '456789';
+        const phoneHash = hash(phone);
+
+        mockFirebase.__stores.borrow_otps.set(phoneHash, {
+            phoneHash,
+            codeHash: hash(code),
+            expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
+            attempts: 0
+        });
+
+        mockFirebase.__stores.borrow_requests.set('req-space-otp', {
+            id: 'req-space-otp',
+            status: 'handed_over',
+            isOpen: true,
+            borrower: { phone },
+            items: []
+        });
+
+        const res = await callHandler(borrowCtrl.verifyOtp, { body: { phone: '+84 901.234.567', code: '456 789' } });
+        expect(res.statusCode).toBe(200);
+        expect(res.body.accessTokens).toHaveLength(1);
         expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
     });
 

@@ -38,6 +38,17 @@ function getOffsetDateString(daysOffset) {
     return `${year}-${month}-${day}`;
 }
 
+function normalizePhoneInput(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let p = raw.replace(/[\s.\-_()]/g, '');
+    if (p.startsWith('+84')) {
+        p = '0' + p.slice(3);
+    } else if (p.startsWith('84') && p.length > 9) {
+        p = '0' + p.slice(2);
+    }
+    return p;
+}
+
 function getMaxDueDateString() {
     const d = new Date();
     d.setFullYear(d.getFullYear() + 1);
@@ -181,7 +192,7 @@ export default function BorrowForm() {
             return;
         }
 
-        const cleanPhone = phone.trim();
+        const cleanPhone = normalizePhoneInput(phone);
         if (!/^0\d{9}$/.test(cleanPhone)) {
             setSubmitError('Số điện thoại không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng số 0).');
             return;
@@ -545,11 +556,24 @@ export default function BorrowForm() {
                         </div>
 
                         {user ? (
-                            <div className="p-4 bg-violet-50 border-2 border-black rounded-2xl space-y-1 shadow-[2px_2px_0_#000]">
-                                <p className="font-black text-xs text-black">
-                                    Đang mượn bằng tài khoản: {user.name || user.email}
-                                </p>
-                                <p className="text-xs font-bold text-violet-700">Email: {user.email}</p>
+                            <div className="space-y-3">
+                                <div className="p-4 bg-violet-50 border-2 border-black rounded-2xl space-y-1 shadow-[2px_2px_0_#000]">
+                                    <p className="font-black text-xs text-black">
+                                        Đang mượn bằng tài khoản: {user.name || user.email}
+                                    </p>
+                                    <p className="text-xs font-bold text-violet-700">Email: {user.email}</p>
+                                </div>
+                                {/@fgw-event\.com$/i.test(user.email || '') && (
+                                    <div className="p-3.5 bg-amber-100 border-2 border-black rounded-2xl text-xs text-amber-950 font-medium flex items-start gap-2 shadow-[2px_2px_0_#000]">
+                                        <AlertCircle size={16} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                                        <span>
+                                            Tài khoản nội bộ (<strong>{user.email}</strong>) không có hộp thư thật
+                                            nên sẽ không nhận được email duyệt phiếu hay mã OTP tra cứu. Nếu muốn
+                                            nhận OTP qua email thật, hãy đăng nhập bằng email thật hoặc đăng xuất để
+                                            mượn dưới dạng Khách.
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
