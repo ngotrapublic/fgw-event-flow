@@ -202,11 +202,11 @@ export default function BorrowHome() {
                                 </span>
                             </div>
                             <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-                                <span>FPT University Quy Nhon</span>
+                                <span>Greenwich Vietnam • Campus HCM</span>
                                 <span>•</span>
                                 <span className="text-emerald-600 font-bold flex items-center gap-0.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                    Kho A102 mở cửa
+                                    Phòng IT mở cửa
                                 </span>
                             </p>
                         </div>
@@ -251,7 +251,7 @@ export default function BorrowHome() {
                         onClick={() => setShowWarehouseModal(true)}
                         className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border-2 border-black shadow-[2px_2px_0_#000] hover:bg-slate-100 whitespace-nowrap text-slate-800"
                     >
-                        <MapPin size={13} className="text-rose-600" /> Kho A102 - Tòa Gamma
+                        <MapPin size={13} className="text-rose-600" /> Phòng IT - Floor 2 - Campus HCM
                         <Info size={12} className="text-slate-400" />
                     </button>
                 </div>
@@ -514,12 +514,12 @@ export default function BorrowHome() {
                             Địa điểm nhận & hoàn trả thiết bị
                         </div>
                         <span className="bg-orange-400 text-black text-[9px] font-black px-2 py-0.5 rounded border border-black shadow-[1px_1px_0_#000]">
-                            KHO A102
+                            PHÒNG IT • FLOOR 2
                         </span>
                     </div>
 
                     <p className="text-xs font-bold text-slate-800">
-                        📍 Phòng A102 — Tòa nhà Gamma, Trường ĐH FPT Quy Nhơn
+                        📍 Phòng IT — Floor 2 — Campus HCM
                     </p>
 
                     <div className="pt-1 text-[11px] font-medium text-slate-600 space-y-1">
@@ -555,8 +555,8 @@ export default function BorrowHome() {
                             <div className="space-y-3 text-xs font-medium text-slate-700">
                                 <div className="p-3 bg-slate-50 border border-black/10 rounded-xl space-y-1">
                                     <p className="font-bold text-black">Vị trí kho thiết bị:</p>
-                                    <p>Phòng A102, Tầng 1, Tòa nhà Gamma</p>
-                                    <p className="text-slate-500">Khuôn viên Trường Đại học FPT Phân hiệu Quy Nhơn</p>
+                                    <p>Phòng IT - Floor 2 - Campus HCM</p>
+                                    <p className="text-slate-500">Greenwich Việt Nam — Cơ sở TP. Hồ Chí Minh</p>
                                 </div>
 
                                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">

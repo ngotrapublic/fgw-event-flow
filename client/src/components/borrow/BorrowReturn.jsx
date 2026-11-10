@@ -94,8 +94,8 @@ const CLOSED_STATUSES = ['returned', 'returned_with_issue', 'rejected', 'cancell
 
 const NON_RETURNABLE_HINTS = {
     pending: 'Phiếu đang chờ Quản trị viên duyệt — Chưa nhận thiết bị nên chưa thể báo trả.',
-    approved: 'Phiếu đã duyệt! Vui lòng tới Kho A102 (Tòa Gamma) nhận thiết bị trước khi trả.',
-    return_pending: 'Đã báo trả! Vui lòng mang thiết bị tới Kho A102 để thủ kho kiểm tra và ký nhận.',
+    approved: 'Phiếu đã duyệt! Vui lòng tới Phòng IT - Floor 2 - Campus HCM nhận thiết bị trước khi trả.',
+    return_pending: 'Đã báo trả! Vui lòng mang thiết bị tới Phòng IT - Floor 2 - Campus HCM để kiểm tra và ký nhận.',
     unverified: 'Phiếu chưa xác nhận email! Vui lòng mở email và nhấn liên kết xác nhận.'
 };
 
@@ -620,7 +620,7 @@ export default function BorrowReturn() {
                                     <div className="p-3 bg-slate-50 border-2 border-slate-200 rounded-2xl text-left text-xs font-medium text-slate-600">
                                         Sau khi bấm xác nhận, trạng thái sẽ đổi thành{' '}
                                         <strong className="text-black">"Chờ kho kiểm tra"</strong>. Bạn hãy mang toàn
-                                        bộ thiết bị đến <strong>Kho A102 (Tòa Gamma)</strong> để thủ kho kiểm tra và ký nhận.
+                                        bộ thiết bị đến <strong>Phòng IT - Floor 2 - Campus HCM</strong> để kiểm tra và ký nhận.
                                     </div>
                                 </div>
 

@@ -382,7 +382,7 @@ export default function BorrowForm() {
                                 Đăng Ký Mượn Thiết Bị
                             </h1>
                             <p className="text-[11px] font-bold text-slate-500">
-                                Phiếu mượn điện tử • Kho A102
+                                Phiếu mượn điện tử • Phòng IT - Floor 2 - Campus HCM
                             </p>
                         </div>
                     </div>

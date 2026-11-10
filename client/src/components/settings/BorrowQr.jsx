@@ -145,7 +145,7 @@ export default function BorrowQr() {
                             Mã QR Trạm Mượn Trả Thiết Bị
                         </h1>
                         <p className="text-xs font-bold text-slate-500">
-                            In poster dán tại Kho A102 / quầy trực để sinh viên & giảng viên quét mượn trả
+                            In poster dán tại Phòng IT - Floor 2 - Campus HCM để sinh viên & giảng viên quét mượn trả
                         </p>
                     </div>
                 </div>
@@ -205,7 +205,7 @@ export default function BorrowQr() {
                         <h3 className="text-base font-black text-black">Chưa thể tạo Mã QR</h3>
                         <p className="text-xs font-bold text-rose-800">{errorMsg}</p>
                         <p className="text-[11px] text-slate-600 font-medium pt-1">
-                            Hãy đảm bảo biến môi trường <code className="bg-white px-1 py-0.5 rounded border border-black">APP_PUBLIC_URL</code> đã được cấu hình trên server (ví dụ: https://event.greenwich-it.com).
+                            Hãy đảm bảo biến môi trường <code className="bg-white px-1 py-0.5 rounded border border-black">APP_PUBLIC_URL</code> đã được cấu hình trên server (ví dụ: http://event.greenwichvietnam.edu.vn).
                         </p>
                     </div>
                     <button
@@ -267,7 +267,7 @@ export default function BorrowQr() {
                                     <span className="block font-black text-emerald-700 text-xs mb-0.5">
                                         2. Nhận đồ
                                     </span>
-                                    Kho A102 (Tòa Gamma)
+                                    Phòng IT - Floor 2 - Campus HCM
                                 </div>
                                 <div className="p-2 bg-white border-2 border-black rounded-xl text-[10px] font-bold text-slate-700">
                                     <span className="block font-black text-amber-700 text-xs mb-0.5">

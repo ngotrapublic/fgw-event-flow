@@ -126,7 +126,7 @@ export default function BorrowVerify() {
                                 <p className="font-black text-black">Bước tiếp theo:</p>
                                 <p>
                                     Khi quản trị viên duyệt đơn, bạn sẽ nhận được thông báo qua email và có thể
-                                    đến nhận thiết bị tại <strong>Kho A102 (Tòa Gamma)</strong>.
+                                    đến nhận thiết bị tại <strong>Phòng IT - Floor 2 - Campus HCM</strong>.
                                 </p>
                             </div>
 

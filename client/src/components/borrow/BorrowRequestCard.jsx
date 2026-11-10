@@ -30,10 +30,10 @@ const STATUS_CONFIGS = {
         helper: 'Yêu cầu mượn đã gửi thành công, Thủ kho đang xét duyệt số lượng tồn.'
     },
     approved: {
-        label: 'Đã duyệt — Tới kho nhận',
+        label: 'Đã duyệt — Tới nhận đồ',
         badgeBg: 'bg-emerald-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
         icon: CheckCircle2,
-        helper: 'Phiếu đã duyệt! Vui lòng tới Kho A102 (Tòa Gamma) để nhận thiết bị trong 3 ngày.'
+        helper: 'Phiếu đã duyệt! Vui lòng tới Phòng IT - Floor 2 - Campus HCM để nhận thiết bị trong 3 ngày.'
     },
     handed_over: {
         label: 'Đang mượn',
@@ -45,7 +45,7 @@ const STATUS_CONFIGS = {
         label: 'Chờ kho kiểm tra',
         badgeBg: 'bg-teal-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
         icon: RotateCcw,
-        helper: 'Bạn đã báo trả. Vui lòng mang thiết bị đến Kho A102 để thủ kho kiểm tra số lượng và ký nhận.'
+        helper: 'Bạn đã báo trả. Vui lòng mang thiết bị đến Phòng IT - Floor 2 - Campus HCM để kiểm tra số lượng và ký nhận.'
     },
     returned: {
         label: 'Đã hoàn tất trả',
@@ -209,7 +209,7 @@ export default function BorrowRequestCard({
                         <div>
                             <p className="font-black text-rose-950">ĐÃ QUÁ HẠN HOÀN TRẢ THIẾT BỊ!</p>
                             <p className="font-medium text-rose-800 text-[11px]">
-                                Vui lòng mang ngay thiết bị tới Kho A102 (Tòa Gamma) để bàn giao hoàn tất.
+                                Vui lòng mang ngay thiết bị tới Phòng IT - Floor 2 - Campus HCM để bàn giao hoàn tất.
                             </p>
                         </div>
                     </div>
@@ -351,7 +351,7 @@ export default function BorrowRequestCard({
                     </span>
                 </div>
                 <span className="text-[10px] font-mono font-bold text-slate-500">
-                    KHO A102 • TÒA GAMMA
+                    PHÒNG IT • FLOOR 2 • CAMPUS HCM
                 </span>
             </div>
         </motion.div>

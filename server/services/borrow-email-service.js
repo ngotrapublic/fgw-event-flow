@@ -174,7 +174,7 @@ const borrowEmailService = {
         const content = `
             <p>Xin chào <strong>${escapeHtml(req.borrower?.name || 'Bạn')}</strong>,</p>
             <p style="color: #16a34a; font-size: 16px;"><strong>Yêu cầu mượn thiết bị #${escapeHtml(req.id)} của bạn đã được duyệt!</strong></p>
-            <p>Vui lòng đến kho thiết bị để làm thủ tục nhận thiết bị.</p>
+            <p>Vui lòng đến <strong>Phòng IT - Floor 2 - Campus HCM</strong> để làm thủ tục nhận thiết bị.</p>
             <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 16px 0;">
                 <p style="margin: 0 0 8px 0;"><strong>Hạn trả:</strong> ${escapeHtml(dueFormatted)}</p>
                 <p style="margin: 0 0 8px 0;"><strong>Danh sách thiết bị:</strong></p>
@@ -305,7 +305,7 @@ const borrowEmailService = {
                 <p style="margin: 0 0 8px 0;"><strong>Danh sách thiết bị:</strong></p>
                 ${renderItemList(req.items)}
             </div>
-            <p>Vui lòng chuẩn bị và mang thiết bị đến kho bàn giao đúng thời hạn.</p>
+            <p>Vui lòng chuẩn bị và mang thiết bị đến <strong>Phòng IT - Floor 2 - Campus HCM</strong> bàn giao đúng thời hạn.</p>
         `;
 
         const actionButton = `
@@ -343,7 +343,7 @@ const borrowEmailService = {
                 <p style="margin: 0 0 8px 0;"><strong>Danh sách thiết bị cần hoàn trả:</strong></p>
                 ${renderItemList(req.items)}
             </div>
-            <p>Vui lòng mang thiết bị đến kho bàn giao ngay lập tức để tránh ảnh hưởng đến các sự kiện tiếp theo.</p>
+            <p>Vui lòng mang thiết bị đến <strong>Phòng IT - Floor 2 - Campus HCM</strong> bàn giao ngay lập tức để tránh ảnh hưởng đến các sự kiện tiếp theo.</p>
         `;
 
         const actionButton = `

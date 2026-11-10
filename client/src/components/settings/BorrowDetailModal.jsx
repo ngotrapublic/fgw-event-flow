@@ -543,8 +543,8 @@ export default function BorrowDetailModal({
                                             <span>
                                                 Khi bấm duyệt, hệ thống sẽ tự động trừ số lượng tồn kho
                                                 khả dụng và gửi email thông báo người mượn tới{' '}
-                                                <strong>Kho A102 (Tòa Gamma)</strong> nhận thiết bị
-                                                trong 3 ngày.
+                                                <strong>Phòng IT - Floor 2 - Campus HCM</strong> nhận
+                                                thiết bị trong 3 ngày.
                                             </span>
                                         </div>
                                         <button
@@ -955,3 +955,4 @@ export default function BorrowDetailModal({
         </div>
     );
 }
+
