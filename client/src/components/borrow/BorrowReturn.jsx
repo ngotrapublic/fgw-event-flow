@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft,
+    ArrowRight,
     RotateCcw,
     Search,
     Phone,
@@ -15,10 +16,13 @@ import {
     X,
     Check,
     Sparkles,
-    ShieldCheck
+    ShieldCheck,
+    Clock,
+    Info
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../Toast';
 import BorrowRequestCard from './BorrowRequestCard';
 
@@ -29,9 +33,9 @@ function OtpInputBoxes({ code, setCode }) {
     const handleDigitChange = (index, val) => {
         const clean = val.replace(/\D/g, '');
         if (!clean) {
-            const arr = code.split('');
-            arr[index] = '';
-            setCode(arr.join(''));
+            const arr = code.padEnd(6, ' ').split('');
+            arr[index] = ' ';
+            setCode(arr.join('').trimEnd());
             return;
         }
 
@@ -56,7 +60,8 @@ function OtpInputBoxes({ code, setCode }) {
     };
 
     const handleKeyDown = (index, e) => {
-        if (e.key === 'Backspace' && !code[index] && index > 0) {
+        const currentChar = code[index] && code[index] !== ' ' ? code[index] : '';
+        if (e.key === 'Backspace' && !currentChar && index > 0) {
             inputRefs.current[index - 1]?.focus();
         }
     };
@@ -64,7 +69,7 @@ function OtpInputBoxes({ code, setCode }) {
     return (
         <div className="flex items-center justify-center gap-2 sm:gap-2.5">
             {[0, 1, 2, 3, 4, 5].map((idx) => {
-                const char = code[idx] || '';
+                const char = code[idx] && code[idx] !== ' ' ? code[idx] : '';
                 return (
                     <input
                         key={idx}
@@ -85,12 +90,23 @@ function OtpInputBoxes({ code, setCode }) {
     );
 }
 
+const CLOSED_STATUSES = ['returned', 'returned_with_issue', 'rejected', 'cancelled', 'expired'];
+
+const NON_RETURNABLE_HINTS = {
+    pending: 'Phiếu đang chờ Quản trị viên duyệt — Chưa nhận thiết bị nên chưa thể báo trả.',
+    approved: 'Phiếu đã duyệt! Vui lòng tới Kho A102 (Tòa Gamma) nhận thiết bị trước khi trả.',
+    return_pending: 'Đã báo trả! Vui lòng mang thiết bị tới Kho A102 để thủ kho kiểm tra và ký nhận.',
+    unverified: 'Phiếu chưa xác nhận email! Vui lòng mở email và nhấn liên kết xác nhận.'
+};
+
 export default function BorrowReturn() {
     const navigate = useNavigate();
+    const { user, loading: authLoading } = useAuth();
     const { showSuccess, showError } = useToast();
 
     // Requests state
     const [handedOverRequests, setHandedOverRequests] = useState([]);
+    const [otherOpenRequests, setOtherOpenRequests] = useState([]);
     const [loading, setLoading] = useState(true);
 
     // Return confirmation modal
@@ -105,9 +121,12 @@ export default function BorrowReturn() {
     const [verifyingOtp, setVerifyingOtp] = useState(false);
     const [lookupError, setLookupError] = useState(null);
     const [showLookupBox, setShowLookupBox] = useState(false);
+    const [lookedUpInfo, setLookedUpInfo] = useState(null);
+    const [lookedUpTokens, setLookedUpTokens] = useState([]);
 
     // Fetch user's borrow requests
     const fetchRequests = useCallback(async () => {
+        if (authLoading) return;
         setLoading(true);
         try {
             const tokens = borrowTokenStore.load();
@@ -119,10 +138,14 @@ export default function BorrowReturn() {
             }
 
             const allRequests = data.requests || [];
-            const activeToReturn = allRequests.filter((r) => r.status === 'handed_over');
-            setHandedOverRequests(activeToReturn);
+            const openRequests = allRequests.filter((r) => !CLOSED_STATUSES.includes(r.status));
+            const activeToReturn = openRequests.filter((r) => r.status === 'handed_over');
+            const otherOpen = openRequests.filter((r) => r.status !== 'handed_over');
 
-            if (activeToReturn.length === 0) {
+            setHandedOverRequests(activeToReturn);
+            setOtherOpenRequests(otherOpen);
+
+            if (activeToReturn.length === 0 && otherOpen.length === 0) {
                 setShowLookupBox(true);
             }
         } catch (err) {
@@ -131,22 +154,34 @@ export default function BorrowReturn() {
         } finally {
             setLoading(false);
         }
-    }, [showError]);
+    }, [authLoading, showError]);
 
     useEffect(() => {
-        fetchRequests();
-    }, [fetchRequests]);
+        if (!authLoading) {
+            setHandedOverRequests([]);
+            setOtherOpenRequests([]);
+            setLookedUpInfo(null);
+            setLookedUpTokens([]);
+            fetchRequests();
+        }
+    }, [user?.uid, authLoading, fetchRequests]);
 
     // Handle Confirm Return Request
     const handleConfirmReturn = async () => {
         if (!selectedRequestToReturn) return;
         setSubmittingReturn(true);
         try {
-            const tokens = borrowTokenStore.load();
-            await borrowApi.returnRequest(selectedRequestToReturn.id, tokens[0] || '');
+            const allTokens = Array.from(new Set([...lookedUpTokens, ...borrowTokenStore.load()]));
+            const res = await borrowApi.returnRequest(selectedRequestToReturn.id, allTokens);
+            const updated = res.data?.request;
+
             showSuccess('Đã báo trả thành công! Vui lòng mang thiết bị đến kho để hoàn tất.');
             setSelectedRequestToReturn(null);
-            fetchRequests();
+
+            if (updated) {
+                setHandedOverRequests((prev) => prev.filter((r) => r.id !== updated.id));
+                setOtherOpenRequests((prev) => [updated, ...prev.filter((r) => r.id !== updated.id)]);
+            }
         } catch (err) {
             console.error('[BORROW RETURN] Return error:', err);
             const status = err.response?.status;
@@ -191,7 +226,7 @@ export default function BorrowReturn() {
         setLookupError(null);
 
         const cleanPhone = phone.trim();
-        const cleanCode = otpCode.trim();
+        const cleanCode = otpCode.replace(/\s+/g, '');
 
         if (cleanCode.length !== 6) {
             setLookupError('Vui lòng nhập đầy đủ 6 chữ số mã OTP.');
@@ -201,18 +236,46 @@ export default function BorrowReturn() {
         setVerifyingOtp(true);
         try {
             const res = await borrowApi.lookupVerify(cleanPhone, cleanCode);
+            const lookedUpRequests = res.data?.requests || [];
             const accessTokens = res.data?.accessTokens || [];
 
             if (accessTokens.length > 0) {
-                borrowTokenStore.addMany(accessTokens);
-                showSuccess('Xác thực thành công! Đã tìm thấy phiếu mượn của bạn.');
+                setLookedUpTokens((prev) => Array.from(new Set([...accessTokens, ...prev])));
+                if (!user) {
+                    borrowTokenStore.addMany(accessTokens);
+                }
+            }
+
+            if (lookedUpRequests.length > 0) {
+                const activeToReturn = lookedUpRequests.filter((r) => r.status === 'handed_over');
+                const otherOpen = lookedUpRequests.filter((r) => r.status !== 'handed_over');
+
+                setHandedOverRequests((prev) => {
+                    const map = new Map(prev.map((r) => [r.id, r]));
+                    activeToReturn.forEach((r) => map.set(r.id, r));
+                    return Array.from(map.values());
+                });
+                setOtherOpenRequests((prev) => {
+                    const map = new Map(prev.map((r) => [r.id, r]));
+                    otherOpen.forEach((r) => map.set(r.id, r));
+                    return Array.from(map.values());
+                });
+
+                setLookedUpInfo({
+                    phone: cleanPhone,
+                    total: lookedUpRequests.length,
+                    readyCount: activeToReturn.length
+                });
+                showSuccess(`Xác thực thành công! Tìm thấy ${lookedUpRequests.length} phiếu mượn của bạn.`);
                 setOtpSent(false);
                 setOtpCode('');
                 setPhone('');
                 setShowLookupBox(false);
-                fetchRequests();
             } else {
-                showSuccess('Xác thực thành công nhưng không có phiếu mượn nào đang mở.');
+                setLookedUpInfo({ phone: cleanPhone, total: 0, readyCount: 0 });
+                showSuccess('Xác thực thành công nhưng hiện không có phiếu mượn nào đang mở với SĐT này.');
+                setOtpSent(false);
+                setOtpCode('');
             }
         } catch (err) {
             console.error('[BORROW RETURN] Lookup Verify error:', err);
@@ -247,6 +310,41 @@ export default function BorrowReturn() {
 
             {/* Main Content */}
             <main className="max-w-2xl mx-auto px-4 pt-5 space-y-6">
+                {/* Lookup confirmation banner */}
+                {lookedUpInfo && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 bg-emerald-100 border-2 border-black rounded-2xl shadow-[3px_3px_0_#000] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                        <div className="flex items-start gap-2.5">
+                            <CheckCircle2 size={20} className="text-emerald-700 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <h3 className="text-xs font-black text-black uppercase tracking-wider">
+                                    Kết Quả Tra Cứu SĐT: {lookedUpInfo.phone}
+                                </h3>
+                                <p className="text-xs font-medium text-emerald-950 mt-0.5">
+                                    {lookedUpInfo.total > 0
+                                        ? `Tìm thấy ${lookedUpInfo.total} phiếu mượn đang mở (${lookedUpInfo.readyCount} phiếu đang mượn có thể báo trả).`
+                                        : 'Không có phiếu mượn nào đang mở với số điện thoại này.'}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowLookupBox(true);
+                                setOtpSent(false);
+                                setOtpCode('');
+                                setPhone('');
+                            }}
+                            className="px-3 py-1.5 bg-white border-2 border-black rounded-xl text-[11px] font-black shadow-[2px_2px_0_#000] hover:bg-slate-50 active:translate-x-[1px] active:translate-y-[1px] transition-all flex-shrink-0 self-start sm:self-center"
+                        >
+                            Tra cứu SĐT khác
+                        </button>
+                    </motion.div>
+                )}
+
                 {/* List of handed_over requests */}
                 <section className="space-y-3.5">
                     <div className="flex items-center justify-between">
@@ -281,6 +379,22 @@ export default function BorrowReturn() {
                                 />
                             ))}
                         </div>
+                    ) : otherOpenRequests.length > 0 ? (
+                        <div className="p-5 bg-amber-50 rounded-3xl border-2 border-black shadow-[4px_4px_0_#000] flex items-start gap-3">
+                            <div className="w-10 h-10 bg-amber-300 text-black border-2 border-black rounded-xl flex items-center justify-center flex-shrink-0 shadow-[2px_2px_0_#000]">
+                                <Info size={20} strokeWidth={2.5} />
+                            </div>
+                            <div className="space-y-1">
+                                <h3 className="text-xs font-black text-black uppercase tracking-wider">
+                                    Chưa có thiết bị nào ở trạng thái "Đang mượn" để báo trả
+                                </h3>
+                                <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                                    Hiện tại bạn đang có <strong>{otherOpenRequests.length} phiếu mượn</strong> ở trạng
+                                    thái chờ duyệt hoặc chờ kho kiểm tra (hiển thị chi tiết bên dưới). Chỉ những phiếu đã
+                                    nhận thiết bị mới có thể nhấn "Báo trả".
+                                </p>
+                            </div>
+                        </div>
                     ) : (
                         <div className="text-center p-8 bg-white rounded-3xl border-2 border-black shadow-[4px_4px_0_#000] space-y-2.5">
                             <div className="w-14 h-14 bg-slate-100 text-slate-500 border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[2px_2px_0_#000]">
@@ -297,6 +411,46 @@ export default function BorrowReturn() {
                     )}
                 </section>
 
+                {/* Other Open Requests found via account or phone lookup */}
+                {!loading && otherOpenRequests.length > 0 && (
+                    <section className="space-y-3.5">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="w-3.5 h-3.5 rounded-full bg-sky-400 border border-black inline-block"></span>
+                                <h2 className="text-sm font-black text-black uppercase tracking-wider">
+                                    Phiếu Mượn Đang Xử Lý Khác
+                                </h2>
+                            </div>
+                            <span className="bg-sky-200 text-black border-2 border-black text-xs px-2.5 py-0.5 rounded-full font-black shadow-[1px_1px_0_#000]">
+                                {otherOpenRequests.length} phiếu
+                            </span>
+                        </div>
+
+                        <div className="space-y-4">
+                            {otherOpenRequests.map((req) => (
+                                <div key={req.id} className="space-y-2">
+                                    <BorrowRequestCard request={req} />
+                                    {NON_RETURNABLE_HINTS[req.status] && (
+                                        <div className="mx-2 px-3.5 py-2.5 bg-slate-100 border-2 border-black rounded-xl text-[11px] font-bold text-slate-700 flex items-center justify-between gap-2 shadow-[2px_2px_0_#000]">
+                                            <span className="flex items-center gap-1.5">
+                                                <Clock size={14} className="text-indigo-600 flex-shrink-0" />
+                                                {NON_RETURNABLE_HINTS[req.status]}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/borrow')}
+                                                className="text-indigo-700 font-black hover:underline flex items-center gap-0.5 flex-shrink-0"
+                                            >
+                                                Trang chủ <ArrowRight size={12} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
                 {/* Neo Phone & OTP Lookup Box */}
                 <section className="bg-white border-2 border-black rounded-3xl p-5 shadow-[4px_4px_0_#000] space-y-4">
                     <div className="border-b-2 border-slate-100 pb-3 flex items-center justify-between">
@@ -308,7 +462,7 @@ export default function BorrowReturn() {
                                 Tra Cứu Phiếu Bằng Số Điện Thoại
                             </h2>
                         </div>
-                        {handedOverRequests.length > 0 && (
+                        {(handedOverRequests.length > 0 || otherOpenRequests.length > 0) && (
                             <button
                                 type="button"
                                 onClick={() => setShowLookupBox((prev) => !prev)}
@@ -319,7 +473,7 @@ export default function BorrowReturn() {
                         )}
                     </div>
 
-                    {(showLookupBox || handedOverRequests.length === 0) && (
+                    {(showLookupBox || (handedOverRequests.length === 0 && otherOpenRequests.length === 0)) && (
                         <div className="space-y-4 pt-1">
                             <p className="text-xs text-slate-600 font-medium">
                                 Nhập số điện thoại bạn đã dùng lúc đăng ký mượn. Hệ thống sẽ gửi mã OTP 6 số
@@ -398,6 +552,7 @@ export default function BorrowReturn() {
                                             onClick={() => {
                                                 setOtpSent(false);
                                                 setOtpCode('');
+                                                setLookupError(null);
                                             }}
                                             className="w-1/3 py-3 px-3 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-100 active:translate-x-[1px] active:translate-y-[1px] transition-all"
                                         >
@@ -407,7 +562,7 @@ export default function BorrowReturn() {
                                         <motion.button
                                             whileTap={{ scale: 0.98 }}
                                             type="submit"
-                                            disabled={verifyingOtp || otpCode.trim().length !== 6}
+                                            disabled={verifyingOtp || otpCode.replace(/\s+/g, '').length !== 6}
                                             className="w-2/3 py-3 px-4 bg-emerald-400 text-slate-900 border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:shadow-[1px_1px_0_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                                         >
                                             {verifyingOtp ? (

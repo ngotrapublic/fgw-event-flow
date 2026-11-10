@@ -40,6 +40,31 @@ function toPublicView(doc) {
 }
 
 /**
+ * Find matching raw token from request headers (supports both X-Borrow-Token and X-Borrow-Tokens).
+ */
+function findMatchingToken(req, expectedHash) {
+    if (!expectedHash) return null;
+    const single = req.headers['x-borrow-token'];
+    if (single && typeof single === 'string' && safeEqualHex(hash(single.trim()), expectedHash)) {
+        return single.trim();
+    }
+    const multiHeader = req.headers['x-borrow-tokens'] || '';
+    if (multiHeader && typeof multiHeader === 'string') {
+        const candidates = multiHeader
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .slice(0, LIMITS.MAX_CLIENT_TOKENS);
+        for (const candidate of candidates) {
+            if (safeEqualHex(hash(candidate), expectedHash)) {
+                return candidate;
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * GET /api/borrow/resources
  * Returns resources with available stock > 0, sorted by category then label.
  */
@@ -339,10 +364,10 @@ async function resendVerification(req, res, next) {
             throw new HttpError(404, 'Phiếu không tồn tại');
         }
 
-        const token = req.headers['x-borrow-token'];
         const data = docSnap.data();
+        const matchedToken = findMatchingToken(req, data.accessTokenHash);
 
-        if (!token || !safeEqualHex(hash(token), data.accessTokenHash)) {
+        if (!matchedToken) {
             throw new HttpError(404, 'Phiếu không tồn tại hoặc token không hợp lệ');
         }
 
@@ -363,7 +388,7 @@ async function resendVerification(req, res, next) {
         await borrowEmailService.sendVerify(
             { ...data, verifyTokenHash: newVerifyTokenHash, verifyExpiresAt: newVerifyExpiresAt },
             newVerifyToken,
-            token
+            matchedToken
         );
 
         res.status(200).json({ message: 'Đã gửi lại email xác nhận' });
@@ -394,6 +419,12 @@ async function getMyRequests(req, res, next) {
 
             snap.docs.forEach((doc) => {
                 const data = doc.data();
+                // Prevent cross-account leak: if client is authenticated as User B,
+                // never match docs owned by another authenticated User A.
+                if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
+                    return;
+                }
+
                 matchedDocs.set(doc.id, data);
                 const matched = rawTokens.find((t) => hash(t) === data.accessTokenHash);
                 if (matched) matchedTokens.add(matched);
@@ -569,8 +600,7 @@ async function requestReturn(req, res, next) {
         }
 
         const data = docSnap.data();
-        const token = req.headers['x-borrow-token'];
-        const isTokenValid = token && safeEqualHex(hash(token), data.accessTokenHash);
+        const isTokenValid = Boolean(findMatchingToken(req, data.accessTokenHash));
         const isUserValid = req.user?.uid && req.user.uid === data.borrower?.uid;
 
         if (!isTokenValid && !isUserValid) {

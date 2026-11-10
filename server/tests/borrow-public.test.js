@@ -654,6 +654,72 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(res.body.requests).toHaveLength(1);
         expect(res.body.requests[0].cancelReason).toBe('Không đủ thiết bị phục vụ đợt này');
     });
+
+    test('17. Cross-account isolation: User B với token cũ của User A trong x-borrow-tokens -> không thấy phiếu User A, token bị đẩy vào invalidTokens', async () => {
+        const tokenA = 'token-owned-by-user-A';
+        const guestToken = 'token-owned-by-guest';
+
+        mockFirebase.__stores.borrow_requests.set('req-user-a', {
+            id: 'req-user-a',
+            status: 'pending',
+            isOpen: true,
+            accessTokenHash: hash(tokenA),
+            borrower: { uid: 'uid-A', name: 'User A', email: 'a@test.com', phone: '0901111111' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            createdAt: '2026-11-10T01:00:00Z'
+        });
+
+        mockFirebase.__stores.borrow_requests.set('req-guest-1', {
+            id: 'req-guest-1',
+            status: 'pending',
+            isOpen: true,
+            accessTokenHash: hash(guestToken),
+            borrower: { name: 'Guest', email: 'guest@test.com', phone: '0902222222' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            createdAt: '2026-11-10T02:00:00Z'
+        });
+
+        // Authenticated as User B (has no own requests yet), passes User A's leaked token and a guest token
+        const res = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-borrow-tokens': `${tokenA},${guestToken}` },
+            user: { uid: 'uid-B', email: 'b@test.com' }
+        });
+
+        expect(res.statusCode).toBe(200);
+        // Must ONLY see guest request (or own requests), NEVER User A's request!
+        const returnedIds = res.body.requests.map((r) => r.id);
+        expect(returnedIds).not.toContain('req-user-a');
+        expect(returnedIds).toContain('req-guest-1');
+        // User A's leaked token MUST be evicted via invalidTokens
+        expect(res.body.invalidTokens).toContain(tokenA);
+    });
+
+    test('18. requestReturn hỗ trợ xác thực qua x-borrow-tokens (nhiều token)', async () => {
+        const wrongToken = 'wrong-tok-1';
+        const rightToken = 'right-tok-2';
+
+        mockFirebase.__stores.borrow_requests.set('req-multi-return', {
+            id: 'req-multi-return',
+            status: 'handed_over',
+            isOpen: true,
+            accessTokenHash: hash(rightToken),
+            borrower: { name: 'Guest Multi', email: 'multi@test.com', phone: '0903333333' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            history: []
+        });
+
+        const res = await callHandler(borrowCtrl.requestReturn, {
+            params: { id: 'req-multi-return' },
+            headers: {
+                'x-borrow-token': wrongToken,
+                'x-borrow-tokens': `${wrongToken},${rightToken}`
+            },
+            user: null
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.request.status).toBe('return_pending');
+    });
 });
 
 describe('OptionalAuth Middleware', () => {

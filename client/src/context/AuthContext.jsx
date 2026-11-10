@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { borrowTokenStore } from '../lib/borrow-token-store';
 
 const AuthContext = createContext({
     user: null,
@@ -61,6 +62,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = async () => {
+        borrowTokenStore.clear();
         return signOut(auth);
     };
 

@@ -62,7 +62,7 @@ const StatBox = ({ title, value, icon: Icon, color, labelColor, onClick, active 
 
 export default function BorrowHome() {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
     const { showSuccess, showError } = useToast();
 
     const [requests, setRequests] = useState([]);
@@ -74,6 +74,7 @@ export default function BorrowHome() {
     const [showWarehouseModal, setShowWarehouseModal] = useState(false);
 
     const fetchMyRequests = useCallback(async () => {
+        if (authLoading) return;
         setLoading(true);
         try {
             const tokens = borrowTokenStore.load();
@@ -93,17 +94,20 @@ export default function BorrowHome() {
         } finally {
             setLoading(false);
         }
-    }, [showError]);
+    }, [authLoading, showError]);
 
     useEffect(() => {
-        fetchMyRequests();
-    }, [fetchMyRequests]);
+        if (!authLoading) {
+            setRequests([]);
+            fetchMyRequests();
+        }
+    }, [user?.uid, authLoading, fetchMyRequests]);
 
     const handleResendVerification = async (request) => {
         setResendingId(request.id);
         try {
             const tokens = borrowTokenStore.load();
-            await borrowApi.resendVerification(request.id, tokens[0] || '');
+            await borrowApi.resendVerification(request.id, tokens);
             showSuccess('Đã gửi lại email xác nhận! Vui lòng kiểm tra hộp thư.');
         } catch (err) {
             const msg =

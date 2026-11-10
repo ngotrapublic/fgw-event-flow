@@ -222,7 +222,8 @@ export default function BorrowForm() {
             const res = await borrowApi.create(payload);
             const { request, accessToken } = res.data || {};
 
-            if (accessToken) {
+            // Only store guest access tokens in localStorage; authenticated accounts query via uid
+            if (!user && accessToken) {
                 borrowTokenStore.add(accessToken);
             }
 
