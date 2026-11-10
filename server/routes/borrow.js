@@ -65,6 +65,9 @@ router.post('/admin/requests/:id/cancel', adminAuth, borrowAdminCtrl.cancelReque
 // POST /api/borrow/admin/requests/:id/confirm-return · adminAuth
 router.post('/admin/requests/:id/confirm-return', adminAuth, borrowAdminCtrl.confirmReturn);
 
+// GET /api/borrow/admin/qr-station · adminAuth
+router.get('/admin/qr-station', adminAuth, borrowAdminCtrl.getQrStation);
+
 module.exports = router;
 
 

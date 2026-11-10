@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Calendar, PlusCircle, LayoutDashboard, Settings, LogOut, Users, MapPin, ChevronRight, ChevronLeft, HelpCircle, Sparkles } from 'lucide-react';
+import { Calendar, PlusCircle, LayoutDashboard, Settings, LogOut, Users, MapPin, ChevronRight, ChevronLeft, HelpCircle, Sparkles, Package } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const SIDEBAR_ITEMS = [
@@ -15,6 +15,7 @@ const SIDEBAR_ITEMS = [
     {
         section: 'Management',
         items: [
+            { icon: Package, label: 'Equipment Loans', to: '/equipment-loans', color: 'amber' },
             { icon: Users, label: 'Departments', to: '/departments', color: 'violet' },
             { icon: MapPin, label: 'Locations', to: '/locations', color: 'orange' }
         ]
@@ -30,6 +31,7 @@ const SIDEBAR_ITEMS = [
 const colorMap = {
     blue: { bg: 'bg-blue-100', text: 'text-blue-600', border: 'border-blue-500', activeBg: 'bg-blue-500' },
     emerald: { bg: 'bg-emerald-100', text: 'text-emerald-600', border: 'border-emerald-500', activeBg: 'bg-emerald-500' },
+    amber: { bg: 'bg-amber-100', text: 'text-amber-600', border: 'border-amber-500', activeBg: 'bg-amber-500' },
     violet: { bg: 'bg-violet-100', text: 'text-violet-600', border: 'border-violet-500', activeBg: 'bg-violet-500' },
     orange: { bg: 'bg-orange-100', text: 'text-orange-600', border: 'border-orange-500', activeBg: 'bg-orange-500' },
     slate: { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-500', activeBg: 'bg-slate-500' },
@@ -185,7 +187,10 @@ const Sidebar = ({ onOpenGuide, collapsed = false, onToggle }) => {
                                 <SidebarItem
                                     key={item.to}
                                     {...item}
-                                    active={location.pathname === item.to}
+                                    active={
+                                        location.pathname === item.to ||
+                                        (item.to !== '/' && location.pathname.startsWith(`${item.to}/`))
+                                    }
                                     collapsed={collapsed}
                                 />
                             ))}

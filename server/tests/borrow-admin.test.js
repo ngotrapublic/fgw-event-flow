@@ -25,6 +25,7 @@ jest.mock('../services/notificationService', () => ({
     getUidsByRoles: jest.fn(() => Promise.resolve(['admin1', 'manager1']))
 }));
 
+const QRCode = require('qrcode');
 const adminCtrl = require('../controllers/borrow-admin-controller');
 const borrowEmailService = require('../services/borrow-email-service');
 const { requireRole } = require('../middleware/authMiddleware');
@@ -686,5 +687,37 @@ describe('Phase 03 — Borrow Admin API (/api/borrow/admin)', () => {
         expect(resCanc.statusCode).toBe(200);
         expect(resCanc.body.request.status).toBe('cancelled');
         expect(resCanc.body.emailSent).toBe(false);
+    });
+
+    test('17. getQrStation: thiếu APP_PUBLIC_URL -> 503; có APP_PUBLIC_URL -> 200 với url và QR PNG data URL', async () => {
+        const origUrl = process.env.APP_PUBLIC_URL;
+        const origToDataURL = QRCode.toDataURL.bind(QRCode);
+        const qrSpy = jest.spyOn(QRCode, 'toDataURL').mockImplementation((u, opts) => {
+            expect(opts).toEqual({ width: 512, margin: 2 });
+            // Render real PNG at compact size so Jest VM doesn't spend 30s on 512x512 pixel filter loops
+            return origToDataURL(u, { width: 64, margin: 1 });
+        });
+        try {
+            delete process.env.APP_PUBLIC_URL;
+            const res503 = await callHandler(adminCtrl.getQrStation, {});
+            expect(res503.statusCode).toBe(503);
+
+            process.env.APP_PUBLIC_URL = 'https://event.greenwich-it.com/';
+            const res200 = await callHandler(adminCtrl.getQrStation, {});
+            expect(res200.statusCode).toBe(200);
+            expect(qrSpy).toHaveBeenCalledWith('https://event.greenwich-it.com/borrow', {
+                width: 512,
+                margin: 2
+            });
+            expect(res200.body.url).toBe('https://event.greenwich-it.com/borrow');
+            expect(res200.body.qr).toMatch(/^data:image\/png;base64,/);
+        } finally {
+            qrSpy.mockRestore();
+            if (origUrl !== undefined) {
+                process.env.APP_PUBLIC_URL = origUrl;
+            } else {
+                delete process.env.APP_PUBLIC_URL;
+            }
+        }
     });
 });

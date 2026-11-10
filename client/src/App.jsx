@@ -14,6 +14,8 @@ import AuditLogs from './components/settings/AuditLogs';
 import ResourceManager from './components/settings/ResourceManager';
 import DataRetention from './components/settings/DataRetention';
 import UserManagement from './components/settings/UserManagement';
+import EquipmentLoans from './components/settings/EquipmentLoans';
+import BorrowQr from './components/settings/BorrowQr';
 
 import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './context/AuthContext';
@@ -70,6 +72,12 @@ function App() {
                                     } />
                                     <Route path="/departments" element={<DepartmentManager />} />
                                     <Route path="/locations" element={<LocationManager />} />
+                                </Route>
+
+                                {/* Equipment Borrow Management - Admin & Manager */}
+                                <Route element={<ProtectedRoute allowedRoles={['admin', 'manager']} />}>
+                                    <Route path="/equipment-loans" element={<EquipmentLoans />} />
+                                    <Route path="/equipment-loans/qr" element={<BorrowQr />} />
                                 </Route>
 
                                 {/* Admin Routes - Admin Only */}

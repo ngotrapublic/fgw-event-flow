@@ -1,3 +1,4 @@
+const QRCode = require('qrcode');
 const { borrowRequestsCollection } = require('../config/firebase');
 const HttpError = require('../utils/http-error');
 const { transition } = require('../services/borrow-transition-service');
@@ -408,6 +409,24 @@ async function confirmReturn(req, res, next) {
     }
 }
 
+/**
+ * GET /api/borrow/admin/qr-station
+ * Generate PNG data URL QR code pointing to APP_PUBLIC_URL/borrow.
+ */
+async function getQrStation(req, res, next) {
+    try {
+        const baseUrl = (process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+        if (!baseUrl) {
+            throw new HttpError(503, 'Chưa cấu hình APP_PUBLIC_URL');
+        }
+        const url = `${baseUrl}/borrow`;
+        const qr = await QRCode.toDataURL(url, { width: 512, margin: 2 });
+        res.status(200).json({ url, qr });
+    } catch (err) {
+        next(err);
+    }
+}
+
 module.exports = {
     toAdminView,
     getRequests,
@@ -417,6 +436,7 @@ module.exports = {
     rejectRequest,
     handoverRequest,
     cancelRequest,
-    confirmReturn
+    confirmReturn,
+    getQrStation
 };
 
