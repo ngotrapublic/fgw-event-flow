@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft,
     Package,
@@ -14,16 +15,23 @@ import {
     Loader2,
     Plus,
     Minus,
-    Check
+    Check,
+    Sparkles,
+    Zap,
+    SlidersHorizontal,
+    Volume2,
+    Tv,
+    Radio,
+    Cpu
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../Toast';
 
-function getTomorrowDateString() {
+function getOffsetDateString(daysOffset) {
     const d = new Date();
-    d.setDate(d.getDate() + 1);
+    d.setDate(d.getDate() + daysOffset);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -50,12 +58,13 @@ export default function BorrowForm() {
 
     // Selected quantities: { [resourceId]: qty }
     const [selectedItems, setSelectedItems] = useState({});
+    const [selectedCategory, setSelectedCategory] = useState('all');
 
     // Form inputs
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [dueDate, setDueDate] = useState(getTomorrowDateString());
+    const [dueDate, setDueDate] = useState(getOffsetDateString(1));
     const [note, setNote] = useState('');
 
     // State
@@ -104,6 +113,21 @@ export default function BorrowForm() {
         return Object.values(selectedItems).reduce((acc, qty) => acc + (qty > 0 ? qty : 0), 0);
     }, [selectedItems]);
 
+    // Categories list
+    const categories = useMemo(() => {
+        const set = new Set();
+        resources.forEach((r) => {
+            if (r.category) set.add(r.category);
+        });
+        return ['all', ...Array.from(set)];
+    }, [resources]);
+
+    // Filtered resources
+    const filteredResources = useMemo(() => {
+        if (selectedCategory === 'all') return resources;
+        return resources.filter((r) => r.category === selectedCategory);
+    }, [resources, selectedCategory]);
+
     // Stepper controls
     const incrementQty = (resourceId, maxQty) => {
         const cur = selectedItems[resourceId] || 0;
@@ -125,7 +149,6 @@ export default function BorrowForm() {
         }
     };
 
-    // Toggle resource item
     const handleToggleResource = (resourceId, maxQty) => {
         if (maxQty <= 0) return;
         setSelectedItems((prev) => {
@@ -137,6 +160,11 @@ export default function BorrowForm() {
             }
             return copy;
         });
+    };
+
+    // Quick due date shortcuts
+    const setQuickDueDate = (days) => {
+        setDueDate(getOffsetDateString(days));
     };
 
     // Submit handler
@@ -251,66 +279,61 @@ export default function BorrowForm() {
         }
     };
 
-    // ==========================================
-    // RENDER: GUEST SUCCESS SCREEN (NEO-GLASS PRO)
-    // ==========================================
+    // Guest Success Screen
     if (createdGuestRequest) {
         return (
             <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
-                {/* Multi-layer Neo shadow container */}
                 <div className="relative w-full max-w-md">
                     <div
-                        className="absolute inset-0 rounded-2xl"
+                        className="absolute inset-0 rounded-3xl"
                         style={{ background: '#ec4899', transform: 'translate(8px, 8px)' }}
                     />
                     <div
-                        className="absolute inset-0 rounded-2xl"
+                        className="absolute inset-0 rounded-3xl"
                         style={{ background: '#8b5cf6', transform: 'translate(4px, 4px)' }}
                     />
 
-                    {/* Main card */}
-                    <div className="relative bg-white border-2 border-black rounded-2xl p-6 sm:p-8 text-center space-y-5">
-                        {/* Corner decoration dots */}
-                        <div className="absolute top-3 left-3 flex gap-1">
+                    <div className="relative bg-white border-[3px] border-black rounded-3xl p-6 sm:p-8 text-center space-y-5">
+                        <div className="absolute top-3.5 left-3.5 flex gap-1">
                             <span className="w-2.5 h-2.5 rounded-full bg-violet-500 border border-black inline-block"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-pink-500 border border-black inline-block"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-black inline-block"></span>
                         </div>
 
-                        <div className="w-16 h-16 bg-yellow-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] rotate-3 mt-2">
+                        <div className="w-16 h-16 bg-yellow-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] rotate-3 mt-2">
                             <Mail size={32} strokeWidth={2.5} />
                         </div>
 
                         <div className="space-y-2">
                             <h2 className="text-xl font-black text-black uppercase tracking-tight">
-                                Kiểm Tra Email Xác Nhận
+                                Kiểm Tra Hộp Thư Email
                             </h2>
                             <p className="text-xs text-slate-600 font-medium">
                                 Hệ thống vừa gửi liên kết xác nhận đăng ký mượn thiết bị đến:
                             </p>
                             <div
-                                className="inline-block px-4 py-2 bg-violet-100 border-2 border-black rounded-xl font-black text-sm text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                                className="inline-block px-4 py-2 bg-violet-100 border-2 border-black rounded-xl font-black text-sm text-black shadow-[2px_2px_0_#000]"
                                 style={{ transform: 'rotate(-1deg)' }}
                             >
                                 {createdGuestRequest.email}
                             </div>
                         </div>
 
-                        <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl text-left text-xs text-slate-700 space-y-1.5 font-medium">
+                        <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-left text-xs text-slate-700 space-y-1.5 font-medium">
                             <p className="font-black text-black flex items-center gap-1.5">
                                 <AlertCircle size={15} className="text-amber-500" />
-                                Hướng dẫn tiếp theo:
+                                Hướng dẫn hoàn tất:
                             </p>
-                            <p>1. Mở email và bấm vào liên kết xác nhận trong vòng <strong>24 giờ</strong>.</p>
-                            <p>2. Kiểm tra cả thư mục <strong>Spam / Rác</strong> nếu không thấy.</p>
-                            <p>3. Sau khi xác nhận, phiếu sẽ chuyển tới Quản trị viên để xét duyệt.</p>
+                            <p>1. Nhấp vào nút <strong>Xác nhận</strong> trong email (hiệu lực 24h).</p>
+                            <p>2. Kiểm tra thư mục <strong>Spam / Rác</strong> nếu không thấy ở Hộp thư đến.</p>
+                            <p>3. Khi xác nhận xong, phiếu sẽ chuyển tới Quản trị viên để xét duyệt.</p>
                         </div>
 
                         <div className="space-y-3 pt-2">
                             <button
                                 onClick={handleResend}
                                 disabled={resendCooldown > 0 || isResending}
-                                className="w-full py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] active:bg-slate-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                className="w-full py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:shadow-[1px_1px_0_#000] active:bg-slate-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {isResending ? (
                                     <>
@@ -329,7 +352,7 @@ export default function BorrowForm() {
 
                             <button
                                 onClick={() => navigate('/borrow')}
-                                className="w-full py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-indigo-700 transition-all"
+                                className="w-full py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0_#000] hover:bg-indigo-700 transition-all"
                             >
                                 Về Trang Chủ Mượn Thiết Bị
                             </button>
@@ -340,73 +363,99 @@ export default function BorrowForm() {
         );
     }
 
-    // ==========================================
-    // RENDER: BORROW REQUEST FORM (NEO-BRUTALISM)
-    // ==========================================
     return (
-        <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-20">
+        <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-28">
             {/* Header */}
-            <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm">
-                <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-                    <button
-                        onClick={() => navigate('/borrow')}
-                        className="p-2 -ml-1.5 rounded-xl border-2 border-black bg-white hover:bg-slate-100 shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-all"
-                        title="Quay lại"
-                    >
-                        <ArrowLeft size={18} strokeWidth={2.5} />
-                    </button>
-                    <div>
-                        <h1 className="text-base font-black tracking-tight text-black uppercase">
-                            Đăng Ký Mượn Thiết Bị
-                        </h1>
-                        <p className="text-[11px] font-bold text-slate-500">
-                            Điền thông tin và chọn thiết bị cần dùng
-                        </p>
+            <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm backdrop-blur-md bg-white/95">
+                <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => navigate('/borrow')}
+                            className="p-2 -ml-1.5 rounded-xl border-2 border-black bg-white hover:bg-slate-100 shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-all"
+                            title="Quay lại"
+                        >
+                            <ArrowLeft size={18} strokeWidth={2.5} />
+                        </button>
+                        <div>
+                            <h1 className="text-base font-black tracking-tight text-black uppercase">
+                                Đăng Ký Mượn Thiết Bị
+                            </h1>
+                            <p className="text-[11px] font-bold text-slate-500">
+                                Phiếu mượn điện tử • Kho A102
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="text-right">
+                        <span className="text-xs font-black bg-yellow-300 text-black px-2.5 py-1 rounded-xl border-2 border-black shadow-[2px_2px_0_#000]">
+                            {totalSelectedQty} món đã chọn
+                        </span>
                     </div>
                 </div>
             </header>
 
-            {/* Form Container */}
+            {/* Form */}
             <main className="max-w-2xl mx-auto px-4 pt-5">
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Error Banner */}
                     {submitError && (
-                        <div className="p-4 bg-rose-100 border-2 border-black rounded-2xl shadow-[4px_4px_0_#000] text-rose-950 text-xs font-bold flex items-start gap-3">
+                        <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="p-4 bg-rose-100 border-2 border-black rounded-2xl shadow-[4px_4px_0_#000] text-rose-950 text-xs font-bold flex items-start gap-3"
+                        >
                             <AlertCircle size={18} className="text-rose-600 flex-shrink-0 mt-0.5" />
                             <div className="flex-1">{submitError}</div>
-                        </div>
+                        </motion.div>
                     )}
 
                     {/* Section 1: Equipment Selection */}
-                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                    <div className="bg-white border-2 border-black rounded-3xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
                         <div className="flex items-center justify-between border-b-2 border-slate-100 pb-3">
                             <div className="flex items-center gap-2">
                                 <span className="w-6 h-6 rounded-lg bg-yellow-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
                                     1
                                 </span>
                                 <h2 className="text-sm font-black text-black uppercase tracking-wider">
-                                    Chọn Thiết Bị
+                                    Chọn Thiết Bị Cần Dùng
                                 </h2>
                             </div>
-                            <span className="text-xs font-black px-2.5 py-1 bg-violet-100 border-2 border-black rounded-lg shadow-[2px_2px_0_#000] text-violet-800">
-                                Đã chọn: {totalSelectedQty} món
-                            </span>
                         </div>
+
+                        {/* Category filter pills */}
+                        {categories.length > 2 && (
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+                                {categories.map((cat) => (
+                                    <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => setSelectedCategory(cat)}
+                                        className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] transition-colors whitespace-nowrap ${
+                                            selectedCategory === cat
+                                                ? 'bg-black text-white font-black'
+                                                : 'bg-white text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        {cat === 'all' ? 'Tất cả' : cat}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         {loadingResources ? (
                             <div className="py-10 text-center space-y-2">
                                 <Loader2 size={28} className="animate-spin text-indigo-600 mx-auto" />
                                 <p className="text-xs font-bold text-slate-500">
-                                    Đang tải danh mục thiết bị từ kho...
+                                    Đang kiểm tra tồn kho thiết bị...
                                 </p>
                             </div>
-                        ) : resources.length === 0 ? (
+                        ) : filteredResources.length === 0 ? (
                             <div className="p-6 text-center text-xs font-bold text-slate-500">
-                                Hiện không có thiết bị nào sẵn sàng trong kho.
+                                Không có thiết bị nào trong phân loại này.
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-2.5">
-                                {resources.map((res) => {
+                                {filteredResources.map((res) => {
                                     const isAvailable = res.availableQty > 0;
                                     const isSelected = !!selectedItems[res.id];
                                     const currentQty = selectedItems[res.id] || 0;
@@ -414,9 +463,9 @@ export default function BorrowForm() {
                                     return (
                                         <div
                                             key={res.id}
-                                            className={`p-3.5 rounded-xl border-2 transition-all flex items-center justify-between gap-3 ${
+                                            className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 ${
                                                 isSelected
-                                                    ? 'bg-violet-50/70 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] translate-x-[-1px] translate-y-[-1px]'
+                                                    ? 'bg-violet-50 border-black shadow-[3px_3px_0_#000] translate-x-[-1px] translate-y-[-1px]'
                                                     : isAvailable
                                                     ? 'bg-white border-slate-200 hover:border-black hover:shadow-[2px_2px_0_#000]'
                                                     : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
@@ -429,7 +478,7 @@ export default function BorrowForm() {
                                                 className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
                                             >
                                                 <div
-                                                    className={`w-6 h-6 rounded-md border-2 border-black flex items-center justify-center flex-shrink-0 transition-colors shadow-[1px_1px_0_#000] ${
+                                                    className={`w-6 h-6 rounded-lg border-2 border-black flex items-center justify-center flex-shrink-0 transition-colors shadow-[1px_1px_0_#000] ${
                                                         isSelected ? 'bg-violet-600 text-white' : 'bg-white'
                                                     }`}
                                                 >
@@ -442,18 +491,18 @@ export default function BorrowForm() {
                                                     </p>
                                                     <p className="text-[11px] font-bold text-slate-500">
                                                         {res.category || 'Thiết bị'} • Còn sẵn:{' '}
-                                                        <span
+                                                        <strong
                                                             className={
                                                                 isAvailable ? 'text-emerald-700' : 'text-rose-600'
                                                             }
                                                         >
                                                             {res.availableQty}
-                                                        </span>
+                                                        </strong>
                                                     </p>
                                                 </div>
                                             </div>
 
-                                            {/* Neo Quantity Stepper */}
+                                            {/* Stepper */}
                                             {isSelected && isAvailable && (
                                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                                     <button
@@ -484,7 +533,7 @@ export default function BorrowForm() {
                     </div>
 
                     {/* Section 2: Borrower Information */}
-                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                    <div className="bg-white border-2 border-black rounded-3xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
                         <div className="flex items-center gap-2 border-b-2 border-slate-100 pb-3">
                             <span className="w-6 h-6 rounded-lg bg-cyan-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
                                 2
@@ -495,7 +544,7 @@ export default function BorrowForm() {
                         </div>
 
                         {user ? (
-                            <div className="p-4 bg-violet-50 border-2 border-black rounded-xl space-y-1 shadow-[2px_2px_0_#000]">
+                            <div className="p-4 bg-violet-50 border-2 border-black rounded-2xl space-y-1 shadow-[2px_2px_0_#000]">
                                 <p className="font-black text-xs text-black">
                                     Đang mượn bằng tài khoản: {user.name || user.email}
                                 </p>
@@ -552,7 +601,7 @@ export default function BorrowForm() {
                     </div>
 
                     {/* Section 3: Due Date & Note */}
-                    <div className="bg-white border-2 border-black rounded-2xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
+                    <div className="bg-white border-2 border-black rounded-3xl p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-4">
                         <div className="flex items-center gap-2 border-b-2 border-slate-100 pb-3">
                             <span className="w-6 h-6 rounded-lg bg-pink-300 border-2 border-black font-black text-xs flex items-center justify-center shadow-[1px_1px_0_#000]">
                                 3
@@ -563,21 +612,72 @@ export default function BorrowForm() {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
-                                Ngày hẹn trả thiết bị <span className="text-rose-500">*</span>
-                            </label>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <label className="text-xs font-black uppercase tracking-wider text-slate-700">
+                                    Ngày hẹn trả thiết bị <span className="text-rose-500">*</span>
+                                </label>
+                                <span className="text-[11px] font-bold text-indigo-700">
+                                    Chọn nhanh:
+                                </span>
+                            </div>
+
+                            {/* Quick Date Chips */}
+                            <div className="flex items-center gap-2 mb-2.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickDueDate(1)}
+                                    className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
+                                        dueDate === getOffsetDateString(1)
+                                            ? 'bg-yellow-300 text-black font-black'
+                                            : 'bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    Ngày mai (+1d)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickDueDate(2)}
+                                    className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
+                                        dueDate === getOffsetDateString(2)
+                                            ? 'bg-yellow-300 text-black font-black'
+                                            : 'bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    2 ngày (+2d)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickDueDate(3)}
+                                    className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
+                                        dueDate === getOffsetDateString(3)
+                                            ? 'bg-yellow-300 text-black font-black'
+                                            : 'bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    3 ngày (+3d)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickDueDate(7)}
+                                    className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
+                                        dueDate === getOffsetDateString(7)
+                                            ? 'bg-yellow-300 text-black font-black'
+                                            : 'bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                    1 tuần (+7d)
+                                </button>
+                            </div>
+
                             <input
                                 type="date"
                                 required
-                                min={getTomorrowDateString()}
+                                min={getOffsetDateString(1)}
                                 max={getMaxDueDateString()}
                                 value={dueDate}
                                 onChange={(e) => setDueDate(e.target.value)}
                                 className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all cursor-pointer"
                             />
-                            <p className="text-[11px] font-medium text-slate-400 mt-1">
-                                Thiết bị mượn cần được hoàn trả trước 23:59 ngày hẹn trả.
-                            </p>
                         </div>
 
                         <div>
@@ -600,25 +700,36 @@ export default function BorrowForm() {
                         </div>
                     </div>
 
-                    {/* Submit Button */}
-                    <div className="pt-2">
-                        <button
-                            type="submit"
-                            disabled={totalSelectedQty === 0 || submitting}
-                            className="w-full py-4 px-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-base border-2 border-black rounded-2xl shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:shadow-[7px_7px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
-                        >
-                            {submitting ? (
-                                <>
-                                    <Loader2 size={20} className="animate-spin" />
-                                    Đang gửi yêu cầu...
-                                </>
-                            ) : (
-                                <>
-                                    <Send size={18} strokeWidth={2.5} />
-                                    GỬI ĐĂNG KÝ MƯỢN THIẾT BỊ ({totalSelectedQty} MÓN)
-                                </>
-                            )}
-                        </button>
+                    {/* Sticky Bottom Action Bar */}
+                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t-2 border-black z-30 shadow-lg">
+                        <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+                            <div className="hidden sm:block">
+                                <p className="text-xs font-bold text-slate-500">Tổng cộng đăng ký:</p>
+                                <p className="text-base font-black text-black">
+                                    {totalSelectedQty} thiết bị
+                                </p>
+                            </div>
+
+                            <motion.button
+                                whileHover={{ scale: 1.01 }}
+                                whileTap={{ scale: 0.98 }}
+                                type="submit"
+                                disabled={totalSelectedQty === 0 || submitting}
+                                className="flex-1 sm:flex-none sm:w-80 py-3.5 px-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-sm border-2 border-black rounded-2xl shadow-[4px_4px_0_#000] hover:shadow-[6px_6px_0_#000] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+                            >
+                                {submitting ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        Đang gửi phiếu...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send size={16} strokeWidth={2.5} />
+                                        HOÀN TẤT ĐĂNG KÝ ({totalSelectedQty} MÓN)
+                                    </>
+                                )}
+                            </motion.button>
+                        </div>
                     </div>
                 </form>
             </main>
