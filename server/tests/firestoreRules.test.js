@@ -62,5 +62,13 @@ describe('firestore.rules — security posture', () => {
         const borrowLinkCodes = rules.match(/match\s*\/borrow_link_codes\/\{docId\}\s*\{([\s\S]*?)\}/);
         expect(borrowLinkCodes).not.toBeNull();
         expect(borrowLinkCodes[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowQuotas = rules.match(/match\s*\/borrow_quotas\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowQuotas).not.toBeNull();
+        expect(borrowQuotas[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowOutbox = rules.match(/match\s*\/borrow_reminder_outbox\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowOutbox).not.toBeNull();
+        expect(borrowOutbox[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
     });
 });

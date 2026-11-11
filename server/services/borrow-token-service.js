@@ -1,27 +1,15 @@
 const crypto = require('crypto');
-const { LIMITS } = require('./borrow-constants');
 
 const newToken = () => crypto.randomBytes(32).toString('base64url');
 const hash = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
-/**
- * Issue a fresh access token for a reminder email and store its hash in accessTokenHashes.
- * The original accessTokenHash stays valid; the oldest reminder hashes drop off once the
- * list passes MAX_REMINDER_TOKENS.
- * @param {{ ref: { update: Function } }} doc Firestore document snapshot
- * @param {string[]} [existingHashes] current accessTokenHashes of the document
- * @returns {Promise<string>} raw token to put in the email link
- */
-const issueReminderToken = async (doc, existingHashes) => {
-    const token = newToken();
-    const hashes = [hash(token), ...(Array.isArray(existingHashes) ? existingHashes : [])]
-        .slice(0, LIMITS.MAX_REMINDER_TOKENS);
-    await doc.ref.update({
-        accessTokenHashes: hashes,
-        updatedAt: new Date().toISOString()
-    });
-    return token;
-};
+const getHmacSecret = () =>
+    process.env.BORROW_HMAC_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.FIREBASE_PROJECT_ID ||
+    'borrow-hmac-default-key';
+
+const hmacKey = (s) => crypto.createHmac('sha256', getHmacSecret()).update(String(s)).digest('hex');
 const newOtp = () => String(crypto.randomInt(0, 1e6)).padStart(6, '0');
 
 const safeEqualHex = (a, b) => {
@@ -54,7 +42,7 @@ const maskPhone = (phone) => {
 module.exports = {
     newToken,
     hash,
-    issueReminderToken,
+    hmacKey,
     newOtp,
     safeEqualHex,
     maskEmail,

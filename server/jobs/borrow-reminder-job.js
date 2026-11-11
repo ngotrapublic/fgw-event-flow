@@ -1,12 +1,18 @@
-const { borrowRequestsCollection } = require('../config/firebase');
-const { createLinkCode } = require('../services/borrow-link-service');
+const {
+    db,
+    borrowRequestsCollection,
+    borrowReminderOutboxCollection,
+    borrowLinkCodesCollection
+} = require('../config/firebase');
+const { newToken, hash } = require('../services/borrow-token-service');
 const { transition } = require('../services/borrow-transition-service');
 const { LIMITS } = require('../services/borrow-constants');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 
 class BorrowReminderJob {
-    constructor() {
+    constructor(workerId = `worker_${process.pid}_${Math.random().toString(36).slice(2, 8)}`) {
+        this.workerId = workerId;
         this.intervalId = null;
         this.running = false;
     }
@@ -30,6 +36,155 @@ class BorrowReminderJob {
         }
     }
 
+    /**
+     * Atomically claim an outbox lease (pending/failed -> sending) and, if needed,
+     * mint & store a single-use link code inside the SAME Firestore transaction.
+     */
+    async claimOutboxSlot({
+        outboxKey,
+        requestId,
+        reminderType,
+        reqFieldSentAt,
+        expectedStatus,
+        markIsOverdue = false,
+        issueLinkCode = false,
+        nowMs = Date.now()
+    }) {
+        const outboxRef = borrowReminderOutboxCollection.doc(outboxKey);
+        const reqRef = borrowRequestsCollection.doc(requestId);
+        const nowIso = new Date(nowMs).toISOString();
+
+        return db.runTransaction(async (tx) => {
+            const [reqSnap, outboxSnap] = await Promise.all([
+                tx.get(reqRef),
+                tx.get(outboxRef)
+            ]);
+
+            if (!reqSnap.exists) return { claimed: false };
+            const reqData = reqSnap.data() || {};
+            if (reqData.status !== expectedStatus) return { claimed: false };
+
+            if (reqFieldSentAt && reminderType !== 'overdue' && reqData[reqFieldSentAt]) {
+                return { claimed: false };
+            }
+
+            if (reminderType === 'overdue' && reqData.overdueRemindedAt) {
+                const lastSentMs = new Date(reqData.overdueRemindedAt).getTime();
+                if (!isNaN(lastSentMs) && nowMs - lastSentMs <= LIMITS.DUE_SOON_MS) {
+                    return { claimed: false };
+                }
+            }
+
+            const outbox = outboxSnap.exists ? (outboxSnap.data() || {}) : null;
+            if (outbox) {
+                if (outbox.status === 'sent' && outbox.sentAt) {
+                    return { claimed: false };
+                }
+                if (outbox.status === 'sending' && outbox.leaseExpiresAt && outbox.leaseExpiresAt > nowMs) {
+                    return { claimed: false };
+                }
+                if (outbox.status === 'failed' && outbox.nextRetryAt) {
+                    const retryMs = new Date(outbox.nextRetryAt).getTime();
+                    if (!isNaN(retryMs) && retryMs > nowMs) {
+                        return { claimed: false };
+                    }
+                }
+            }
+
+            if (markIsOverdue && !reqData.isOverdue) {
+                tx.update(reqRef, { isOverdue: true, updatedAt: nowIso });
+            }
+
+            let linkCode = null;
+            let linkCodeHash = null;
+            if (issueLinkCode) {
+                linkCode = newToken();
+                linkCodeHash = hash(linkCode);
+                tx.set(borrowLinkCodesCollection.doc(linkCodeHash), {
+                    requestId,
+                    purpose: 'manage',
+                    createdAt: nowMs,
+                    expiresAt: nowMs + LIMITS.LINK_CODE_TTL_MS,
+                    consumedAt: null,
+                    revokedAt: null
+                });
+            }
+
+            tx.set(outboxRef, {
+                id: outboxKey,
+                requestId,
+                reminderType,
+                status: 'sending',
+                leaseOwner: this.workerId,
+                leaseExpiresAt: nowMs + LIMITS.REMINDER_LEASE_MS,
+                sentAt: null,
+                nextRetryAt: null,
+                retryCount: outbox?.retryCount || 0,
+                linkCodeHash,
+                lastError: null,
+                updatedAt: nowIso
+            });
+
+            return {
+                claimed: true,
+                outboxRef,
+                reqRef,
+                reqData: markIsOverdue ? { ...reqData, isOverdue: true } : reqData,
+                linkCode,
+                linkCodeHash
+            };
+        });
+    }
+
+    async completeOutboxSlot({ outboxRef, reqRef, reqFieldSentAt }) {
+        const sentAtIso = new Date(Date.now()).toISOString();
+        await Promise.all([
+            outboxRef.update({
+                status: 'sent',
+                sentAt: sentAtIso,
+                leaseExpiresAt: null,
+                nextRetryAt: null,
+                lastError: null,
+                updatedAt: sentAtIso
+            }),
+            reqRef.update({
+                [reqFieldSentAt]: sentAtIso,
+                updatedAt: sentAtIso
+            })
+        ]);
+    }
+
+    async failOutboxSlot({ outboxRef, linkCodeHash, err }) {
+        const failNowMs = Date.now();
+        const failIso = new Date(failNowMs).toISOString();
+        const nextRetryIso = new Date(failNowMs + LIMITS.REMINDER_RETRY_DELAY_MS).toISOString();
+
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(outboxRef);
+            const cur = snap.exists ? (snap.data() || {}) : {};
+            const codeSnap = linkCodeHash
+                ? await tx.get(borrowLinkCodesCollection.doc(linkCodeHash))
+                : null;
+
+            tx.set(outboxRef, {
+                ...cur,
+                status: 'failed',
+                sentAt: null,
+                leaseExpiresAt: null,
+                retryCount: (cur.retryCount || 0) + 1,
+                nextRetryAt: nextRetryIso,
+                lastError: err?.message || 'Send failed',
+                updatedAt: failIso
+            });
+
+            if (codeSnap && codeSnap.exists && !codeSnap.data()?.consumedAt) {
+                tx.update(borrowLinkCodesCollection.doc(linkCodeHash), {
+                    revokedAt: failNowMs
+                });
+            }
+        });
+    }
+
     async run() {
         if (this.running) {
             console.log('[BORROW REMINDER JOB] Previous run still in progress, skipping iteration.');
@@ -37,9 +192,7 @@ class BorrowReminderJob {
         }
 
         this.running = true;
-        const now = new Date();
-        const nowMs = now.getTime();
-        const nowIso = now.toISOString();
+        const nowMs = Date.now();
 
         try {
             // ==========================================
@@ -58,10 +211,12 @@ class BorrowReminderJob {
                                 actor: { uid: null, email: 'system', role: 'system' }
                             });
                         } catch (stepErr) {
-                            console.error(
-                                `[BORROW REMINDER] Failed to expire request ${doc.id}:`,
-                                stepErr.message
-                            );
+                            if (stepErr?.statusCode !== 409) {
+                                console.error(
+                                    `[BORROW REMINDER] Failed to expire request ${doc.id}:`,
+                                    stepErr.message
+                                );
+                            }
                         }
                     }
                 }
@@ -87,12 +242,18 @@ class BorrowReminderJob {
                         nowMs - approvedMs > LIMITS.APPROVED_STALE_MS &&
                         !data.approvedStaleNotifiedAt
                     ) {
+                        let claim = null;
                         try {
-                            // Ghi field reminder trước
-                            await doc.ref.update({
-                                approvedStaleNotifiedAt: nowIso,
-                                updatedAt: nowIso
+                            claim = await this.claimOutboxSlot({
+                                outboxKey: `approved_stale:${doc.id}`,
+                                requestId: doc.id,
+                                reminderType: 'approved_stale',
+                                reqFieldSentAt: 'approvedStaleNotifiedAt',
+                                expectedStatus: 'approved',
+                                issueLinkCode: false,
+                                nowMs
                             });
+                            if (!claim.claimed) continue;
 
                             const adminUids = await notificationService.getUidsByRoles(['admin', 'manager']);
                             if (adminUids.length > 0) {
@@ -100,12 +261,25 @@ class BorrowReminderJob {
                                     recipients: adminUids,
                                     type: 'warning',
                                     title: 'Phiếu đã duyệt 3 ngày chưa nhận',
-                                    message: `Phiếu #${doc.id} của ${data.borrower?.name || 'người mượn'} đã duyệt 3 ngày chưa nhận thiết bị`,
+                                    message: `Phiếu #${doc.id} của ${claim.reqData.borrower?.name || 'người mượn'} đã duyệt 3 ngày chưa nhận thiết bị`,
                                     data: { borrowRequestId: doc.id },
                                     sender: 'Mượn trả thiết bị'
                                 });
                             }
+
+                            await this.completeOutboxSlot({
+                                outboxRef: claim.outboxRef,
+                                reqRef: claim.reqRef,
+                                reqFieldSentAt: 'approvedStaleNotifiedAt'
+                            });
                         } catch (stepErr) {
+                            if (claim?.claimed) {
+                                await this.failOutboxSlot({
+                                    outboxRef: claim.outboxRef,
+                                    linkCodeHash: claim.linkCodeHash,
+                                    err: stepErr
+                                }).catch(() => {});
+                            }
                             console.error(`[BORROW REMINDER] Step 2 error on ${doc.id}:`, stepErr.message);
                         }
                     }
@@ -131,16 +305,37 @@ class BorrowReminderJob {
 
                     // dueAt trong (now, now + DUE_SOON_MS] và chưa nhắc
                     if (dueMs > nowMs && dueMs <= nowMs + LIMITS.DUE_SOON_MS && !data.dueSoonRemindedAt) {
+                        let claim = null;
                         try {
-                            // Ghi field reminder trước khi gửi email
-                            await doc.ref.update({
-                                dueSoonRemindedAt: nowIso,
-                                updatedAt: nowIso
+                            claim = await this.claimOutboxSlot({
+                                outboxKey: `due_soon:${doc.id}:${data.dueDate || 'default'}`,
+                                requestId: doc.id,
+                                reminderType: 'due_soon',
+                                reqFieldSentAt: 'dueSoonRemindedAt',
+                                expectedStatus: 'handed_over',
+                                issueLinkCode: true,
+                                nowMs
                             });
+                            if (!claim.claimed) continue;
 
-                            const linkCode = await createLinkCode(doc.id);
-                            await borrowEmailService.sendDueSoon({ id: doc.id, ...data }, linkCode);
+                            await borrowEmailService.sendDueSoon(
+                                { id: doc.id, ...claim.reqData },
+                                claim.linkCode
+                            );
+
+                            await this.completeOutboxSlot({
+                                outboxRef: claim.outboxRef,
+                                reqRef: claim.reqRef,
+                                reqFieldSentAt: 'dueSoonRemindedAt'
+                            });
                         } catch (stepErr) {
+                            if (claim?.claimed) {
+                                await this.failOutboxSlot({
+                                    outboxRef: claim.outboxRef,
+                                    linkCodeHash: claim.linkCodeHash,
+                                    err: stepErr
+                                }).catch(() => {});
+                            }
                             console.error(`[BORROW REMINDER] Step 3 error on ${doc.id}:`, stepErr.message);
                         }
                     }
@@ -164,34 +359,49 @@ class BorrowReminderJob {
 
                     const dueMs = new Date(data.dueAt).getTime();
                     if (!isNaN(dueMs) && dueMs < nowMs) {
-                        try {
-                            const patch = {};
+                        const lastRemindedMs = data.overdueRemindedAt
+                            ? new Date(data.overdueRemindedAt).getTime()
+                            : 0;
+                        const shouldSend =
+                            !data.overdueRemindedAt || nowMs - lastRemindedMs > repeatIntervalMs;
+
+                        if (!shouldSend) {
                             if (!data.isOverdue) {
-                                patch.isOverdue = true;
+                                await doc.ref.update({
+                                    isOverdue: true,
+                                    updatedAt: new Date(nowMs).toISOString()
+                                }).catch(() => {});
                             }
+                            continue;
+                        }
 
-                            const lastRemindedMs = data.overdueRemindedAt
-                                ? new Date(data.overdueRemindedAt).getTime()
-                                : 0;
-                            const shouldSend =
-                                !data.overdueRemindedAt || nowMs - lastRemindedMs > repeatIntervalMs;
+                        const windowIdx = Math.max(0, Math.floor((nowMs - dueMs) / repeatIntervalMs));
+                        let claim = null;
+                        try {
+                            claim = await this.claimOutboxSlot({
+                                outboxKey: `overdue:${doc.id}:w${windowIdx}`,
+                                requestId: doc.id,
+                                reminderType: 'overdue',
+                                reqFieldSentAt: 'overdueRemindedAt',
+                                expectedStatus: 'handed_over',
+                                markIsOverdue: true,
+                                issueLinkCode: true,
+                                nowMs
+                            });
+                            if (!claim.claimed) continue;
 
-                            if (shouldSend) {
-                                patch.overdueRemindedAt = nowIso;
-                            }
+                            await borrowEmailService.sendOverdue(
+                                { id: doc.id, ...claim.reqData, isOverdue: true },
+                                claim.linkCode
+                            );
 
-                            if (Object.keys(patch).length > 0) {
-                                patch.updatedAt = nowIso;
-                                await doc.ref.update(patch);
-                            }
+                            await this.completeOutboxSlot({
+                                outboxRef: claim.outboxRef,
+                                reqRef: claim.reqRef,
+                                reqFieldSentAt: 'overdueRemindedAt'
+                            });
 
-                            if (shouldSend) {
-                                const linkCode = await createLinkCode(doc.id);
-                                await borrowEmailService.sendOverdue(
-                                    { id: doc.id, ...data, isOverdue: true },
-                                    linkCode
-                                );
-
+                            try {
                                 const adminUids = await notificationService.getUidsByRoles([
                                     'admin',
                                     'manager'
@@ -201,13 +411,25 @@ class BorrowReminderJob {
                                         recipients: adminUids,
                                         type: 'error',
                                         title: 'Phiếu mượn quá hạn',
-                                        message: `Phiếu #${doc.id} của ${data.borrower?.name || 'người mượn'} đã quá hạn trả thiết bị`,
+                                        message: `Phiếu #${doc.id} của ${claim.reqData.borrower?.name || 'người mượn'} đã quá hạn trả thiết bị`,
                                         data: { borrowRequestId: doc.id },
                                         sender: 'Mượn trả thiết bị'
                                     });
                                 }
+                            } catch (notifErr) {
+                                console.error(
+                                    `[BORROW REMINDER] Step 4 notification error on ${doc.id}:`,
+                                    notifErr.message
+                                );
                             }
                         } catch (stepErr) {
+                            if (claim?.claimed) {
+                                await this.failOutboxSlot({
+                                    outboxRef: claim.outboxRef,
+                                    linkCodeHash: claim.linkCodeHash,
+                                    err: stepErr
+                                }).catch(() => {});
+                            }
                             console.error(`[BORROW REMINDER] Step 4 error on ${doc.id}:`, stepErr.message);
                         }
                     }
@@ -221,5 +443,6 @@ class BorrowReminderJob {
     }
 }
 
-module.exports = new BorrowReminderJob();
-
+const defaultInstance = new BorrowReminderJob();
+defaultInstance.BorrowReminderJob = BorrowReminderJob;
+module.exports = defaultInstance;

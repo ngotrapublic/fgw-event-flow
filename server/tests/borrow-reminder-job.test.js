@@ -5,6 +5,8 @@ jest.mock('../config/firebase', () => {
         borrow_requests: {},
         borrow_link_codes: {},
         borrow_sessions: {},
+        borrow_quotas: {},
+        borrow_reminder_outbox: {},
         audit_logs: {},
         users: {}
     });
@@ -23,6 +25,8 @@ jest.mock('../services/notificationService', () => ({
 }));
 
 const borrowReminderJob = require('../jobs/borrow-reminder-job');
+const { BorrowReminderJob } = borrowReminderJob;
+const { createLinkCode, exchangeLinkCode } = require('../services/borrow-link-service');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 const { hash } = require('../services/borrow-token-service');
@@ -31,8 +35,12 @@ beforeEach(() => {
     mockFirebase.__stores.borrow_requests.clear();
     mockFirebase.__stores.borrow_link_codes.clear();
     mockFirebase.__stores.borrow_sessions.clear();
+    mockFirebase.__stores.borrow_quotas.clear();
+    mockFirebase.__stores.borrow_reminder_outbox.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
+    mockFirebase.db.__txChain = Promise.resolve();
+    jest.restoreAllMocks();
     jest.clearAllMocks();
 });
 
@@ -283,5 +291,117 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
             runSpy.mockRestore();
             borrowReminderJob.stop();
         }
+    });
+
+    // =========================================================================
+    // P1 Reliability & Outbox Lease Tests (§5 #4–#6)
+    // =========================================================================
+
+    test('10. [P1] reminder_send_failure_is_retried_without_marking_sent', async () => {
+        const baseNow = Date.now();
+        jest.spyOn(Date, 'now').mockReturnValue(baseNow);
+
+        const in10h = new Date(baseNow + 10 * 3600e3).toISOString();
+        mockFirebase.__stores.borrow_requests.set('req-retry-due', {
+            id: 'req-retry-due',
+            status: 'handed_over',
+            isOpen: true,
+            dueDate: in10h.slice(0, 10),
+            dueAt: in10h,
+            borrower: { name: 'Retry User', email: 'retry@test.com' },
+            items: []
+        });
+
+        borrowEmailService.sendDueSoon.mockRejectedValueOnce(new Error('SMTP 421 temporary failure'));
+
+        // Run 1: SMTP throws -> outbox failed, sentAt null, nextRetryAt set, dueSoonRemindedAt unset
+        await borrowReminderJob.run();
+
+        const reqAfterFail = mockFirebase.__stores.borrow_requests.get('req-retry-due');
+        expect(reqAfterFail.dueSoonRemindedAt).toBeUndefined();
+
+        const outboxKey = `due_soon:req-retry-due:${in10h.slice(0, 10)}`;
+        const outboxFail = mockFirebase.__stores.borrow_reminder_outbox.get(outboxKey);
+        expect(outboxFail).toBeDefined();
+        expect(outboxFail.status).toBe('failed');
+        expect(outboxFail.sentAt).toBeNull();
+        expect(outboxFail.nextRetryAt).toBeDefined();
+
+        // Unused code from failed email attempt is revoked cleanly
+        const failedCodeHash = outboxFail.linkCodeHash;
+        expect(mockFirebase.__stores.borrow_link_codes.get(failedCodeHash)?.revokedAt).not.toBeNull();
+
+        // Running immediately before nextRetryAt waits respectfully
+        await borrowReminderJob.run();
+        expect(borrowEmailService.sendDueSoon).toHaveBeenCalledTimes(1);
+
+        // Advance time past nextRetryAt -> retries and succeeds cleanly
+        Date.now.mockReturnValue(baseNow + 6 * 60e3);
+        await borrowReminderJob.run();
+
+        expect(borrowEmailService.sendDueSoon).toHaveBeenCalledTimes(2);
+        const reqAfterSuccess = mockFirebase.__stores.borrow_requests.get('req-retry-due');
+        expect(reqAfterSuccess.dueSoonRemindedAt).toBeDefined();
+
+        const outboxSuccess = mockFirebase.__stores.borrow_reminder_outbox.get(outboxKey);
+        expect(outboxSuccess.status).toBe('sent');
+        expect(outboxSuccess.sentAt).toBeDefined();
+        expect(outboxSuccess.nextRetryAt).toBeNull();
+
+        // New link code delivered in successful retry is active & unconsumed
+        const retryCode = borrowEmailService.sendDueSoon.mock.calls[1][1];
+        const retryLinkRec = mockFirebase.__stores.borrow_link_codes.get(hash(retryCode));
+        expect(retryLinkRec.revokedAt).toBeNull();
+        expect(retryLinkRec.consumedAt).toBeNull();
+    });
+
+    test('11. [P1] two_reminder_workers_claim_only_once', async () => {
+        const pastDue = new Date(Date.now() - 2 * 3600e3).toISOString();
+        mockFirebase.__stores.borrow_requests.set('req-concurrent-worker', {
+            id: 'req-concurrent-worker',
+            status: 'handed_over',
+            isOpen: true,
+            dueAt: pastDue,
+            borrower: { name: 'Race Borrower', email: 'worker@test.com' },
+            items: []
+        });
+
+        const workerA = new BorrowReminderJob('worker-A');
+        const workerB = new BorrowReminderJob('worker-B');
+
+        await Promise.all([workerA.run(), workerB.run()]);
+
+        expect(borrowEmailService.sendOverdue).toHaveBeenCalledTimes(1);
+        expect(notificationService.create).toHaveBeenCalledTimes(1);
+
+        const deliveredCode = borrowEmailService.sendOverdue.mock.calls[0][1];
+        const linkRec = mockFirebase.__stores.borrow_link_codes.get(hash(deliveredCode));
+        expect(linkRec).toBeDefined();
+        expect(linkRec.revokedAt).toBeNull();
+        expect(linkRec.consumedAt).toBeNull();
+    });
+
+    test('12. [P1] concurrent_link_code_preserves_all_committed_hashes', async () => {
+        mockFirebase.__stores.borrow_requests.set('req-multi-code', {
+            id: 'req-multi-code',
+            status: 'handed_over',
+            isOpen: true,
+            borrower: { name: 'Multi Code', email: 'multicode@test.com' },
+            items: []
+        });
+
+        const [codeA, codeB] = await Promise.all([
+            createLinkCode('req-multi-code'),
+            createLinkCode('req-multi-code')
+        ]);
+
+        expect(codeA).not.toBe(codeB);
+        expect(mockFirebase.__stores.borrow_link_codes.get(hash(codeA))).toBeDefined();
+        expect(mockFirebase.__stores.borrow_link_codes.get(hash(codeB))).toBeDefined();
+
+        const exA = await exchangeLinkCode(codeA);
+        const exB = await exchangeLinkCode(codeB);
+        expect(exA.requestId).toBe('req-multi-code');
+        expect(exB.requestId).toBe('req-multi-code');
     });
 });

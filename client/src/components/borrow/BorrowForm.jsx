@@ -26,37 +26,14 @@ import {
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
+import {
+    getVnOffsetDateStr,
+    getVnMaxDueDateStr,
+    normalizePhoneInput,
+    formatVnDueDate
+} from '../../lib/borrow-utils';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../Toast';
-
-function getOffsetDateString(daysOffset) {
-    const d = new Date();
-    d.setDate(d.getDate() + daysOffset);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function normalizePhoneInput(raw) {
-    if (!raw || typeof raw !== 'string') return '';
-    let p = raw.replace(/[\s.\-_()]/g, '');
-    if (p.startsWith('+84')) {
-        p = '0' + p.slice(3);
-    } else if (p.startsWith('84') && p.length > 9) {
-        p = '0' + p.slice(2);
-    }
-    return p;
-}
-
-function getMaxDueDateString() {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() + 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
 
 export default function BorrowForm() {
     const navigate = useNavigate();
@@ -75,7 +52,7 @@ export default function BorrowForm() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [dueDate, setDueDate] = useState(getOffsetDateString(1));
+    const [dueDate, setDueDate] = useState(() => getVnOffsetDateStr(1));
     const [note, setNote] = useState('');
 
     // State
@@ -175,7 +152,7 @@ export default function BorrowForm() {
 
     // Quick due date shortcuts
     const setQuickDueDate = (days) => {
-        setDueDate(getOffsetDateString(days));
+        setDueDate(getVnOffsetDateStr(days));
     };
 
     // Submit handler
@@ -330,7 +307,7 @@ export default function BorrowForm() {
                             </p>
                             <p>1. Nhấp vào nút <strong>Xác nhận</strong> trong email (hiệu lực 24h).</p>
                             <p>2. Kiểm tra thư mục <strong>Spam / Rác</strong> nếu không thấy ở Hộp thư đến.</p>
-                            <p>3. Khi xác nhận xong, phiếu sẽ chuyển tới Quản trị viên để xét duyệt.</p>
+                            <p>3. Gửi yêu cầu không đồng nghĩa đã giữ thiết bị — kho chỉ giữ thiết bị sau khi Quản trị viên duyệt.</p>
                         </div>
 
                         <div className="space-y-3 pt-2">
@@ -644,7 +621,7 @@ export default function BorrowForm() {
                                     type="button"
                                     onClick={() => setQuickDueDate(1)}
                                     className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
-                                        dueDate === getOffsetDateString(1)
+                                        dueDate === getVnOffsetDateStr(1)
                                             ? 'bg-yellow-300 text-black font-black'
                                             : 'bg-white hover:bg-slate-50'
                                     }`}
@@ -655,7 +632,7 @@ export default function BorrowForm() {
                                     type="button"
                                     onClick={() => setQuickDueDate(2)}
                                     className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
-                                        dueDate === getOffsetDateString(2)
+                                        dueDate === getVnOffsetDateStr(2)
                                             ? 'bg-yellow-300 text-black font-black'
                                             : 'bg-white hover:bg-slate-50'
                                     }`}
@@ -666,7 +643,7 @@ export default function BorrowForm() {
                                     type="button"
                                     onClick={() => setQuickDueDate(3)}
                                     className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
-                                        dueDate === getOffsetDateString(3)
+                                        dueDate === getVnOffsetDateStr(3)
                                             ? 'bg-yellow-300 text-black font-black'
                                             : 'bg-white hover:bg-slate-50'
                                     }`}
@@ -677,7 +654,7 @@ export default function BorrowForm() {
                                     type="button"
                                     onClick={() => setQuickDueDate(7)}
                                     className={`px-3 py-1 rounded-xl border border-black shadow-[1px_1px_0_#000] ${
-                                        dueDate === getOffsetDateString(7)
+                                        dueDate === getVnOffsetDateStr(7)
                                             ? 'bg-yellow-300 text-black font-black'
                                             : 'bg-white hover:bg-slate-50'
                                     }`}
@@ -689,12 +666,24 @@ export default function BorrowForm() {
                             <input
                                 type="date"
                                 required
-                                min={getOffsetDateString(1)}
-                                max={getMaxDueDateString()}
+                                min={getVnOffsetDateStr(1)}
+                                max={getVnMaxDueDateStr()}
                                 value={dueDate}
                                 onChange={(e) => setDueDate(e.target.value)}
                                 className="w-full h-11 px-3.5 text-sm font-bold border-2 border-black rounded-xl bg-white shadow-[3px_3px_0_#000] focus:shadow-[1px_1px_0_#000] focus:translate-x-[1px] focus:translate-y-[1px] focus:outline-none transition-all cursor-pointer"
                             />
+                            {dueDate && (
+                                <p className="text-xs font-medium text-slate-600 mt-1.5">
+                                    Hạn trả dự kiến: <strong>{formatVnDueDate(dueDate)}</strong>
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="p-3 bg-amber-50 border-2 border-black/20 rounded-2xl text-xs font-medium text-slate-700 flex items-start gap-2">
+                            <AlertCircle size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                            <span>
+                                Gửi yêu cầu không đồng nghĩa đã giữ thiết bị — kho chỉ giữ thiết bị sau khi Quản trị viên duyệt.
+                            </span>
                         </div>
 
                         <div>

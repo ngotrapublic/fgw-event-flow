@@ -110,7 +110,7 @@ const borrowEmailService = {
                 ${renderItemList(req.items)}
                 ${req.note ? `<p style="margin: 8px 0 0 0;"><strong>Ghi chú:</strong> ${escapeHtml(req.note)}</p>` : ''}
             </div>
-            <p style="color: #dc2626; font-size: 13px;"><strong>Lưu ý quan trọng:</strong> Vui lòng bấm nút <strong>Xác nhận email</strong> bên dưới để hoàn tất gửi phiếu đến người quản trị. Link xác nhận sẽ hết hạn sau <strong>24 giờ</strong>.</p>
+            <p style="color: #dc2626; font-size: 13px;"><strong>Lưu ý quan trọng:</strong> Vui lòng bấm nút <strong>Xác nhận email</strong> bên dưới để hoàn tất gửi phiếu đến người quản trị. Link xác nhận sẽ hết hạn sau <strong>24 giờ</strong>. Việc gửi yêu cầu chưa đồng nghĩa đã giữ thiết bị — kho chỉ giữ thiết bị sau khi Quản trị viên duyệt.</p>
         `;
 
         const actionButton = `
@@ -150,6 +150,7 @@ const borrowEmailService = {
                 ${renderItemList(req.items)}
                 ${req.note ? `<p style="margin: 8px 0 0 0;"><strong>Ghi chú:</strong> ${escapeHtml(req.note)}</p>` : ''}
             </div>
+            <p style="color: #475569; font-size: 13px;"><em>Lưu ý: Gửi yêu cầu không đồng nghĩa đã giữ thiết bị — kho chỉ giữ thiết bị sau khi Quản trị viên duyệt.</em></p>
             <p>Bạn có thể theo dõi tiến độ và báo trả thiết bị qua liên kết bên dưới:</p>
         `;
 

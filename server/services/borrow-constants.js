@@ -15,6 +15,7 @@ const LIMITS = {
     MAX_DUE_DAYS: 365,
     MAX_OPEN_PER_GUEST: 3, // theo email va theo SDT
     MAX_OPEN_PER_USER: 10, // quota cho tai khoan noi bo
+    MAX_CREATE_PER_USER_HOUR: 20,
     VERIFY_TTL_MS: 24 * 3600e3,
     LINK_CODE_TTL_MS: 24 * 3600e3,
     SESSION_TTL_MS: 60 * 60e3,
@@ -24,9 +25,10 @@ const LIMITS = {
     OTP_RESEND_MS: 60e3,
     OTP_LOCKOUT_MS: 15 * 60e3,
     MAX_CLIENT_TOKENS: 10,
-    MAX_REMINDER_TOKENS: 5,
     APPROVED_STALE_MS: 3 * 24 * 3600e3,
     DUE_SOON_MS: 24 * 3600e3,
+    REMINDER_LEASE_MS: 5 * 60e3,
+    REMINDER_RETRY_DELAY_MS: 5 * 60e3,
 };
 
 module.exports = { OPEN_STATUSES, TRANSITIONS, LIMITS };

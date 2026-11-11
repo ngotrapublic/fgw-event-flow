@@ -26,7 +26,28 @@ const emailService = require('./services/emailService');
 const path = require('path'); // ✅ NEW
 
 const app = express();
-app.set('trust proxy', 1); // behind nginx — req.ip = real client IP
+
+function resolveTrustProxy() {
+    const raw = process.env.TRUST_PROXY;
+    if (!raw || !raw.trim()) {
+        if (process.env.NODE_ENV === 'production') {
+            console.warn(
+                '[SECURITY] TRUST_PROXY is defaulting to 1 hop. In production, set TRUST_PROXY to trusted proxy subnet/IPs (e.g. "127.0.0.1,10.0.0.0/8" or "loopback") and firewall direct access to backend port.'
+            );
+        }
+        return 1;
+    }
+    const trimmed = raw.trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+    if (trimmed.includes(',')) {
+        return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return trimmed;
+}
+
+app.set('trust proxy', resolveTrustProxy()); // configurable trusted reverse-proxy hop/subnet
 
 if (!process.env.APP_PUBLIC_URL) {
     console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');

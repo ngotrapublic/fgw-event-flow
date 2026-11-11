@@ -16,7 +16,7 @@ const adminAuth = [verifyToken, requireRole(['admin', 'manager'])];
 // GET /api/borrow/resources · borrowRead
 router.get('/resources', limiters.borrowRead, borrowCtrl.getAvailableResources);
 
-// POST /api/borrow/requests · optionalAuth, createLimiter (skip for authenticated users)
+// POST /api/borrow/requests · optionalAuth, createLimiter (guests: 5/hr by IP, authenticated: 20/hr by UID)
 router.post('/requests', optionalAuth, limiters.createLimiter, borrowCtrl.createBorrowRequest);
 
 // POST /api/borrow/verify · verifyLimiter
@@ -34,11 +34,11 @@ router.post('/requests/:id/resend-verification', optionalAuth, limiters.resendLi
 // GET /api/borrow/my · optionalAuth, borrowRead
 router.get('/my', optionalAuth, limiters.borrowRead, borrowCtrl.getMyRequests);
 
-// POST /api/borrow/lookup/otp · otpIpLimiter
-router.post('/lookup/otp', limiters.otpIpLimiter, borrowCtrl.requestOtp);
+// POST /api/borrow/lookup/otp · otpIpLimiter, otpPhoneLimiter (phone HMAC)
+router.post('/lookup/otp', limiters.otpIpLimiter, limiters.otpPhoneLimiter, borrowCtrl.requestOtp);
 
-// POST /api/borrow/lookup/verify · otpVerifyLimiter
-router.post('/lookup/verify', limiters.otpVerifyLimiter, borrowCtrl.verifyOtp);
+// POST /api/borrow/lookup/verify · otpVerifyLimiter, otpVerifyPhoneLimiter (phone HMAC)
+router.post('/lookup/verify', limiters.otpVerifyLimiter, limiters.otpVerifyPhoneLimiter, borrowCtrl.verifyOtp);
 
 // POST /api/borrow/requests/:id/return · optionalAuth, returnLimiter
 router.post('/requests/:id/return', optionalAuth, limiters.returnLimiter, borrowCtrl.requestReturn);

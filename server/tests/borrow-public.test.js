@@ -7,6 +7,8 @@ jest.mock('../config/firebase', () => {
         borrow_otps: {},
         borrow_sessions: {},
         borrow_link_codes: {},
+        borrow_quotas: {},
+        borrow_reminder_outbox: {},
         audit_logs: {},
         users: {}
     });
@@ -121,6 +123,8 @@ beforeEach(() => {
     mockFirebase.__stores.borrow_otps.clear();
     mockFirebase.__stores.borrow_sessions.clear();
     mockFirebase.__stores.borrow_link_codes.clear();
+    mockFirebase.__stores.borrow_quotas.clear();
+    mockFirebase.__stores.borrow_reminder_outbox.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
     mockFirebase.db.__txChain = Promise.resolve();
@@ -1176,6 +1180,194 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             headers: { cookie: cookieHdr }
         });
         expect(afterLogout.body.requests).toEqual([]);
+    });
+
+    // =========================================================================
+    // P1 Concurrency, OTP Atomic Counter & Quota Tests (§5 #7–#9)
+    // =========================================================================
+
+    test('23. [P1] concurrent_otp_requests_respect_phone_hourly_limit', async () => {
+        const phone = '0901999888';
+        mockFirebase.__stores.borrow_requests.set('req-otp-conc', {
+            id: 'req-otp-conc',
+            status: 'pending',
+            isOpen: true,
+            borrower: { name: 'OTP Conc', email: 'otpconc@test.com', phone },
+            items: []
+        });
+
+        // 5 parallel OTP requests -> strictly 1 email emitted, sendCount=1
+        const results = await Promise.all(
+            Array.from({ length: 5 }, () => callHandler(borrowCtrl.requestOtp, { body: { phone } }))
+        );
+        results.forEach((r) => expect(r.statusCode).toBe(200));
+
+        await new Promise((r) => setImmediate(r));
+        expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
+
+        const otpDoc = mockFirebase.__stores.borrow_otps.get(hash(phone));
+        expect(otpDoc.sendCount).toBe(1);
+
+        // Only the deterministic code actually sent in the single email works
+        const deliveredCode = borrowEmailService.sendOtp.mock.calls[0][1];
+
+        // Also simulate hourly quota already at 3 in current window & cooldown elapsed -> 5 concurrent calls send ZERO emails
+        mockFirebase.__stores.borrow_otps.set(hash(phone), {
+            ...otpDoc,
+            sentAt: new Date(Date.now() - 120e3).toISOString(),
+            windowStart: new Date(Date.now() - 120e3).toISOString(),
+            sendCount: 3
+        });
+
+        await Promise.all(
+            Array.from({ length: 5 }, () => callHandler(borrowCtrl.requestOtp, { body: { phone } }))
+        );
+        await new Promise((r) => setImmediate(r));
+        expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
+
+        // 5 failed verify attempts set short lockout, preventing immediate resend reset
+        for (let i = 0; i < 5; i++) {
+            const bad = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000000' } });
+            expect(bad.statusCode).toBe(400);
+        }
+        const lockedDoc = mockFirebase.__stores.borrow_otps.get(hash(phone));
+        expect(lockedDoc.lockoutUntil).toBeGreaterThan(Date.now());
+
+        const blockedResend = await callHandler(borrowCtrl.requestOtp, { body: { phone } });
+        expect(blockedResend.statusCode).toBe(200);
+        await new Promise((r) => setImmediate(r));
+        expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
+
+        // Cleanup check for deliveredCode shape
+        expect(deliveredCode).toMatch(/^\d{6}$/);
+    });
+
+    test('24. [P1] concurrent_guest_creates_cannot_exceed_open_quota', async () => {
+        const dueDate = getTomorrowVnDate();
+        const makeGuestReq = (idx) => ({
+            body: {
+                name: `Guest ${idx}`,
+                email: 'sameguest@test.com',
+                phone: '0905556667',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+
+        // 5 concurrent guest creates -> max 3 created (201), 2 rejected (429)
+        const responses = await Promise.all(
+            [1, 2, 3, 4, 5].map((i) => callHandler(borrowCtrl.createBorrowRequest, makeGuestReq(i)))
+        );
+
+        const created = responses.filter((r) => r.statusCode === 201);
+        const quotaRejected = responses.filter((r) => r.statusCode === 429);
+
+        expect(created).toHaveLength(3);
+        expect(quotaRejected).toHaveLength(2);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(3);
+
+        // Closing one via transition releases guest quota slot so another can be created
+        await transition(created[0].body.request.id, 'expired', {
+            actor: { uid: null, email: 'system', role: 'system' }
+        });
+
+        const afterClose = await callHandler(borrowCtrl.createBorrowRequest, makeGuestReq(6));
+        expect(afterClose.statusCode).toBe(201);
+
+        // Verify rollback: if sendVerify throws after closing one, creating fails 502 and quota returns to 3 (slot freed)
+        await transition(created[1].body.request.id, 'expired', {
+            actor: { uid: null, email: 'system', role: 'system' }
+        });
+        borrowEmailService.sendVerify.mockRejectedValueOnce(new Error('SMTP timeout'));
+        const failMail = await callHandler(borrowCtrl.createBorrowRequest, makeGuestReq(7));
+        expect(failMail.statusCode).toBe(502);
+
+        const retrySuccess = await callHandler(borrowCtrl.createBorrowRequest, makeGuestReq(8));
+        expect(retrySuccess.statusCode).toBe(201);
+    });
+
+    test('25. [P1] authenticated_user_open_request_quota_and_rate_limit', async () => {
+        const limiters = require('../middleware/rate-limiters');
+        const dueDate = getTomorrowVnDate();
+        const makeAccountReq = (idx) => ({
+            body: {
+                phone: '0903334445',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }],
+                note: `Order ${idx}`
+            },
+            user: {
+                uid: 'uid-quota-test',
+                email: 'internal@fpt.edu.vn',
+                profile: { name: 'Internal User', role: 'user' }
+            }
+        });
+
+        // Create 12 concurrent requests for same authenticated UID -> capped at MAX_OPEN_PER_USER (10)
+        const results = await Promise.all(
+            Array.from({ length: 12 }, (_, idx) =>
+                callHandler(borrowCtrl.createBorrowRequest, makeAccountReq(idx))
+            )
+        );
+        const okCount = results.filter((r) => r.statusCode === 201).length;
+        const capCount = results.filter((r) => r.statusCode === 429).length;
+        expect(okCount).toBe(10);
+        expect(capCount).toBe(2);
+
+        // Reject one open request -> quota slot reopens for UID
+        const openId = results.find((r) => r.statusCode === 201).body.request.id;
+        await transition(openId, 'rejected', {
+            actor: { uid: 'admin1', email: 'admin@test.com', role: 'admin' },
+            note: 'Quota test reject'
+        });
+
+        const afterReject = await callHandler(borrowCtrl.createBorrowRequest, makeAccountReq(99));
+        expect(afterReject.statusCode).toBe(201);
+
+        // Authenticated rate-limiter middleware is NOT skipped; enforces 20 req/hr per UID with 429 guidance
+        const mockLimiterReq = {
+            user: { uid: 'uid-rate-limit-check' },
+            ip: '10.0.0.5',
+            headers: {},
+            app: { get: () => false }
+        };
+        let statusCodes = [];
+        for (let i = 0; i < 21; i++) {
+            await new Promise((resolve) => {
+                const res = {
+                    statusCode: 200,
+                    headers: {},
+                    setHeader(k, v) {
+                        this.headers[k] = v;
+                    },
+                    getHeader(k) {
+                        return this.headers[k];
+                    },
+                    status(c) {
+                        this.statusCode = c;
+                        return this;
+                    },
+                    send(body) {
+                        statusCodes.push({ code: this.statusCode, body });
+                        resolve();
+                        return this;
+                    },
+                    json(body) {
+                        statusCodes.push({ code: this.statusCode, body });
+                        resolve();
+                        return this;
+                    }
+                };
+                limiters.createAccountLimiter(mockLimiterReq, res, () => {
+                    statusCodes.push({ code: 200 });
+                    resolve();
+                });
+            });
+        }
+        expect(statusCodes.slice(0, 20).every((s) => s.code === 200)).toBe(true);
+        expect(statusCodes[20].code).toBe(429);
+        expect(statusCodes[20].body?.error || '').toContain('giới hạn');
     });
 });
 

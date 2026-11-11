@@ -10,11 +10,9 @@ import {
     Calendar,
     Send,
     Tag,
-    ChevronRight,
-    QrCode,
-    Sparkles,
-    Check
+    ChevronRight
 } from 'lucide-react';
+import { formatVnDueDate, formatVnDateShort, getCountdownBadge } from '../../lib/borrow-utils';
 
 const STATUS_CONFIGS = {
     unverified: {
@@ -79,48 +77,6 @@ const STATUS_CONFIGS = {
     }
 };
 
-function formatDueDate(isoString) {
-    if (!isoString) return '';
-    try {
-        const d = new Date(isoString);
-        if (isNaN(d.getTime())) return isoString;
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        return `${day}/${month}/${year}`;
-    } catch {
-        return isoString;
-    }
-}
-
-function getCountdownBadge(dueAt, status) {
-    if (!dueAt || !['handed_over', 'approved', 'return_pending'].includes(status)) return null;
-    const now = Date.now();
-    const dueMs = new Date(dueAt).getTime();
-    if (isNaN(dueMs)) return null;
-
-    const diffHours = Math.round((dueMs - now) / (1000 * 3600));
-
-    if (diffHours < 0) {
-        const daysAgo = Math.abs(Math.floor(diffHours / 24)) || 1;
-        return {
-            text: `Quá hạn ${daysAgo} ngày!`,
-            className: 'bg-rose-500 text-white animate-pulse'
-        };
-    }
-    if (diffHours <= 24) {
-        return {
-            text: `Còn ${Math.max(1, diffHours)} giờ`,
-            className: 'bg-amber-400 text-black'
-        };
-    }
-    const daysLeft = Math.ceil(diffHours / 24);
-    return {
-        text: `Còn ${daysLeft} ngày`,
-        className: 'bg-emerald-200 text-emerald-950'
-    };
-}
-
 export default function BorrowRequestCard({
     request,
     onResendEmail,
@@ -144,7 +100,7 @@ export default function BorrowRequestCard({
             request.dueAt &&
             new Date(request.dueAt).getTime() < Date.now());
 
-    const countdown = getCountdownBadge(request.dueAt, request.status);
+    const countdown = getCountdownBadge(request.dueAt, request.status, Date.now(), request.dueDate);
 
     return (
         <motion.div
@@ -265,13 +221,13 @@ export default function BorrowRequestCard({
                                     : 'text-black font-black'
                             }
                         >
-                            {formatDueDate(request.dueAt) || 'Chưa định'}
+                            {formatVnDueDate(request.dueDate || request.dueAt) || 'Chưa định'}
                         </strong>
                     </div>
 
                     {request.createdAt && (
-                        <span className="text-[11px] font-medium text-slate-400">
-                            Ngày tạo: {formatDueDate(request.createdAt)}
+                        <span className="text-[11px] font-medium text-slate-600">
+                            Ngày tạo: {formatVnDateShort(request.createdAt)}
                         </span>
                     )}
                 </div>

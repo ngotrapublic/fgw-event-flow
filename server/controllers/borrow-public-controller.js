@@ -6,6 +6,11 @@ const borrowValidation = require('../services/borrow-validation');
 const { newToken, hash, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
 const { createLinkCode, exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = require('../services/borrow-link-service');
 const {
+    prepareQuotaReservationInTx,
+    commitQuotaReservationInTx,
+    rollbackCreatedRequest
+} = require('../services/borrow-quota-service');
+const {
     extractSessionId,
     applySensitiveHeaders,
     clearSessionCookie,
@@ -178,7 +183,7 @@ async function createBorrowRequest(req, res, next) {
         let verifyTokenHash = null;
         let verifyExpiresAt = null;
 
-        // 2. Guest vs Authenticated Account
+        // 2. Guest vs Authenticated Account preparation
         if (req.user) {
             borrowerType = 'account';
             status = 'pending';
@@ -188,33 +193,8 @@ async function createBorrowRequest(req, res, next) {
                 email: req.user.email,
                 phone
             };
-
-            // Update user's phone in users collection
-            try {
-                await db.collection('users').doc(req.user.uid).set({ phone }, { merge: true });
-            } catch (userErr) {
-                console.error('[BORROW] Error updating user phone:', userErr.message);
-            }
         } else {
-            // Guest check
             borrowEmailService.assertEmailEnabled();
-
-            // Count open requests for this email and phone
-            const [emailSnap, phoneSnap] = await Promise.all([
-                borrowRequestsCollection
-                    .where('borrower.email', '==', email)
-                    .where('isOpen', '==', true)
-                    .get(),
-                borrowRequestsCollection
-                    .where('borrower.phone', '==', phone)
-                    .where('isOpen', '==', true)
-                    .get()
-            ]);
-
-            if (emailSnap.size >= LIMITS.MAX_OPEN_PER_GUEST || phoneSnap.size >= LIMITS.MAX_OPEN_PER_GUEST) {
-                throw new HttpError(429, 'Bạn đang có quá nhiều phiếu chưa hoàn tất');
-            }
-
             borrowerType = 'guest';
             status = 'unverified';
             borrower = { name, email, phone };
@@ -223,7 +203,7 @@ async function createBorrowRequest(req, res, next) {
             verifyExpiresAt = new Date(Date.now() + LIMITS.VERIFY_TTL_MS).toISOString();
         }
 
-        // 3. Save document and create one-time management code for email
+        // 3. Atomic quota reservation + borrow request creation
         const docRef = borrowRequestsCollection.doc();
         const nowIso = new Date().toISOString();
 
@@ -251,7 +231,24 @@ async function createBorrowRequest(req, res, next) {
             updatedAt: nowIso
         };
 
-        await docRef.set(docData);
+        await db.runTransaction(async (tx) => {
+            const quotaPlans = await prepareQuotaReservationInTx(tx, {
+                borrowerType,
+                uid: borrower.uid,
+                email: borrower.email,
+                phone
+            });
+            commitQuotaReservationInTx(tx, quotaPlans, docRef.id, nowIso);
+            tx.set(docRef, docData);
+        });
+
+        if (req.user?.uid) {
+            try {
+                await db.collection('users').doc(req.user.uid).set({ phone }, { merge: true });
+            } catch (userErr) {
+                console.error('[BORROW] Error updating user phone:', userErr.message);
+            }
+        }
 
         const linkCode = await createLinkCode(docRef.id);
 
@@ -261,9 +258,9 @@ async function createBorrowRequest(req, res, next) {
             try {
                 await borrowEmailService.sendVerify(docData, verifyToken, linkCode);
             } catch (mailErr) {
-                // Delete doc and revoke code on failure for guests to avoid stranded requests
+                // Atomically release quota + delete doc and revoke code on failure for guests
                 await Promise.all([
-                    docRef.delete(),
+                    rollbackCreatedRequest(docRef, docData).catch(() => docRef.delete()),
                     revokeLinkCodesForRequestIds([docRef.id]).catch(() => {})
                 ]);
                 console.error('[BORROW] Failed to send verify email to guest:', mailErr.message);
@@ -604,41 +601,51 @@ async function requestOtp(req, res, next) {
 
         const phoneHash = hash(phone);
         const otpRef = borrowOtpsCollection.doc(phoneHash);
-        const otpSnap = await otpRef.get();
-        const now = Date.now();
 
-        if (otpSnap.exists) {
-            const otpData = otpSnap.data() || {};
+        const otpTx = await db.runTransaction(async (tx) => {
+            const otpSnap = await tx.get(otpRef);
+            const now = Date.now();
+            const otpData = otpSnap.exists ? (otpSnap.data() || {}) : {};
+
+            if (otpData.lockoutUntil && otpData.lockoutUntil > now) {
+                return { shouldSend: false, code: null };
+            }
+
             const sentAt = otpData.sentAt ? new Date(otpData.sentAt).getTime() : 0;
-            if (now - sentAt < LIMITS.OTP_RESEND_MS) {
-                return res.status(200).json(standardResponse);
+            if (sentAt && now - sentAt < LIMITS.OTP_RESEND_MS) {
+                return { shouldSend: false, code: null };
             }
 
             const windowStart = otpData.windowStart ? new Date(otpData.windowStart).getTime() : 0;
-            const sendCount = otpData.sendCount || 0;
-            if (now - windowStart < 3600e3 && sendCount >= 3) {
-                return res.status(200).json(standardResponse);
+            const inWindow = Boolean(windowStart && now - windowStart < 3600e3);
+            const currentCount = inWindow ? (otpData.sendCount || 0) : 0;
+            if (currentCount >= 3) {
+                return { shouldSend: false, code: null };
             }
-        }
 
-        const code = newOtp();
-        const codeHash = hash(code);
-        const expiresAt = new Date(now + LIMITS.OTP_TTL_MS).toISOString();
+            const code = newOtp();
+            const codeHash = hash(code);
+            const expiresAt = new Date(now + LIMITS.OTP_TTL_MS).toISOString();
+            const newSendCount = currentCount + 1;
+            const newWindowStart = inWindow ? otpData.windowStart : new Date(now).toISOString();
 
-        const prevData = otpSnap.exists ? otpSnap.data() : {};
-        const inWindow = prevData.windowStart && (now - new Date(prevData.windowStart).getTime() < 3600e3);
-        const newSendCount = inWindow ? (prevData.sendCount || 0) + 1 : 1;
-        const newWindowStart = inWindow ? prevData.windowStart : new Date(now).toISOString();
+            tx.set(otpRef, {
+                phoneHash,
+                codeHash,
+                expiresAt,
+                sentAt: new Date(now).toISOString(),
+                attempts: 0,
+                sendCount: newSendCount,
+                windowStart: newWindowStart,
+                lockoutUntil: null
+            });
 
-        await otpRef.set({
-            phoneHash,
-            codeHash,
-            expiresAt,
-            sentAt: new Date(now).toISOString(),
-            attempts: 0,
-            sendCount: newSendCount,
-            windowStart: newWindowStart
+            return { shouldSend: true, code };
         });
+
+        if (!otpTx.shouldSend) {
+            return res.status(200).json(standardResponse);
+        }
 
         // Send OTP to distinct emails associated with this phone (non-blocking to prevent timing attacks)
         const distinctEmails = [
@@ -651,7 +658,7 @@ async function requestOtp(req, res, next) {
         ];
         res.status(200).json(standardResponse);
 
-        Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, code)))
+        Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, otpTx.code)))
             .then((rs) => {
                 rs.forEach((r, idx) => {
                     if (r.status === 'rejected') {
@@ -687,11 +694,18 @@ async function verifyOtp(req, res, next) {
         const result = await db.runTransaction(async (tx) => {
             const snap = await tx.get(otpRef);
             const otp = snap.exists ? snap.data() : null;
+            const now = Date.now();
             if (!otp) return 'invalid';
-            if (!otp.expiresAt || new Date(otp.expiresAt).getTime() < Date.now()) return 'invalid';
+            if (otp.lockoutUntil && otp.lockoutUntil > now) return 'invalid';
+            if (!otp.expiresAt || new Date(otp.expiresAt).getTime() < now) return 'invalid';
             if ((otp.attempts || 0) >= LIMITS.OTP_MAX_ATTEMPTS) return 'invalid';
             if (!safeEqualHex(hash(cleanCode), otp.codeHash)) {
-                tx.update(otpRef, { attempts: (otp.attempts || 0) + 1 });
+                const nextAttempts = (otp.attempts || 0) + 1;
+                const patch = { attempts: nextAttempts };
+                if (nextAttempts >= LIMITS.OTP_MAX_ATTEMPTS) {
+                    patch.lockoutUntil = now + LIMITS.OTP_LOCKOUT_MS;
+                }
+                tx.update(otpRef, patch);
                 return 'invalid';
             }
             tx.delete(otpRef);

@@ -3,6 +3,7 @@ const { OPEN_STATUSES, TRANSITIONS } = require('./borrow-constants');
 const { reserveInTx, restockInTx } = require('./borrow-stock-service');
 const { revokeSessionsForRequestIds } = require('./borrow-session-service');
 const { revokeLinkCodesForRequestIds } = require('./borrow-link-service');
+const { prepareReleaseQuotaInTx, applyReleaseQuotaInTx } = require('./borrow-quota-service');
 const { logAction } = require('../controllers/auditLogController');
 const HttpError = require('../utils/http-error');
 
@@ -39,6 +40,14 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
             throw new HttpError(409, `Không thể chuyển trạng thái từ "${fromStatus}" sang "${toStatus}"`);
         }
 
+        const now = new Date().toISOString();
+        const isOpen = OPEN_STATUSES.includes(toStatus);
+
+        // Read quota docs BEFORE reserveInTx/restockInTx perform any writes
+        const releaseQuotaPlans = !isOpen
+            ? await prepareReleaseQuotaInTx(tx, current, requestId)
+            : [];
+
         // Side effect per edge
         if (fromStatus === 'pending' && toStatus === 'approved') {
             await reserveInTx(tx, current.items || []);
@@ -50,9 +59,6 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
                 i.receivedQty !== undefined && i.receivedQty !== null ? i.receivedQty : i.qty
             );
         }
-
-        const now = new Date().toISOString();
-        const isOpen = OPEN_STATUSES.includes(toStatus);
         const historyEntry = {
             status: toStatus,
             at: now,
@@ -82,6 +88,9 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
         }
 
         tx.update(docRef, updateData);
+        if (!isOpen && releaseQuotaPlans.length > 0) {
+            applyReleaseQuotaInTx(tx, releaseQuotaPlans, now);
+        }
         return { id: requestId, ...current, ...updateData };
     });
 
