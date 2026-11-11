@@ -108,13 +108,13 @@ export default function BorrowVerify() {
                     </div>
 
                     {status === 'verifying' && (
-                        <div className="py-6 space-y-4">
-                            <Loader2 size={40} className="animate-spin text-indigo-600 mx-auto" />
+                        <div role="status" className="py-6 space-y-4">
+                            <Loader2 size={40} className="animate-spin motion-reduce:animate-none text-indigo-600 mx-auto" aria-hidden="true" />
                             <div>
                                 <h2 className="text-base font-black text-black uppercase tracking-tight">
                                     Đang xác nhận mã email...
                                 </h2>
-                                <p className="text-xs font-medium text-slate-500 mt-1">
+                                <p className="text-xs font-medium text-slate-600 mt-1">
                                     Hệ thống đang kiểm tra tính hợp lệ của phiếu mượn.
                                 </p>
                             </div>
@@ -123,12 +123,12 @@ export default function BorrowVerify() {
 
                     {status === 'success' && (
                         <div className="space-y-4 pt-2">
-                            <div className="w-16 h-16 bg-emerald-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] rotate-3">
+                            <div aria-hidden="true" className="w-16 h-16 bg-emerald-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] rotate-3">
                                 <CheckCircle2 size={36} strokeWidth={2.5} />
                             </div>
 
                             <div className="space-y-1.5">
-                                <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-900 border border-black rounded-md text-[10px] font-black uppercase tracking-widest shadow-[1px_1px_0_#000]">
+                                <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-900 border border-black rounded-md text-xs font-black uppercase tracking-widest shadow-[1px_1px_0_#000]">
                                     Hoàn Tất
                                 </span>
                                 <h2 className="text-xl font-black text-black uppercase tracking-tight">
@@ -154,18 +154,19 @@ export default function BorrowVerify() {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={() => navigate('/borrow')}
-                                className="w-full py-3.5 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                                className="w-full min-h-[48px] py-3.5 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-sm font-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
                             >
                                 Xem Phiếu Mượn Của Bạn
-                                <ArrowRight size={16} strokeWidth={2.5} />
+                                <ArrowRight size={16} strokeWidth={2.5} aria-hidden="true" />
                             </button>
                         </div>
                     )}
 
                     {status === 'error' && (
-                        <div className="space-y-4 pt-2">
-                            <div className="w-16 h-16 bg-rose-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] -rotate-3">
+                        <div role="alert" className="space-y-4 pt-2">
+                            <div aria-hidden="true" className="w-16 h-16 bg-rose-300 text-black border-2 border-black rounded-2xl flex items-center justify-center mx-auto shadow-[3px_3px_0_#000] -rotate-3">
                                 <AlertTriangle size={36} strokeWidth={2.5} />
                             </div>
 
@@ -178,15 +179,17 @@ export default function BorrowVerify() {
 
                             <div className="space-y-2.5 pt-2">
                                 <button
+                                    type="button"
                                     onClick={() => navigate('/borrow/new')}
-                                    className="w-full py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:bg-indigo-700 transition-all"
+                                    className="w-full min-h-[44px] py-3 px-4 bg-indigo-600 text-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:bg-indigo-700 transition-all"
                                 >
                                     Tạo Yêu Cầu Mượn Mới
                                 </button>
 
                                 <button
+                                    type="button"
                                     onClick={() => navigate('/borrow')}
-                                    className="w-full py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-100 transition-all"
+                                    className="w-full min-h-[44px] py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-100 transition-all"
                                 >
                                     Về Trang Chủ Mượn Thiết Bị
                                 </button>

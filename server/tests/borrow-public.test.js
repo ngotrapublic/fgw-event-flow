@@ -1432,12 +1432,19 @@ describe('OptionalAuth Middleware', () => {
 });
 
 describe('getAvailableResources', () => {
-    test('only returns resources with availableQty > 0 and hides total quantity', async () => {
+    test('returns active resources including availableQty = 0 and hides total quantity', async () => {
         mockFirebase.__stores.resources.set('out-of-stock', {
             label: 'Hết hàng',
             category: 'Audio',
             quantity: 5,
             availableQty: 0
+        });
+        mockFirebase.__stores.resources.set('archived-res', {
+            label: 'Đã ẩn',
+            category: 'Audio',
+            isActive: false,
+            quantity: 3,
+            availableQty: 3
         });
 
         const req = {};
@@ -1445,13 +1452,17 @@ describe('getAvailableResources', () => {
         expect(res.statusCode).toBe(200);
 
         const ids = res.body.map((r) => r.id);
-        expect(ids).not.toContain('out-of-stock');
+        expect(ids).toContain('out-of-stock');
         expect(ids).toContain('loa');
+        expect(ids).not.toContain('archived-res');
+
+        const oos = res.body.find((r) => r.id === 'out-of-stock');
+        expect(oos.availableQty).toBe(0);
 
         // Check that total quantity is NOT returned
         res.body.forEach((item) => {
             expect(item.quantity).toBeUndefined();
-            expect(item.availableQty).toBeGreaterThan(0);
+            expect(item.availableQty).toBeGreaterThanOrEqual(0);
         });
     });
 });

@@ -92,7 +92,8 @@ function toPublicView(doc) {
 
 /**
  * GET /api/borrow/resources
- * Returns resources with available stock > 0, sorted by category then label.
+ * Returns all active public resources (including availableQty = 0 so UI displays "Hết hàng"),
+ * sorted by category then label. Total inventory `quantity` is never exposed.
  */
 async function getAvailableResources(req, res, next) {
     try {
@@ -101,16 +102,16 @@ async function getAvailableResources(req, res, next) {
 
         snap.forEach((doc) => {
             const data = doc.data() || {};
-            const availableQty = data.availableQty !== undefined ? data.availableQty : (data.quantity || 0);
-            if (availableQty > 0) {
-                list.push({
-                    id: doc.id,
-                    label: data.label || doc.id,
-                    category: data.category || 'General',
-                    icon: data.icon || 'Box',
-                    availableQty
-                });
-            }
+            if (data.isActive === false || data.hidden === true) return;
+            const rawAvailable = data.availableQty !== undefined ? data.availableQty : (data.quantity || 0);
+            const availableQty = Math.max(0, Number(rawAvailable) || 0);
+            list.push({
+                id: doc.id,
+                label: data.label || doc.id,
+                category: data.category || 'General',
+                icon: data.icon || 'Box',
+                availableQty
+            });
         });
 
         list.sort((a, b) => {
