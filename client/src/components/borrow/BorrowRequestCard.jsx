@@ -1,81 +1,20 @@
 import React from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
-    Clock,
-    Package,
     AlertTriangle,
-    CheckCircle2,
     RotateCcw,
-    Mail,
     Calendar,
     Send,
     Tag,
     ChevronRight
 } from 'lucide-react';
-import { formatVnDueDate, formatVnDateShort, getCountdownBadge } from '../../lib/borrow-utils';
-
-const STATUS_CONFIGS = {
-    unverified: {
-        label: 'Chờ xác nhận email',
-        badgeBg: 'bg-amber-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: Mail,
-        helper: 'Việc cần làm: Mở email (kiểm tra cả Spam) và nhấp liên kết xác nhận trong 24 giờ.'
-    },
-    pending: {
-        label: 'Chờ xét duyệt',
-        badgeBg: 'bg-sky-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: Clock,
-        helper: 'Yêu cầu đã gửi thành công; kho chỉ giữ thiết bị sau khi Quản trị viên duyệt.'
-    },
-    approved: {
-        label: 'Đã duyệt — Tới nhận đồ',
-        badgeBg: 'bg-emerald-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: CheckCircle2,
-        helper: 'Việc cần làm: Mang mã phiếu tới Phòng IT - Floor 2 - Campus HCM để nhận thiết bị trong 3 ngày.'
-    },
-    handed_over: {
-        label: 'Đang mượn',
-        badgeBg: 'bg-violet-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: Package,
-        helper: 'Thiết bị đang được bạn mượn sử dụng. Nhấn "Báo trả" khi sẵn sàng bàn giao lại kho.'
-    },
-    return_pending: {
-        label: 'Chờ kho kiểm tra',
-        badgeBg: 'bg-teal-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: RotateCcw,
-        helper: 'Việc cần làm: Mang thiết bị đến Phòng IT - Floor 2 - Campus HCM để kiểm tra và ký nhận.'
-    },
-    returned: {
-        label: 'Đã hoàn tất trả',
-        badgeBg: 'bg-slate-200 text-slate-900 border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: CheckCircle2,
-        helper: null
-    },
-    returned_with_issue: {
-        label: 'Đã trả (có sự cố)',
-        badgeBg: 'bg-orange-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: AlertTriangle,
-        helper: null
-    },
-    rejected: {
-        label: 'Bị từ chối',
-        badgeBg: 'bg-rose-300 text-black border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: AlertTriangle,
-        helper: null
-    },
-    cancelled: {
-        label: 'Đã huỷ',
-        badgeBg: 'bg-slate-200 text-slate-700 border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: AlertTriangle,
-        helper: null
-    },
-    expired: {
-        label: 'Hết hạn xác nhận',
-        badgeBg: 'bg-slate-200 text-slate-700 border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: Clock,
-        helper: null
-    }
-};
+import {
+    formatVnDueDate,
+    formatVnDateShort,
+    getCountdownBadge,
+    isRequestOverdue
+} from '../../lib/borrow-utils';
+import { BorrowStatusBadge, getStatusConfig } from './BorrowStatus';
 
 export default function BorrowRequestCard({
     request,
@@ -87,20 +26,8 @@ export default function BorrowRequestCard({
     const shouldReduceMotion = useReducedMotion();
     if (!request) return null;
 
-    const statusConfig = STATUS_CONFIGS[request.status] || {
-        label: request.status,
-        badgeBg: 'bg-slate-200 text-slate-900 border-2 border-black shadow-[2px_2px_0_#000]',
-        icon: Clock,
-        helper: null
-    };
-
-    const StatusIcon = statusConfig.icon;
-    const isOverdue =
-        request.isOverdue ||
-        (['handed_over', 'return_pending'].includes(request.status) &&
-            request.dueAt &&
-            new Date(request.dueAt).getTime() < Date.now());
-
+    const statusConfig = getStatusConfig(request.status);
+    const isOverdue = isRequestOverdue(request);
     const countdown = getCountdownBadge(request.dueAt, request.status, Date.now(), request.dueDate);
 
     return (
@@ -140,28 +67,19 @@ export default function BorrowRequestCard({
 
             {/* Ticket Body: Status -> Next Action -> Due Date -> CTA -> Equipment -> Metadata */}
             <div className="p-4 sm:p-5 space-y-4">
-                {/* 1. Status + Borrower Name */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
-                    <div
-                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider ${statusConfig.badgeBg}`}
-                    >
-                        <StatusIcon size={14} strokeWidth={2.5} aria-hidden="true" />
-                        <span>{statusConfig.label}</span>
-                    </div>
+                    <BorrowStatusBadge status={request.status} />
 
                     {request.borrower?.name && (
                         <div className="text-right">
                             <p className="text-xs font-bold uppercase tracking-wider text-slate-600">
                                 Người mượn
                             </p>
-                            <p className="text-sm font-black text-black">
-                                {request.borrower.name}
-                            </p>
+                            <p className="text-sm font-black text-black">{request.borrower.name}</p>
                         </div>
                     )}
                 </div>
 
-                {/* 2. Next Step / Overdue Alert */}
                 {isOverdue && (
                     <div
                         role="alert"
@@ -188,7 +106,6 @@ export default function BorrowRequestCard({
                     </div>
                 )}
 
-                {/* Reject / Cancel / Return Note Reasons */}
                 {request.rejectReason && (
                     <div className="p-3 bg-rose-50 border-2 border-rose-300 rounded-xl text-xs text-rose-900 space-y-1">
                         <p className="font-black flex items-center gap-1.5">
@@ -214,7 +131,6 @@ export default function BorrowRequestCard({
                     </div>
                 )}
 
-                {/* 3. Due Date & Actions */}
                 <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
                     <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-xl border border-slate-300">
                         <Calendar size={14} className="text-indigo-700 flex-shrink-0" aria-hidden="true" />
@@ -230,7 +146,7 @@ export default function BorrowRequestCard({
                         </strong>
                     </div>
 
-                    {(request.status === 'unverified' && onResendEmail) && (
+                    {request.status === 'unverified' && onResendEmail && (
                         <motion.button
                             whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
                             type="button"
@@ -264,7 +180,7 @@ export default function BorrowRequestCard({
                     <div className="hidden sm:block absolute -right-7 -top-2.5 w-5 h-5 bg-[#fafafa] border-l-2 border-black rounded-full" />
                 </div>
 
-                {/* 4. Items List & Metadata */}
+                {/* Items List & Metadata */}
                 <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
@@ -301,7 +217,6 @@ export default function BorrowRequestCard({
                 </div>
             </div>
 
-            {/* Stylized Footer (hidden on very small mobile to reduce density) */}
             <div className="hidden sm:flex bg-slate-50 border-t-2 border-black px-5 py-2.5 items-center justify-between text-slate-600">
                 <div className="flex items-center gap-1" aria-hidden="true">
                     <span className="font-mono text-xs tracking-widest text-slate-600 font-bold">

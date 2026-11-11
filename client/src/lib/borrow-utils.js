@@ -17,6 +17,51 @@ export function normalizePhoneInput(raw) {
     return p;
 }
 
+export function isValidVnPhone(raw) {
+    return /^0\d{9}$/.test(normalizePhoneInput(raw));
+}
+
+export function isRequestOverdue(req, nowMs = Date.now()) {
+    if (!req) return false;
+    if (req.isOverdue) return true;
+    return (
+        ['handed_over', 'return_pending'].includes(req.status) &&
+        Boolean(req.dueAt) &&
+        new Date(req.dueAt).getTime() < nowMs
+    );
+}
+
+export function partitionBorrowRequests(requests = [], nowMs = Date.now()) {
+    const openRequests = [];
+    const closedRequests = [];
+
+    for (const req of requests) {
+        if (CLOSED_STATUSES.includes(req.status)) {
+            closedRequests.push(req);
+        } else {
+            openRequests.push(req);
+        }
+    }
+
+    const handedOverRequests = openRequests.filter((r) => r.status === 'handed_over');
+    const otherOpenRequests = openRequests.filter((r) => r.status !== 'handed_over');
+    const stats = {
+        handedOver: handedOverRequests.length,
+        pending: openRequests.filter((r) => r.status === 'pending').length,
+        unverified: openRequests.filter((r) => r.status === 'unverified').length,
+        approved: openRequests.filter((r) => r.status === 'approved').length,
+        overdue: openRequests.filter((r) => isRequestOverdue(r, nowMs)).length
+    };
+
+    return {
+        openRequests,
+        closedRequests,
+        handedOverRequests,
+        otherOpenRequests,
+        stats
+    };
+}
+
 export function getVnOffsetDateStr(daysOffset = 0, nowMs = Date.now()) {
     const vnNow = new Date(nowMs + VN_OFFSET_MS);
     const target = new Date(

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
@@ -11,9 +11,6 @@ import {
     RefreshCw,
     UserCheck,
     History,
-    Clock,
-    Mail,
-    AlertTriangle,
     AlertCircle,
     ShieldCheck,
     MapPin,
@@ -21,54 +18,13 @@ import {
     Info
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
-import { borrowTokenStore } from '../../lib/borrow-token-store';
-import { CLOSED_STATUSES } from '../../lib/borrow-utils';
+import { isRequestOverdue } from '../../lib/borrow-utils';
 import { useAuth } from '../../context/AuthContext';
+import { useBorrowRequests } from '../../hooks/useBorrowRequests';
 import { useToast } from '../Toast';
 import BorrowRequestCard from './BorrowRequestCard';
-import AccessibleDialog from './AccessibleDialog';
-
-// Accessible Stat Filter Button (WCAG keyboard focusable)
-const StatBox = ({
-    title,
-    value,
-    icon: Icon,
-    color,
-    labelColor,
-    onClick,
-    active = false,
-    badge = null,
-    shouldReduceMotion = false
-}) => (
-    <motion.button
-        type="button"
-        onClick={onClick}
-        aria-pressed={active}
-        whileHover={shouldReduceMotion ? undefined : { y: -2 }}
-        whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-        className={`w-full min-h-[72px] text-left border-2 border-black rounded-2xl p-3.5 sm:p-4 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all duration-150 cursor-pointer flex items-center justify-between group relative overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
-            active ? 'ring-2 ring-indigo-600 bg-slate-50' : 'hover:bg-slate-50'
-        }`}
-    >
-        {badge && (
-            <span className="absolute top-1.5 right-1.5 text-xs font-black px-1.5 py-0.5 bg-rose-600 text-white rounded border border-black">
-                {badge}
-            </span>
-        )}
-        <div>
-            <p className="text-xs font-black uppercase tracking-wider text-slate-600 mb-1">
-                {title}
-            </p>
-            <p className="text-2xl sm:text-3xl font-black text-black leading-none">{value}</p>
-        </div>
-        <div
-            aria-hidden="true"
-            className={`p-2.5 rounded-xl border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${color} ${labelColor}`}
-        >
-            <Icon size={20} strokeWidth={2.5} />
-        </div>
-    </motion.button>
-);
+import BorrowStatGrid from './BorrowStatGrid';
+import WarehouseInfoDialog from './WarehouseInfoDialog';
 
 export default function BorrowHome() {
     const navigate = useNavigate();
@@ -76,42 +32,25 @@ export default function BorrowHome() {
     const { showSuccess, showError } = useToast();
     const shouldReduceMotion = useReducedMotion();
 
-    const [requests, setRequests] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [fetchError, setFetchError] = useState(null);
+    const {
+        loading,
+        fetchError,
+        refetch: fetchMyRequests,
+        openRequests,
+        closedRequests: historyRequests,
+        stats
+    } = useBorrowRequests({
+        userUid: user?.uid,
+        authLoading,
+        onError: showError,
+        ignore401: true
+    });
+
     const [resendingId, setResendingId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
     const [statusFilter, setStatusFilter] = useState('all');
     const [searchKeyword, setSearchKeyword] = useState('');
     const [showWarehouseModal, setShowWarehouseModal] = useState(false);
-
-    const fetchMyRequests = useCallback(async () => {
-        if (authLoading) return;
-        setLoading(true);
-        setFetchError(null);
-        try {
-            borrowTokenStore.purgeLegacy();
-            const res = await borrowApi.getMy();
-            const data = res.data || {};
-            setRequests(data.requests || []);
-        } catch (err) {
-            console.error('[BORROW HOME] Error loading requests:', err);
-            if (err.response?.status !== 401) {
-                const msg = 'Không thể tải danh sách phiếu mượn. Vui lòng kiểm tra kết nối và thử lại.';
-                setFetchError(msg);
-                showError(msg);
-            }
-        } finally {
-            setLoading(false);
-        }
-    }, [authLoading, showError]);
-
-    useEffect(() => {
-        if (!authLoading) {
-            setRequests([]);
-            fetchMyRequests();
-        }
-    }, [user?.uid, authLoading, fetchMyRequests]);
 
     const handleResendVerification = async (request) => {
         setResendingId(request.id);
@@ -119,56 +58,22 @@ export default function BorrowHome() {
             await borrowApi.resendVerification(request.id);
             showSuccess('Đã gửi lại email xác nhận! Vui lòng kiểm tra hộp thư.');
         } catch (err) {
-            const msg =
+            showError(
                 err.response?.data?.error ||
-                'Không thể gửi lại email xác nhận, vui lòng thử lại sau 60 giây.';
-            showError(msg);
+                    'Không thể gửi lại email xác nhận, vui lòng thử lại sau 60 giây.'
+            );
         } finally {
             setResendingId(null);
         }
     };
 
-    const openRequests = useMemo(
-        () => requests.filter((r) => !CLOSED_STATUSES.includes(r.status)),
-        [requests]
-    );
-
-    const historyRequests = useMemo(
-        () => requests.filter((r) => CLOSED_STATUSES.includes(r.status)),
-        [requests]
-    );
-
-    const stats = useMemo(() => {
-        const now = Date.now();
-        const handedOver = openRequests.filter((r) => r.status === 'handed_over').length;
-        const pending = openRequests.filter((r) => r.status === 'pending').length;
-        const unverified = openRequests.filter((r) => r.status === 'unverified').length;
-        const approved = openRequests.filter((r) => r.status === 'approved').length;
-        const overdue = openRequests.filter(
-            (r) =>
-                r.isOverdue ||
-                (['handed_over', 'return_pending'].includes(r.status) &&
-                    r.dueAt &&
-                    new Date(r.dueAt).getTime() < now)
-        ).length;
-        return { handedOver, pending, unverified, approved, overdue };
-    }, [openRequests]);
-
     const filteredOpenRequests = useMemo(() => {
         let list = openRequests;
         if (statusFilter !== 'all') {
-            if (statusFilter === 'overdue') {
-                const now = Date.now();
-                list = list.filter(
-                    (r) =>
-                        r.isOverdue ||
-                        (['handed_over', 'return_pending'].includes(r.status) &&
-                            r.dueAt &&
-                            new Date(r.dueAt).getTime() < now)
-                );
-            } else {
-                list = list.filter((r) => r.status === statusFilter);
-            }
+            list =
+                statusFilter === 'overdue'
+                    ? list.filter((r) => isRequestOverdue(r))
+                    : list.filter((r) => r.status === statusFilter);
         }
         if (searchKeyword.trim()) {
             const kw = searchKeyword.trim().toLowerCase();
@@ -187,11 +92,9 @@ export default function BorrowHome() {
 
     return (
         <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-20 relative overflow-x-hidden selection:bg-yellow-300 selection:text-black">
-            {/* Decorative floating shapes desktop-only to avoid cluttering mobile */}
             <div aria-hidden="true" className="hidden sm:block absolute top-12 -left-6 w-16 h-16 bg-yellow-400 rounded-full border-2 border-black shadow-[3px_3px_0_#000] opacity-80 pointer-events-none" />
             <div aria-hidden="true" className="hidden sm:block absolute top-64 -right-6 w-14 h-14 bg-cyan-400 rotate-12 border-2 border-black shadow-[3px_3px_0_#000] opacity-80 pointer-events-none" />
 
-            {/* Brand Top Bar */}
             <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm">
                 <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
@@ -210,15 +113,15 @@ export default function BorrowHome() {
                                     GEAR PASS
                                 </span>
                             </div>
-                            <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5 truncate">
-                                <span>Phòng IT • Campus HCM</span>
+                            <p className="text-xs font-bold text-slate-600 truncate">
+                                Phòng IT • Campus HCM
                             </p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
                         {user ? (
-                            <div className="hidden xs:flex sm:flex items-center gap-1.5 bg-violet-100 text-slate-900 text-xs px-3 py-1.5 rounded-full font-black border-2 border-black">
+                            <div className="hidden sm:flex items-center gap-1.5 bg-violet-100 text-slate-900 text-xs px-3 py-1.5 rounded-full font-black border-2 border-black">
                                 <UserCheck size={14} className="text-violet-700" aria-hidden="true" />
                                 <span className="max-w-[110px] truncate">{user.name || user.email}</span>
                             </div>
@@ -247,7 +150,7 @@ export default function BorrowHome() {
             </header>
 
             <main className="max-w-2xl mx-auto px-4 pt-5 space-y-6 relative z-10">
-                {/* 1. Primary Action CTAs FIRST (above the fold on 360x640 mobile) */}
+                {/* Primary Action CTAs */}
                 <section aria-label="Tác vụ chính" className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <motion.button
                         type="button"
@@ -302,7 +205,7 @@ export default function BorrowHome() {
                     </motion.button>
                 </section>
 
-                {/* 2. Actionable / Active Borrow Requests */}
+                {/* Open Requests List */}
                 <section aria-labelledby="section-my-requests-title" className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2.5">
                         <div className="flex items-center gap-2">
@@ -333,7 +236,6 @@ export default function BorrowHome() {
                         )}
                     </div>
 
-                    {/* Filter Chips Bar (>=44px touch targets) */}
                     {openRequests.length > 1 && (
                         <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-bold">
                             <button
@@ -379,7 +281,6 @@ export default function BorrowHome() {
                         </div>
                     )}
 
-                    {/* Strictly separate Loading -> Error -> Empty -> Success */}
                     {loading ? (
                         <div role="status" className="p-10 text-center bg-white rounded-3xl border-2 border-black shadow-[4px_4px_0_#000] space-y-3">
                             <RefreshCw size={28} className="animate-spin motion-reduce:animate-none text-indigo-600 mx-auto" aria-hidden="true" />
@@ -444,64 +345,19 @@ export default function BorrowHome() {
                     )}
                 </section>
 
-                {/* 3. Quick Filter Stats Grid (Moved below active tasks for mobile hierarchy) */}
+                {/* Quick Filter Stats Grid */}
                 {!fetchError && openRequests.length > 0 && (
-                    <section aria-label="Lọc nhanh theo trạng thái">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <StatBox
-                                title="Đang Mượn"
-                                value={stats.handedOver}
-                                icon={Package}
-                                color="bg-violet-100"
-                                labelColor="text-violet-700"
-                                active={statusFilter === 'handed_over'}
-                                shouldReduceMotion={shouldReduceMotion}
-                                onClick={() =>
-                                    setStatusFilter((prev) => (prev === 'handed_over' ? 'all' : 'handed_over'))
-                                }
-                            />
-                            <StatBox
-                                title="Chờ Duyệt"
-                                value={stats.pending}
-                                icon={Clock}
-                                color="bg-sky-100"
-                                labelColor="text-sky-700"
-                                active={statusFilter === 'pending'}
-                                shouldReduceMotion={shouldReduceMotion}
-                                onClick={() =>
-                                    setStatusFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))
-                                }
-                            />
-                            <StatBox
-                                title="Chờ Xác Nhận"
-                                value={stats.unverified}
-                                icon={Mail}
-                                color="bg-amber-100"
-                                labelColor="text-amber-700"
-                                active={statusFilter === 'unverified'}
-                                shouldReduceMotion={shouldReduceMotion}
-                                onClick={() =>
-                                    setStatusFilter((prev) => (prev === 'unverified' ? 'all' : 'unverified'))
-                                }
-                            />
-                            <StatBox
-                                title="Quá Hạn"
-                                value={stats.overdue}
-                                icon={AlertTriangle}
-                                color="bg-rose-100"
-                                labelColor="text-rose-700"
-                                badge={stats.overdue > 0 ? 'KHẨN' : null}
-                                active={statusFilter === 'overdue'}
-                                shouldReduceMotion={shouldReduceMotion}
-                                onClick={() =>
-                                    setStatusFilter((prev) => (prev === 'overdue' ? 'all' : 'overdue'))
-                                }
-                            />
-                        </div>
-                    </section>
+                    <BorrowStatGrid
+                        stats={stats}
+                        statusFilter={statusFilter}
+                        onToggleFilter={(key) =>
+                            setStatusFilter((prev) => (prev === key ? 'all' : key))
+                        }
+                        shouldReduceMotion={shouldReduceMotion}
+                    />
                 )}
 
-                {/* 4. History Section (Collapsible) */}
+                {/* History */}
                 {historyRequests.length > 0 && (
                     <section aria-label="Lịch sử mượn trả" className="space-y-3">
                         <button
@@ -534,7 +390,7 @@ export default function BorrowHome() {
                     </section>
                 )}
 
-                {/* 5. Warehouse Location & Quick Info Footer */}
+                {/* Warehouse Location Footer */}
                 <section aria-label="Thông tin kho thiết bị" className="space-y-3">
                     <div className="hidden sm:flex items-center gap-2 overflow-x-auto pb-1 text-xs font-black">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-yellow-300 border-2 border-black whitespace-nowrap">
@@ -573,46 +429,12 @@ export default function BorrowHome() {
                 </section>
             </main>
 
-            {/* Accessible Warehouse Quick Info Modal */}
             <AnimatePresence>
                 {showWarehouseModal && (
-                    <AccessibleDialog
+                    <WarehouseInfoDialog
                         open={showWarehouseModal}
                         onClose={() => setShowWarehouseModal(false)}
-                        titleId="warehouse-modal-title"
-                    >
-                        <div className="border-b-2 border-slate-100 pb-3 pr-12">
-                            <h2
-                                id="warehouse-modal-title"
-                                className="text-base font-black text-black uppercase tracking-tight flex items-center gap-2"
-                            >
-                                <MapPin size={18} className="text-rose-600" aria-hidden="true" />
-                                Thông Tin Kho Thiết Bị
-                            </h2>
-                        </div>
-
-                        <div className="space-y-3 text-xs font-medium text-slate-700">
-                            <div className="p-3 bg-slate-50 border border-slate-300 rounded-xl space-y-1">
-                                <p className="font-bold text-black">Vị trí kho thiết bị:</p>
-                                <p className="text-slate-900 font-bold">Phòng IT - Floor 2 - Campus HCM</p>
-                                <p className="text-slate-600">Greenwich Việt Nam — Cơ sở TP. Hồ Chí Minh</p>
-                            </div>
-
-                            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1">
-                                <p className="font-bold text-emerald-950">Thời gian mở cửa đón tiếp:</p>
-                                <p className="text-emerald-900">Sáng: 08:00 - 11:30</p>
-                                <p className="text-emerald-900">Chiều: 13:30 - 17:30</p>
-                            </div>
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={() => setShowWarehouseModal(false)}
-                            className="w-full min-h-[44px] py-2.5 bg-black text-white font-black text-xs rounded-xl shadow-[2px_2px_0_#000] hover:bg-slate-800"
-                        >
-                            Đã Hiểu
-                        </button>
-                    </AccessibleDialog>
+                    />
                 )}
             </AnimatePresence>
         </div>
