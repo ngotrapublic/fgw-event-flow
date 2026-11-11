@@ -1,4 +1,4 @@
-const { db, resourcesCollection, borrowRequestsCollection, borrowOtpsCollection, borrowIdempotencyCollection } = require('../config/firebase');
+const { admin, db, resourcesCollection, borrowRequestsCollection, borrowOtpsCollection, borrowIdempotencyCollection } = require('../config/firebase');
 const HttpError = require('../utils/http-error');
 const { OPEN_STATUSES, LIMITS } = require('../services/borrow-constants');
 const { transition } = require('../services/borrow-transition-service');
@@ -23,6 +23,28 @@ const {
 } = borrowSessionService;
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
+
+function toTimestamp(ms) {
+    if (admin?.firestore?.Timestamp?.fromMillis) {
+        return admin.firestore.Timestamp.fromMillis(ms);
+    }
+    return new Date(ms);
+}
+
+function toEpochMs(val) {
+    if (val === undefined || val === null) return null;
+    if (typeof val === 'number') return isFinite(val) ? val : null;
+    if (typeof val?.toMillis === 'function') return val.toMillis();
+    if (typeof val?.seconds === 'number') {
+        return val.seconds * 1000 + Math.floor((val.nanoseconds || 0) / 1e6);
+    }
+    const parsed = new Date(val).getTime();
+    return isNaN(parsed) ? null : parsed;
+}
+
+function getOtpDocId(normalizedPhone) {
+    return hmacKey(`otp:${normalizedPhone}`);
+}
 
 function deriveVnDateOnly(doc) {
     if (doc?.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.dueDate)) {
@@ -240,6 +262,7 @@ async function createBorrowRequest(req, res, next) {
             verifyTokenHash: verifyTokenHash || null,
             verifiedTokenHash: null,
             verifyExpiresAt: verifyExpiresAt || null,
+            emailDispatchedAt: null,
             history: [{
                 status,
                 at: nowIso,
@@ -254,10 +277,58 @@ async function createBorrowRequest(req, res, next) {
         const txResult = await db.runTransaction(async (tx) => {
             if (idemRef) {
                 const idemSnap = await tx.get(idemRef);
-                if (idemSnap.exists && idemSnap.data()?.requestId) {
-                    const prevSnap = await tx.get(borrowRequestsCollection.doc(idemSnap.data().requestId));
-                    if (prevSnap.exists) {
-                        return { idempotentHit: true, request: { id: prevSnap.id, ...prevSnap.data() } };
+                if (idemSnap.exists) {
+                    const idemData = idemSnap.data() || {};
+                    const idemExpMs = toEpochMs(idemData.expiresAt);
+                    const isActiveMarker = Boolean(
+                        idemData.requestId && idemExpMs !== null && idemExpMs > nowMs
+                    );
+                    if (isActiveMarker) {
+                        const prevRef = borrowRequestsCollection.doc(idemData.requestId);
+                        const prevSnap = await tx.get(prevRef);
+                        if (prevSnap.exists) {
+                            const prevData = prevSnap.data() || {};
+                            if (
+                                borrowerType === 'guest' &&
+                                prevData.status === 'unverified' &&
+                                !prevData.emailDispatchedAt
+                            ) {
+                                // Crash-between-commit-and-email recovery (LOW-RECHECK-01):
+                                // rotate fresh verify token & link code atomically so retry completes email delivery
+                                const freshVerifyToken = newToken();
+                                const freshVerifyHash = hash(freshVerifyToken);
+                                const freshVerifyExpIso = new Date(nowMs + LIMITS.VERIFY_TTL_MS).toISOString();
+                                const freshLinkPlan = borrowLinkService.prepareLinkCodeData(prevSnap.id, { nowMs });
+
+                                tx.update(prevRef, {
+                                    verifyTokenHash: freshVerifyHash,
+                                    verifyExpiresAt: freshVerifyExpIso,
+                                    updatedAt: nowIso
+                                });
+                                borrowLinkService.commitLinkCodeInTx(tx, freshLinkPlan);
+
+                                return {
+                                    idempotentHit: true,
+                                    needsGuestVerifyDispatch: true,
+                                    freshVerifyToken,
+                                    freshLinkCode: freshLinkPlan.code,
+                                    requestRef: prevRef,
+                                    request: {
+                                        id: prevSnap.id,
+                                        ...prevData,
+                                        verifyTokenHash: freshVerifyHash,
+                                        verifyExpiresAt: freshVerifyExpIso
+                                    }
+                                };
+                            }
+
+                            return {
+                                idempotentHit: true,
+                                needsGuestVerifyDispatch: false,
+                                requestRef: prevRef,
+                                request: { id: prevSnap.id, ...prevData }
+                            };
+                        }
                     }
                 }
             }
@@ -272,11 +343,12 @@ async function createBorrowRequest(req, res, next) {
             tx.set(docRef, docData);
             borrowLinkService.commitLinkCodeInTx(tx, linkPlan);
             if (idemRef) {
+                // Store only non-PII HMAC digest + Firestore Timestamp TTL fields (MEDIUM-RECHECK-03)
                 tx.set(idemRef, {
                     requestId: docRef.id,
-                    ownerScope,
-                    createdAt: nowMs,
-                    expiresAt: nowMs + LIMITS.VERIFY_TTL_MS
+                    ownerHash: hmacKey(`idem-owner:${ownerScope}`),
+                    createdAt: toTimestamp(nowMs),
+                    expiresAt: toTimestamp(nowMs + LIMITS.VERIFY_TTL_MS)
                 });
             }
 
@@ -287,6 +359,16 @@ async function createBorrowRequest(req, res, next) {
 
         if (txResult.idempotentHit) {
             let sessionIssued = true;
+            if (txResult.needsGuestVerifyDispatch && txResult.freshVerifyToken) {
+                await borrowEmailService.sendVerify(
+                    txResult.request,
+                    txResult.freshVerifyToken,
+                    txResult.freshLinkCode
+                );
+                const dispatchedIso = new Date().toISOString();
+                await txResult.requestRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
+                txResult.request.emailDispatchedAt = dispatchedIso;
+            }
             if (!req.user) {
                 try {
                     await borrowSessionService.grantRequestAccessToSession(req, res, txResult.request.id);
@@ -316,6 +398,9 @@ async function createBorrowRequest(req, res, next) {
         if (borrowerType === 'guest') {
             try {
                 await borrowEmailService.sendVerify(docData, verifyToken, linkPlan.code);
+                const dispatchedIso = new Date().toISOString();
+                await docRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
+                docData.emailDispatchedAt = dispatchedIso;
             } catch (mailErr) {
                 // Atomically release quota + delete doc, link code, and idempotency marker on mail failure
                 await rollbackCreatedRequest(docRef, docData, {
@@ -339,6 +424,9 @@ async function createBorrowRequest(req, res, next) {
         } else {
             try {
                 await borrowEmailService.sendCreatedForAccount(docData, linkPlan.code);
+                const dispatchedIso = new Date().toISOString();
+                await docRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
+                docData.emailDispatchedAt = dispatchedIso;
             } catch (mailErr) {
                 console.error('[BORROW] Failed to send creation email for account:', mailErr.message);
                 emailSent = false;
@@ -562,6 +650,8 @@ async function resendVerification(req, res, next) {
             linkCode
         );
 
+        await docRef.update({ emailDispatchedAt: new Date().toISOString() }).catch(() => {});
+
         res.status(200).json({ message: 'Đã gửi lại email xác nhận' });
     } catch (err) {
         next(err);
@@ -661,8 +751,8 @@ async function requestOtp(req, res, next) {
             return res.status(200).json(standardResponse);
         }
 
-        const phoneHash = hash(phone);
-        const otpRef = borrowOtpsCollection.doc(phoneHash);
+        const otpDocId = getOtpDocId(phone);
+        const otpRef = borrowOtpsCollection.doc(otpDocId);
 
         const otpTx = await db.runTransaction(async (tx) => {
             const otpSnap = await tx.get(otpRef);
@@ -690,16 +780,20 @@ async function requestOtp(req, res, next) {
             const expiresAt = new Date(now + LIMITS.OTP_TTL_MS).toISOString();
             const newSendCount = currentCount + 1;
             const newWindowStart = inWindow ? otpData.windowStart : new Date(now).toISOString();
+            const retainUntilMs = Math.max(
+                now + LIMITS.OTP_TTL_MS,
+                new Date(newWindowStart).getTime() + 3600e3
+            );
 
             tx.set(otpRef, {
-                phoneHash,
                 codeHash,
                 expiresAt,
                 sentAt: new Date(now).toISOString(),
                 attempts: 0,
                 sendCount: newSendCount,
                 windowStart: newWindowStart,
-                lockoutUntil: null
+                lockoutUntil: null,
+                retainUntil: toTimestamp(retainUntilMs)
             });
 
             return { shouldSend: true, code };
@@ -750,8 +844,8 @@ async function verifyOtp(req, res, next) {
         }
 
         const normalizedPhone = borrowValidation.normalizePhone(phone);
-        const phoneHash = hash(normalizedPhone);
-        const otpRef = borrowOtpsCollection.doc(phoneHash);
+        const otpDocId = getOtpDocId(normalizedPhone);
+        const otpRef = borrowOtpsCollection.doc(otpDocId);
 
         const result = await db.runTransaction(async (tx) => {
             const snap = await tx.get(otpRef);
@@ -766,6 +860,8 @@ async function verifyOtp(req, res, next) {
                 const patch = { attempts: nextAttempts };
                 if (nextAttempts >= LIMITS.OTP_MAX_ATTEMPTS) {
                     patch.lockoutUntil = now + LIMITS.OTP_LOCKOUT_MS;
+                    const existingRetainMs = toEpochMs(otp.retainUntil) || 0;
+                    patch.retainUntil = toTimestamp(Math.max(existingRetainMs, patch.lockoutUntil));
                 }
                 tx.update(otpRef, patch);
                 return 'invalid';

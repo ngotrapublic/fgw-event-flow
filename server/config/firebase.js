@@ -1,22 +1,13 @@
 const admin = require('firebase-admin');
-const path = require('path');
+const { loadEnv } = require('./load-env');
 
-// Phase 4: Load environment-specific config
-const envFile = process.env.NODE_ENV === 'production'
-    ? '.env.production'
-    : process.env.NODE_ENV === 'staging'
-        ? '.env.staging'
-        : '.env.development';
+// Ensure env files (.env.<NODE_ENV> / .env) are loaded idempotently even if firebase.js is required directly
+const envResult = loadEnv();
 
-require('dotenv').config({ path: path.resolve(__dirname, '..', envFile) });
-
-// Fallback to .env if specific file doesn't exist or contains placeholder values
-if (!process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID === 'your-dev-project-id' || !process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY.includes('YOUR_DEV_PRIVATE_KEY_HERE')) {
-    require('dotenv').config({ path: path.resolve(__dirname, '..', '.env'), override: true });
+console.log(`🌍 Environment: ${envResult.nodeEnv || process.env.NODE_ENV || 'development'}`);
+if (envResult.loadedFiles.length > 0) {
+    console.log(`📁 Env files loaded: ${envResult.loadedFiles.join(', ')}`);
 }
-
-console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log(`📁 Config loaded from: ${envFile}`);
 
 // Initialize Firebase Admin SDK with service account (or emulator projectId when FIRESTORE_EMULATOR_HOST is set)
 const isEmulatorMode = Boolean(process.env.FIRESTORE_EMULATOR_HOST);

@@ -49,7 +49,7 @@ const borrowLinkService = require('../services/borrow-link-service');
 const borrowSessionService = require('../services/borrow-session-service');
 const notificationService = require('../services/notificationService');
 const { transition } = require('../services/borrow-transition-service');
-const { hash } = require('../services/borrow-token-service');
+const { hash, hmacKey } = require('../services/borrow-token-service');
 const HttpError = require('../utils/http-error');
 
 const mkRes = () => ({
@@ -596,10 +596,9 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
     test('12. lookup/verify: 6 lần nhập sai gửi bằng Promise.all -> attempts === 5, sau đó nhập đúng vẫn 400', async () => {
         const phone = '0901234567';
         const code = '123456';
-        const phoneHash = hash(phone);
+        const otpKey = hmacKey(`otp:${phone}`);
 
-        mockFirebase.__stores.borrow_otps.set(phoneHash, {
-            phoneHash,
+        mockFirebase.__stores.borrow_otps.set(otpKey, {
             codeHash: hash(code),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -620,7 +619,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             expect(r.body.error).toBe('Mã không đúng hoặc đã hết hạn');
         });
 
-        const otpDoc = mockFirebase.__stores.borrow_otps.get(phoneHash);
+        const otpDoc = mockFirebase.__stores.borrow_otps.get(otpKey);
         expect(otpDoc.attempts).toBe(5);
 
         // 7th attempt with CORRECT code -> still 400
@@ -632,10 +631,9 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
     test('12b. lookup/verify: nhập đúng sau 4 lần sai -> 200, doc OTP bị xoá', async () => {
         const phone = '0901234567';
         const code = '777888';
-        const phoneHash = hash(phone);
+        const otpKey = hmacKey(`otp:${phone}`);
 
-        mockFirebase.__stores.borrow_otps.set(phoneHash, {
-            phoneHash,
+        mockFirebase.__stores.borrow_otps.set(otpKey, {
             codeHash: hash(code),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -655,7 +653,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             expect(r.statusCode).toBe(400);
         }
 
-        const otpDocBefore = mockFirebase.__stores.borrow_otps.get(phoneHash);
+        const otpDocBefore = mockFirebase.__stores.borrow_otps.get(otpKey);
         expect(otpDocBefore.attempts).toBe(4);
 
         // 5th attempt with CORRECT code -> 200, sets HttpOnly session cookie
@@ -666,16 +664,15 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(rCorrect.cookies.borrow_session).toBeDefined();
 
         // OTP doc must be deleted
-        expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
+        expect(mockFirebase.__stores.borrow_otps.has(otpKey)).toBe(false);
     });
 
     test('12c. lookup/verify: chấp nhận mã OTP dán có khoảng trắng ở giữa', async () => {
         const phone = '0901234567';
         const code = '456789';
-        const phoneHash = hash(phone);
+        const otpKey = hmacKey(`otp:${phone}`);
 
-        mockFirebase.__stores.borrow_otps.set(phoneHash, {
-            phoneHash,
+        mockFirebase.__stores.borrow_otps.set(otpKey, {
             codeHash: hash(code),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -693,13 +690,13 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.requests).toHaveLength(1);
         expect(res.cookies.borrow_session).toBeDefined();
-        expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
+        expect(mockFirebase.__stores.borrow_otps.has(otpKey)).toBe(false);
     });
 
     test('13. lookup/verify đúng -> session mới mở được phiếu; session cũ và link code cũ bị thu hồi', async () => {
         const phone = '0901234567';
         const code = '654321';
-        const phoneHash = hash(phone);
+        const otpKey = hmacKey(`otp:${phone}`);
         const oldSid = 'old-session-id-000';
         const oldLinkCode = 'old-link-code-000';
 
@@ -715,8 +712,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             revokedAt: null
         });
 
-        mockFirebase.__stores.borrow_otps.set(phoneHash, {
-            phoneHash,
+        mockFirebase.__stores.borrow_otps.set(otpKey, {
             codeHash: hash(code),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -793,8 +789,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(resReminder.body.requests).toHaveLength(1);
 
         // OTP lookup revokes session opened by linkCode
-        mockFirebase.__stores.borrow_otps.set(hash(phone), {
-            phoneHash: hash(phone),
+        mockFirebase.__stores.borrow_otps.set(hmacKey(`otp:${phone}`), {
             codeHash: hash(code),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -1052,8 +1047,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
 
         // 2. Owner performs OTP recovery -> revokes old session
         const otpCode = '999888';
-        mockFirebase.__stores.borrow_otps.set(hash(phone), {
-            phoneHash: hash(phone),
+        mockFirebase.__stores.borrow_otps.set(hmacKey(`otp:${phone}`), {
             codeHash: hash(otpCode),
             expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
             attempts: 0
@@ -1210,14 +1204,18 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         await new Promise((r) => setImmediate(r));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
 
-        const otpDoc = mockFirebase.__stores.borrow_otps.get(hash(phone));
+        const otpKey = hmacKey(`otp:${phone}`);
+        const otpDoc = mockFirebase.__stores.borrow_otps.get(otpKey);
         expect(otpDoc.sendCount).toBe(1);
+        expect(mockFirebase.__stores.borrow_otps.has(hash(phone))).toBe(false);
+        expect(otpDoc.phoneHash).toBeUndefined();
+        expect(otpDoc.retainUntil?.toMillis()).toBeGreaterThanOrEqual(Date.now() + 3500e3);
 
         // Only the deterministic code actually sent in the single email works
         const deliveredCode = borrowEmailService.sendOtp.mock.calls[0][1];
 
         // Also simulate hourly quota already at 3 in current window & cooldown elapsed -> 5 concurrent calls send ZERO emails
-        mockFirebase.__stores.borrow_otps.set(hash(phone), {
+        mockFirebase.__stores.borrow_otps.set(otpKey, {
             ...otpDoc,
             sentAt: new Date(Date.now() - 120e3).toISOString(),
             windowStart: new Date(Date.now() - 120e3).toISOString(),
@@ -1235,7 +1233,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             const bad = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code: '000000' } });
             expect(bad.statusCode).toBe(400);
         }
-        const lockedDoc = mockFirebase.__stores.borrow_otps.get(hash(phone));
+        const lockedDoc = mockFirebase.__stores.borrow_otps.get(otpKey);
         expect(lockedDoc.lockoutUntil).toBeGreaterThan(Date.now());
 
         const blockedResend = await callHandler(borrowCtrl.requestOtp, { body: { phone } });
@@ -1682,6 +1680,100 @@ describe('Follow-up Audit Security & Reliability Regressions', () => {
             path: '/'
         });
         expect(createHttps.cookies.borrow_session).toBeUndefined();
+    });
+
+    // MEDIUM-RECHECK-03: Idempotency marker expiry & zero raw PII
+    test('expired_idempotency_key_creates_new_request_and_replaces_marker', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-recheck-exp-1';
+        const guestEmail = 'idemp.piicheck@test.com';
+        const guestPhone = '0903334455';
+
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Idem PII Tester',
+                email: guestEmail,
+                phone: guestPhone,
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res1.statusCode).toBe(201);
+        const firstId = res1.body.request.id;
+
+        expect(mockFirebase.__stores.borrow_idempotency.size).toBe(1);
+        const [docId, storedMarker] = Array.from(mockFirebase.__stores.borrow_idempotency.entries())[0];
+
+        // 1. Verify NO raw PII (email, phone, ownerScope) in doc ID or fields + Firestore Timestamp fields exist
+        const serialized = JSON.stringify({ docId, storedMarker });
+        expect(serialized).not.toContain(guestEmail);
+        expect(serialized).not.toContain(guestPhone);
+        expect(storedMarker.ownerScope).toBeUndefined();
+        expect(typeof storedMarker.ownerHash).toBe('string');
+        expect(typeof storedMarker.createdAt?.toMillis).toBe('function');
+        expect(typeof storedMarker.expiresAt?.toMillis).toBe('function');
+        expect(storedMarker.expiresAt.toMillis()).toBeGreaterThan(Date.now());
+
+        // 2. Expire the marker in store -> retry with same Idempotency-Key MUST create a new request & overwrite marker
+        mockFirebase.__stores.borrow_idempotency.set(docId, {
+            ...storedMarker,
+            expiresAt: mockFirebase.admin.firestore.Timestamp.fromMillis(Date.now() - 5000)
+        });
+
+        const res2 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res2.statusCode).toBe(201);
+        expect(res2.body.deduplicated).toBeUndefined();
+        expect(res2.body.request.id).not.toBe(firstId);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(2);
+
+        const refreshedMarker = mockFirebase.__stores.borrow_idempotency.get(docId);
+        expect(refreshedMarker.requestId).toBe(res2.body.request.id);
+        expect(refreshedMarker.expiresAt.toMillis()).toBeGreaterThan(Date.now());
+    });
+
+    // LOW-RECHECK-01: Crash after commit / before initial email delivery recovers cleanly on retry
+    test('idempotent_retry_dispatches_verify_email_if_process_crashed_before_send', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-crash-before-mail-1';
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Crash Recovery Guest',
+                email: 'crashmail@test.com',
+                phone: '0906661122',
+                dueDate,
+                items: [{ resourceId: 'mic', qty: 1 }]
+            },
+            user: null
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res1.statusCode).toBe(201);
+        const createdId = res1.body.request.id;
+
+        // Simulate process having died after tx commit BEFORE SMTP succeeded (emailDispatchedAt still null)
+        const storedReq = mockFirebase.__stores.borrow_requests.get(createdId);
+        mockFirebase.__stores.borrow_requests.set(createdId, {
+            ...storedReq,
+            emailDispatchedAt: null
+        });
+        borrowEmailService.sendVerify.mockClear();
+
+        const retryRes = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(retryRes.statusCode).toBe(200);
+        expect(retryRes.body.deduplicated).toBe(true);
+        expect(retryRes.body.request.id).toBe(createdId);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+
+        // Fresh verify token issued during recovery works to verify the request
+        const recoveredToken = borrowEmailService.sendVerify.mock.calls[0][1];
+        const verifyRes = await callHandler(borrowCtrl.verifyEmail, { body: { token: recoveredToken } });
+        expect(verifyRes.statusCode).toBe(200);
+        expect(verifyRes.body.request.status).toBe('pending');
     });
 });
 

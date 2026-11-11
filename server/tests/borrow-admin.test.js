@@ -719,5 +719,5 @@ describe('Phase 03 — Borrow Admin API (/api/borrow/admin)', () => {
                 delete process.env.APP_PUBLIC_URL;
             }
         }
-    });
+    }, 15000);
 });

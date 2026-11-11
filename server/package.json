@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
-    "test:emulator": "npx --yes firebase-tools --config ../firebase.json emulators:exec --only firestore --project demo-antigravity-borrow \"npm run test:emulator:run\"",
+    "test:emulator": "firebase --config ../firebase.json emulators:exec --only firestore --project demo-antigravity-borrow \"npm run test:emulator:run\"",
     "test:emulator:run": "jest --config jest.emulator.config.js --runInBand",
     "start": "node index.js",
     "dev": "nodemon index.js"
@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase-tools": "15.35.0",
     "jest": "^30.2.0"
   }
 }

@@ -52,6 +52,8 @@ cp .env.example .env
 > **Bảo mật HTTPS & Reverse Proxy (Bắt buộc trước Production):**
 > - Ở `NODE_ENV=production`, server sẽ **fail-fast** nếu `APP_PUBLIC_URL` không bắt đầu bằng `https://` hoặc thiếu `BORROW_HMAC_SECRET` (< 32 byte).
 > - Triển khai reverse proxy TLS (xem mẫu tại [deploy/nginx-borrow-tls.conf.example](deploy/nginx-borrow-tls.conf.example)) để redirect mọi request HTTP (301 → HTTPS) trước khi chạm Express, bật header `Strict-Transport-Security`, và firewall/chỉ bind backend trên `127.0.0.1:5000`.
+> - Khi triển khai non-Docker với `server/.env.production` (copy từ `server/.env.production.example`), [`loadEnv()`](server/config/load-env.js) sẽ tự động nạp `server/.env.production` **trước** bước validate bảo mật và Firebase init.
+> - Sau khi go-live, chạy script nghiệm thu HTTPS: `bash deploy/verify-https-deploy.sh event.greenwichvietnam.edu.vn`.
 
 ---
 

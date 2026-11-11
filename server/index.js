@@ -1,8 +1,11 @@
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+const { loadEnv } = require('./config/load-env');
+
+// Load .env.<NODE_ENV> / .env deterministically BEFORE security validation or Firebase init
+loadEnv();
+
 const {
     validateProductionSecurityConfig,
     enforceHttpsMiddleware
@@ -146,15 +149,17 @@ notificationCleanupJob.start();
 
 // Start server
 const server = app.listen(PORT, () => {
+    const addr = server.address();
+    const actualPort = typeof addr === 'object' && addr ? addr.port : PORT;
     console.log(`🔥 Firebase Firestore Backend - REFACTORED`);
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${actualPort}`);
 });
 
 // Graceful Shutdown (Phase 4 Deployment Security & Reliability)
 const gracefulShutdown = (signal) => {
     console.log(`\n⚠️  Received ${signal}. Initiating graceful shutdown...`);
     
-    // Stop receiving new HTTP requests
+    // Stop receiving new HTTP requests and close idle keep-alive sockets immediately
     server.close(async () => {
         console.log('✓ HTTP server closed.');
 
@@ -179,12 +184,15 @@ const gracefulShutdown = (signal) => {
         console.log('✓ Graceful shutdown complete. Exiting.');
         process.exit(0);
     });
+    if (typeof server.closeIdleConnections === 'function') {
+        server.closeIdleConnections();
+    }
 
     // Force exit if shutdown hangs longer than 10 seconds
     setTimeout(() => {
         console.error('✗ Forced shutdown due to timeout.');
         process.exit(1);
-    }, 10000);
+    }, 10000).unref();
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

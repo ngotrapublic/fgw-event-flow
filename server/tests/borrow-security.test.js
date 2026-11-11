@@ -1,3 +1,8 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const http = require('http');
+const { spawn, spawnSync } = require('child_process');
 const {
     getHmacSecret,
     getValidatedAppPublicUrl,
@@ -6,6 +11,7 @@ const {
     validateProductionSecurityConfig,
     enforceHttpsMiddleware
 } = require('../config/borrow-security');
+const { loadEnv, isTemplatePlaceholder } = require('../config/load-env');
 
 describe('Production Security Invariants (HIGH-01 & MEDIUM-02)', () => {
     const origEnv = { ...process.env };
@@ -137,4 +143,238 @@ describe('Production Security Invariants (HIGH-01 & MEDIUM-02)', () => {
         expect(resHttps.headers['Strict-Transport-Security']).toMatch(/max-age=31536000/);
         expect(nextHttps).toHaveBeenCalled();
     });
+});
+
+function httpRequestRaw(port, reqPath, { method = 'GET', headers = {} } = {}) {
+    return new Promise((resolve, reject) => {
+        const req = http.request(
+            {
+                hostname: '127.0.0.1',
+                port,
+                path: reqPath,
+                method,
+                headers: { Connection: 'close', ...headers }
+            },
+            (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    resolve({
+                        statusCode: res.statusCode,
+                        headers: res.headers,
+                        body: data
+                    });
+                });
+            }
+        );
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+describe('MEDIUM-RECHECK-01: Unified Env Loader & Process-Level .env.production Startup', () => {
+    const tmpDirs = [];
+    const serverEntry = path.resolve(__dirname, '..', 'index.js');
+
+    const makeTempDir = () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-env-test-'));
+        tmpDirs.push(dir);
+        return dir;
+    };
+
+    const minimalHostEnv = () => ({
+        PATH: process.env.PATH || '',
+        SystemRoot: process.env.SystemRoot || '',
+        TEMP: process.env.TEMP || '',
+        TMP: process.env.TMP || ''
+    });
+
+    afterEach(() => {
+        while (tmpDirs.length > 0) {
+            const dir = tmpDirs.pop();
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('loadEnv discovers NODE_ENV inside .env.production, prefers .env.production over .env, and skips dev placeholders', () => {
+        const dir = makeTempDir();
+        fs.writeFileSync(
+            path.join(dir, '.env.production'),
+            [
+                'NODE_ENV=production',
+                'APP_PUBLIC_URL=https://event.greenwichvietnam.edu.vn',
+                'ALLOWED_ORIGINS=https://event.greenwichvietnam.edu.vn',
+                'BORROW_HMAC_SECRET=' + 'f'.repeat(64)
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(dir, '.env'),
+            [
+                'APP_PUBLIC_URL=https://fallback-should-not-win.example.com',
+                'EXTRA_FROM_DOTENV=ok'
+            ].join('\n')
+        );
+
+        const targetEnv = {};
+        const result = loadEnv({ cwd: dir, serverDir: dir, rootDir: dir, env: targetEnv });
+
+        expect(result.nodeEnv).toBe('production');
+        expect(targetEnv.NODE_ENV).toBe('production');
+        expect(targetEnv.APP_PUBLIC_URL).toBe('https://event.greenwichvietnam.edu.vn');
+        expect(targetEnv.ALLOWED_ORIGINS).toBe('https://event.greenwichvietnam.edu.vn');
+        expect(targetEnv.EXTRA_FROM_DOTENV).toBe('ok');
+
+        // Template placeholders are skipped in development mode
+        const devDir = makeTempDir();
+        fs.writeFileSync(
+            path.join(devDir, '.env.development'),
+            'FIREBASE_PROJECT_ID=your-dev-project-id\nAPP_PUBLIC_URL=http://localhost:5173\n'
+        );
+        const devEnv = { NODE_ENV: 'development' };
+        loadEnv({ cwd: devDir, serverDir: devDir, rootDir: devDir, env: devEnv });
+        expect(isTemplatePlaceholder('your-dev-project-id')).toBe(true);
+        expect(devEnv.FIREBASE_PROJECT_ID).toBeUndefined();
+        expect(devEnv.APP_PUBLIC_URL).toBe('http://localhost:5173');
+    });
+
+    test('Spawned server fails fast when isolated temp .env.production specifies http:// APP_PUBLIC_URL or missing secret', () => {
+        const dir = makeTempDir();
+        fs.writeFileSync(
+            path.join(dir, '.env.production'),
+            [
+                'NODE_ENV=production',
+                'APP_PUBLIC_URL=http://event.greenwichvietnam.edu.vn',
+                'BORROW_HMAC_SECRET=' + 'a'.repeat(64),
+                'TRUST_PROXY=loopback',
+                'ALLOWED_ORIGINS=https://event.greenwichvietnam.edu.vn'
+            ].join('\n')
+        );
+
+        const res = spawnSync(process.execPath, [serverEntry], {
+            cwd: dir,
+            env: minimalHostEnv(),
+            encoding: 'utf8',
+            timeout: 15000
+        });
+
+        expect(res.status).toBe(1);
+        expect(res.stderr).toMatch(/\[SECURITY FATAL\].*https:\/\//i);
+
+        // Also fail-fast when BORROW_HMAC_SECRET is missing inside .env.production
+        fs.writeFileSync(
+            path.join(dir, '.env.production'),
+            [
+                'NODE_ENV=production',
+                'APP_PUBLIC_URL=https://event.greenwichvietnam.edu.vn',
+                'TRUST_PROXY=loopback'
+            ].join('\n')
+        );
+        const resMissingSecret = spawnSync(process.execPath, [serverEntry], {
+            cwd: dir,
+            env: minimalHostEnv(),
+            encoding: 'utf8',
+            timeout: 15000
+        });
+        expect(resMissingSecret.status).toBe(1);
+        expect(resMissingSecret.stderr).toMatch(/\[SECURITY FATAL\].*BORROW_HMAC_SECRET/i);
+    });
+
+    test('Spawned server boots cleanly from isolated temp .env.production (without shell NODE_ENV) and enforces HTTPS/proxy rules', async () => {
+        const dir = makeTempDir();
+        fs.writeFileSync(
+            path.join(dir, '.env.production'),
+            [
+                'NODE_ENV=production',
+                'PORT=0',
+                'FIRESTORE_EMULATOR_HOST=127.0.0.1:19999',
+                'FIREBASE_PROJECT_ID=demo-env-boot-test',
+                'APP_PUBLIC_URL=https://event.greenwichvietnam.edu.vn',
+                'ALLOWED_ORIGINS=https://event.greenwichvietnam.edu.vn',
+                'TRUST_PROXY=loopback',
+                'BORROW_HMAC_SECRET=' + 'c'.repeat(64)
+            ].join('\n')
+        );
+
+        const child = spawn(process.execPath, [serverEntry], {
+            cwd: dir,
+            env: minimalHostEnv(),
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (d) => {
+            stdout += d.toString();
+        });
+        child.stderr.on('data', (d) => {
+            stderr += d.toString();
+        });
+
+        try {
+            const port = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    reject(new Error(`Server startup timed out.\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`));
+                }, 45000);
+                timer.unref?.();
+
+                const checkOutput = () => {
+                    const m = stdout.match(/Server running on http:\/\/localhost:(\d+)/);
+                    if (m) {
+                        clearTimeout(timer);
+                        resolve(Number(m[1]));
+                    }
+                };
+                child.stdout.on('data', checkOutput);
+                child.once('exit', (code) => {
+                    clearTimeout(timer);
+                    reject(new Error(`Server exited prematurely (${code}).\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`));
+                });
+            });
+
+            expect(stdout).toContain('Environment: production');
+
+            // 1. /health works over plain HTTP for local HEALTHCHECK
+            const healthRes = await httpRequestRaw(port, '/health');
+            expect(healthRes.statusCode).toBe(200);
+            expect(JSON.parse(healthRes.body).status).toBe('OK');
+
+            // 2. Plain HTTP page GET /borrow redirects 301 to configured https:// APP_PUBLIC_URL
+            const redirectRes = await httpRequestRaw(port, '/borrow');
+            expect(redirectRes.statusCode).toBe(301);
+            expect(redirectRes.headers.location).toBe('https://event.greenwichvietnam.edu.vn/borrow');
+
+            // 3. Plain HTTP POST /api/borrow/verify is blocked 403
+            const httpVerifyRes = await httpRequestRaw(port, '/api/borrow/verify', { method: 'POST' });
+            expect(httpVerifyRes.statusCode).toBe(403);
+
+            // 4. Trusted loopback proxy forwarding X-Forwarded-Proto: https gets HSTS header
+            const httpsProxiedRes = await httpRequestRaw(port, '/api/borrow/my', {
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            expect(httpsProxiedRes.headers['strict-transport-security']).toMatch(/max-age=31536000/);
+            expect(httpsProxiedRes.statusCode).not.toBe(403);
+        } finally {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            await new Promise((resolve) => {
+                if (child.exitCode !== null || child.killed) {
+                    return resolve();
+                }
+                const killTimer = setTimeout(() => {
+                    try {
+                        child.kill('SIGKILL');
+                    } catch (_) {}
+                    resolve();
+                }, 2000);
+                killTimer.unref?.();
+                child.once('close', () => {
+                    clearTimeout(killTimer);
+                    resolve();
+                });
+                child.kill('SIGTERM');
+            });
+        }
+    }, 55000);
 });

@@ -1,8 +1,11 @@
 const {
+    admin,
     db,
     borrowRequestsCollection,
     borrowReminderOutboxCollection,
-    borrowLinkCodesCollection
+    borrowLinkCodesCollection,
+    borrowIdempotencyCollection,
+    borrowOtpsCollection
 } = require('../config/firebase');
 const { newToken, hash } = require('../services/borrow-token-service');
 const { transition } = require('../services/borrow-transition-service');
@@ -442,6 +445,42 @@ class BorrowReminderJob {
                 }
             } catch (err) {
                 console.error('[BORROW REMINDER] Step 4 (overdue) error:', err.message);
+            }
+
+            // ==========================================
+            // BƯỚC 5: DỌN DẸP IDEMPOTENCY & OTP HẾT HẠN
+            // (Kết hợp tốt với Firestore TTL policy trên expiresAt / retainUntil Timestamp)
+            // ==========================================
+            try {
+                const nowCleanupVal = admin?.firestore?.Timestamp?.fromMillis
+                    ? admin.firestore.Timestamp.fromMillis(Date.now())
+                    : new Date();
+
+                if (borrowIdempotencyCollection) {
+                    const expiredIdemSnap = await borrowIdempotencyCollection
+                        .where('expiresAt', '<', nowCleanupVal)
+                        .limit(100)
+                        .get();
+                    if (!expiredIdemSnap.empty) {
+                        const idemBatch = db.batch();
+                        expiredIdemSnap.docs.forEach((doc) => idemBatch.delete(doc.ref));
+                        await idemBatch.commit();
+                    }
+                }
+
+                if (borrowOtpsCollection) {
+                    const expiredOtpSnap = await borrowOtpsCollection
+                        .where('retainUntil', '<', nowCleanupVal)
+                        .limit(100)
+                        .get();
+                    if (!expiredOtpSnap.empty) {
+                        const otpBatch = db.batch();
+                        expiredOtpSnap.docs.forEach((doc) => otpBatch.delete(doc.ref));
+                        await otpBatch.commit();
+                    }
+                }
+            } catch (err) {
+                console.error('[BORROW REMINDER] Step 5 (expired idempotency/OTP cleanup) error:', err.message);
             }
         } finally {
             this.running = false;

@@ -8,6 +8,51 @@
 // Resolve dotted Firestore field paths like 'borrower.phone'
 const getPath = (data, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), data);
 
+class MockTimestamp {
+    constructor(seconds, nanoseconds = 0) {
+        this.seconds = Number(seconds) || 0;
+        this.nanoseconds = Number(nanoseconds) || 0;
+    }
+
+    static fromDate(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        return MockTimestamp.fromMillis(d.getTime());
+    }
+
+    static fromMillis(ms) {
+        const num = Number(ms) || 0;
+        const seconds = Math.floor(num / 1000);
+        const nanoseconds = Math.max(0, (num - seconds * 1000) * 1e6);
+        return new MockTimestamp(seconds, nanoseconds);
+    }
+
+    static now() {
+        return MockTimestamp.fromMillis(Date.now());
+    }
+
+    toMillis() {
+        return this.seconds * 1000 + Math.floor(this.nanoseconds / 1e6);
+    }
+
+    toDate() {
+        return new Date(this.toMillis());
+    }
+
+    valueOf() {
+        return this.toMillis();
+    }
+}
+
+const normalizeComparable = (val) => {
+    if (val === undefined || val === null) return val;
+    if (typeof val?.toMillis === 'function') return val.toMillis();
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === 'object' && typeof val.seconds === 'number' && typeof val.nanoseconds === 'number') {
+        return val.seconds * 1000 + Math.floor(val.nanoseconds / 1e6);
+    }
+    return val;
+};
+
 const setNested = (obj, path, val) => {
     const parts = path.split('.');
     let curr = obj;
@@ -19,17 +64,19 @@ const setNested = (obj, path, val) => {
 };
 
 const matchesWhere = (data, [field, op, val]) => {
-    const v = getPath(data, field);
+    const rawV = getPath(data, field);
+    const v = normalizeComparable(rawV);
+    const target = Array.isArray(val) ? val : normalizeComparable(val);
     switch (op) {
-        case '==': return v === val;
-        case 'in': return Array.isArray(val) && val.includes(v);
-        case '>=': return v >= val;
-        case '<=': return v <= val;
-        case '<': return v < val;
-        case '>': return v > val;
-        case 'array-contains': return Array.isArray(v) && v.includes(val);
+        case '==': return v === target;
+        case 'in': return Array.isArray(val) && val.map(normalizeComparable).includes(v);
+        case '>=': return v >= target;
+        case '<=': return v <= target;
+        case '<': return v < target;
+        case '>': return v > target;
+        case 'array-contains': return Array.isArray(rawV) && rawV.includes(val);
         case 'array-contains-any':
-            return Array.isArray(v) && Array.isArray(val) && v.some((item) => val.includes(item));
+            return Array.isArray(rawV) && Array.isArray(val) && rawV.some((item) => val.includes(item));
         default: throw new Error(`Unsupported where op: ${op}`);
     }
 };
@@ -54,8 +101,8 @@ const execute = (store, state) => {
     }
     rows.sort((a, b) => {
         for (const [field, dir] of orders) {
-            const va = field === '__id__' ? a.id : getPath(a.data, field);
-            const vb = field === '__id__' ? b.id : getPath(b.data, field);
+            const va = field === '__id__' ? a.id : normalizeComparable(getPath(a.data, field));
+            const vb = field === '__id__' ? b.id : normalizeComparable(getPath(b.data, field));
             const cmp = va === vb ? 0 : (va < vb ? -1 : 1);
             if (cmp !== 0) return dir === 'desc' ? -cmp : cmp;
         }
@@ -185,7 +232,12 @@ const buildFirebaseMock = (seed = {}) => {
 
     return {
         db,
-        admin: { firestore: { FieldValue: { increment: (n) => ({ __increment: n }), delete: () => ({ __delete: true }) } } },
+        admin: {
+            firestore: {
+                Timestamp: MockTimestamp,
+                FieldValue: { increment: (n) => ({ __increment: n }), delete: () => ({ __delete: true }) }
+            }
+        },
         eventsCollection: db.collection('events'),
         departmentsCollection: db.collection('departments'),
         resourcesCollection: db.collection('resources'),

@@ -37,6 +37,8 @@ beforeEach(() => {
     mockFirebase.__stores.borrow_sessions.clear();
     mockFirebase.__stores.borrow_quotas.clear();
     mockFirebase.__stores.borrow_reminder_outbox.clear();
+    mockFirebase.__stores.borrow_idempotency?.clear();
+    mockFirebase.__stores.borrow_otps?.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
     mockFirebase.db.__txChain = Promise.resolve();
@@ -403,5 +405,36 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
         const exB = await exchangeLinkCode(codeB);
         expect(exA.requestId).toBe('req-multi-code');
         expect(exB.requestId).toBe('req-multi-code');
+    });
+
+    test('13. [MEDIUM-RECHECK-03 / LOW-RECHECK-02] job dọn dẹp borrow_idempotency & borrow_otps hết hạn, giữ nguyên bản ghi còn hạn', async () => {
+        const Ts = mockFirebase.admin.firestore.Timestamp;
+        const pastTs = Ts.fromMillis(Date.now() - 60_000);
+        const futureTs = Ts.fromMillis(Date.now() + 600_000);
+
+        mockFirebase.__stores.borrow_idempotency.set('idem-expired', {
+            requestId: 'req-old',
+            expiresAt: pastTs
+        });
+        mockFirebase.__stores.borrow_idempotency.set('idem-active', {
+            requestId: 'req-cur',
+            expiresAt: futureTs
+        });
+
+        mockFirebase.__stores.borrow_otps.set('otp-expired', {
+            codeHash: 'abc',
+            retainUntil: pastTs
+        });
+        mockFirebase.__stores.borrow_otps.set('otp-active-window', {
+            codeHash: 'def',
+            retainUntil: futureTs
+        });
+
+        await borrowReminderJob.run();
+
+        expect(mockFirebase.__stores.borrow_idempotency.has('idem-expired')).toBe(false);
+        expect(mockFirebase.__stores.borrow_idempotency.has('idem-active')).toBe(true);
+        expect(mockFirebase.__stores.borrow_otps.has('otp-expired')).toBe(false);
+        expect(mockFirebase.__stores.borrow_otps.has('otp-active-window')).toBe(true);
     });
 });

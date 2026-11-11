@@ -1,8 +1,8 @@
 /**
- * Firestore Emulator integration tests (MEDIUM-04):
+ * Firestore Emulator integration tests (MEDIUM-04 / MEDIUM-RECHECK-02):
  * Runs against real Firestore Emulator + real firestore.rules + real Admin SDK transactions.
  * Execute via single CI command from server/: `npm run test:emulator`
- * (Requires JDK 17/21+ for Firebase Local Emulator Suite.)
+ * (Requires JDK 21+ for Firebase Local Emulator Suite / pinned firebase-tools.)
  */
 
 const fs = require('fs');
@@ -54,7 +54,7 @@ const borrowAdminCtrl = require('../../controllers/borrow-admin-controller');
 const { exchangeLinkCode } = require('../../services/borrow-link-service');
 const borrowReminderJob = require('../../jobs/borrow-reminder-job');
 const borrowEmailService = require('../../services/borrow-email-service');
-const { hash } = require('../../services/borrow-token-service');
+const { hash, hmacKey } = require('../../services/borrow-token-service');
 
 const RULES_PATH = path.resolve(__dirname, '../../../firestore.rules');
 const BORROW_COLLECTIONS = [
@@ -196,20 +196,20 @@ describe('Firestore Emulator Integration — Rules, Transactions & Queries', () 
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(1);
 
         // Advance past resend cooldown twice -> sends #2 and #3 succeed; #4 blocked by 3/hr cap
-        const phoneHash = hash('0907778889');
+        const otpKey = hmacKey('otp:0907778889');
         const pastSentAt = new Date(Date.now() - 120 * 1000).toISOString();
 
-        await borrowOtpsCollection.doc(phoneHash).update({ sentAt: pastSentAt });
+        await borrowOtpsCollection.doc(otpKey).update({ sentAt: pastSentAt });
         await callHandler(borrowCtrl.requestOtp, { body: { phone: '0907778889' } });
         await new Promise((r) => setTimeout(r, 80));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(2);
 
-        await borrowOtpsCollection.doc(phoneHash).update({ sentAt: pastSentAt });
+        await borrowOtpsCollection.doc(otpKey).update({ sentAt: pastSentAt });
         await callHandler(borrowCtrl.requestOtp, { body: { phone: '0907778889' } });
         await new Promise((r) => setTimeout(r, 80));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(3);
 
-        await borrowOtpsCollection.doc(phoneHash).update({ sentAt: pastSentAt });
+        await borrowOtpsCollection.doc(otpKey).update({ sentAt: pastSentAt });
         await callHandler(borrowCtrl.requestOtp, { body: { phone: '0907778889' } });
         await new Promise((r) => setTimeout(r, 80));
         expect(borrowEmailService.sendOtp).toHaveBeenCalledTimes(3);
