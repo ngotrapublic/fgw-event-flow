@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
+    "test:emulator": "npx --yes firebase-tools --config ../firebase.json emulators:exec --only firestore --project demo-antigravity-borrow \"npm run test:emulator:run\"",
+    "test:emulator:run": "jest --config jest.emulator.config.js --runInBand",
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
@@ -31,6 +33,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "jest": "^30.2.0"
   }
 }
