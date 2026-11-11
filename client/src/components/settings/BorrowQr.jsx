@@ -205,7 +205,7 @@ export default function BorrowQr() {
                         <h3 className="text-base font-black text-black">Chưa thể tạo Mã QR</h3>
                         <p className="text-xs font-bold text-rose-800">{errorMsg}</p>
                         <p className="text-[11px] text-slate-600 font-medium pt-1">
-                            Hãy đảm bảo biến môi trường <code className="bg-white px-1 py-0.5 rounded border border-black">APP_PUBLIC_URL</code> đã được cấu hình trên server (ví dụ: http://event.greenwichvietnam.edu.vn).
+                            Hãy đảm bảo biến môi trường <code className="bg-white px-1 py-0.5 rounded border border-black">APP_PUBLIC_URL</code> đã được cấu hình HTTPS trên server (ví dụ: https://event.greenwichvietnam.edu.vn).
                         </p>
                     </div>
                     <button

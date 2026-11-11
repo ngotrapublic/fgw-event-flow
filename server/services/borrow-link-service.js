@@ -4,34 +4,61 @@ const { newToken, hash } = require('./borrow-token-service');
 const HttpError = require('../utils/http-error');
 
 /**
- * Create a single-use opaque link code for managing an open borrow request.
- * Raw code goes into URL fragment (#code=...) and ONLY its SHA-256 hash is persisted.
+ * Prepare a single-use opaque link code and its hashed persistence record without writing yet.
+ * Safe to write atomically inside a caller's Firestore transaction via commitLinkCodeInTx().
  */
-async function createLinkCode(requestId, { ttlMs = LIMITS.LINK_CODE_TTL_MS, purpose = 'manage' } = {}) {
+function prepareLinkCodeData(
+    requestId,
+    { ttlMs = LIMITS.LINK_CODE_TTL_MS, purpose = 'manage', nowMs = Date.now() } = {}
+) {
     if (!requestId || typeof requestId !== 'string') {
-        throw new Error('requestId is required for createLinkCode');
+        throw new Error('requestId is required for prepareLinkCodeData');
     }
 
     const code = newToken();
-    const now = Date.now();
+    const codeHash = hash(code);
 
-    await borrowLinkCodesCollection.doc(hash(code)).set({
-        requestId,
-        purpose,
-        createdAt: now,
-        expiresAt: now + ttlMs,
-        consumedAt: null,
-        revokedAt: null
-    });
+    return {
+        code,
+        codeHash,
+        ref: borrowLinkCodesCollection.doc(codeHash),
+        data: {
+            requestId,
+            purpose,
+            createdAt: nowMs,
+            expiresAt: nowMs + ttlMs,
+            consumedAt: null,
+            revokedAt: null
+        }
+    };
+}
 
-    return code;
+/**
+ * Persist a prepared link code record within an open Firestore transaction.
+ */
+function commitLinkCodeInTx(tx, linkPlan) {
+    if (!tx || !linkPlan?.ref || !linkPlan?.data) {
+        throw new Error('Valid transaction and linkPlan are required for commitLinkCodeInTx');
+    }
+    tx.set(linkPlan.ref, linkPlan.data);
+}
+
+/**
+ * Create a single-use opaque link code for managing an open borrow request.
+ * Raw code goes into URL fragment (#code=...) and ONLY its SHA-256 hash is persisted.
+ */
+async function createLinkCode(requestId, options = {}) {
+    const plan = prepareLinkCodeData(requestId, options);
+    await plan.ref.set(plan.data);
+    return plan.code;
 }
 
 /**
  * Atomically validate and consume a single-use management link code.
- * Rejects with 410 if missing, already consumed, revoked, expired, or request closed.
+ * Checks account ownership INSIDE the transaction BEFORE setting consumedAt so a different
+ * logged-in user cannot burn the real owner's one-time link.
  */
-async function exchangeLinkCode(rawCode) {
+async function exchangeLinkCode(rawCode, { viewerUid = null } = {}) {
     if (!rawCode || typeof rawCode !== 'string' || !rawCode.trim()) {
         throw new HttpError(400, 'Thiếu mã truy cập liên kết');
     }
@@ -61,6 +88,11 @@ async function exchangeLinkCode(rawCode) {
         const reqData = reqSnap.data() || {};
         if (!OPEN_STATUSES.includes(reqData.status) || reqData.isOpen === false) {
             throw new HttpError(410, 'Phiếu mượn đã hoàn tất hoặc không còn mở');
+        }
+
+        // Prevent cross-account consumption before mutating consumedAt
+        if (viewerUid && reqData.borrower?.uid && reqData.borrower.uid !== viewerUid) {
+            throw new HttpError(403, 'Phiếu mượn thuộc về một tài khoản khác');
         }
 
         tx.update(codeRef, { consumedAt: now });
@@ -98,6 +130,8 @@ async function revokeLinkCodesForRequestIds(requestIds = []) {
 }
 
 module.exports = {
+    prepareLinkCodeData,
+    commitLinkCodeInTx,
     createLinkCode,
     exchangeLinkCode,
     revokeLinkCodesForRequestIds

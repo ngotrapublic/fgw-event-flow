@@ -63,6 +63,9 @@ service cloud.firestore {
     match /borrow_reminder_outbox/{docId} {
       allow read, write: if false;
     }
+    match /borrow_idempotency/{docId} {
+      allow read, write: if false;
+    }
 
     // Default catch-all: read-only for authenticated users.
     // All server-side writes use the Admin SDK which bypasses rules.

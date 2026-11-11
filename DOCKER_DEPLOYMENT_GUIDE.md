@@ -37,14 +37,21 @@ cp .env.example .env
 
 | Biến Môi Trường | Loại | Mô Tả | Ví Dụ / Mặc Định |
 | :--- | :--- | :--- | :--- |
-| `PORT` | Cấu hình | Cổng Host mapped ra ngoài | `5000` |
+| `PORT` | Cấu hình | Cổng Host mapped ra ngoài (mặc định bind `127.0.0.1`) | `5000` |
 | `NODE_ENV` | Cấu hình | Môi trường ứng dụng | `production` |
 | `FIREBASE_PROJECT_ID` | **Bắt buộc** | Project ID của Firebase Firestore | `your-firebase-project-id` |
 | `FIREBASE_CLIENT_EMAIL` | **Bắt buộc** | Email Service Account Firebase | `firebase-adminsdk-xxx@...` |
 | `FIREBASE_PRIVATE_KEY` | **Bắt buộc** | Private Key của Firebase (bọc ngoặc đôi) | `"-----BEGIN PRIVATE KEY-----\n..."` |
 | `EMAIL_USER` | **Bắt buộc** | Email gửi thông báo tự động (SMTP) | `your-email@gmail.com` |
 | `EMAIL_PASS` | **Bắt buộc** | Mật khẩu ứng dụng (App Password) | `xxxx-xxxx-xxxx-xxxx` |
-| `ALLOWED_ORIGINS` | Cấu hình | Danh sách domain external được gọi API | `http://localhost:5000,http://localhost:5173` |
+| `APP_PUBLIC_URL` | **Bắt buộc (HTTPS ở prod)** | URL công khai dùng cho link email mượn trả & mã QR | `https://event.greenwichvietnam.edu.vn` |
+| `BORROW_HMAC_SECRET` | **Bắt buộc (ở prod)** | Chuỗi bí mật ≥ 32 byte cho HMAC khóa quota/lookup | Sinh bằng `crypto.randomBytes(32).toString('hex')` |
+| `TRUST_PROXY` | **Khuyến nghị** | IP/subnet reverse proxy tin cậy (không mở trực tiếp port `5000`) | `loopback` |
+| `ALLOWED_ORIGINS` | Cấu hình | Danh sách domain external được gọi API | `https://event.greenwichvietnam.edu.vn` |
+
+> **Bảo mật HTTPS & Reverse Proxy (Bắt buộc trước Production):**
+> - Ở `NODE_ENV=production`, server sẽ **fail-fast** nếu `APP_PUBLIC_URL` không bắt đầu bằng `https://` hoặc thiếu `BORROW_HMAC_SECRET` (< 32 byte).
+> - Triển khai reverse proxy TLS (xem mẫu tại [deploy/nginx-borrow-tls.conf.example](deploy/nginx-borrow-tls.conf.example)) để redirect mọi request HTTP (301 → HTTPS) trước khi chạm Express, bật header `Strict-Transport-Security`, và firewall/chỉ bind backend trên `127.0.0.1:5000`.
 
 ---
 

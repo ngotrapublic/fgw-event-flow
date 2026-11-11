@@ -4,7 +4,12 @@ const BASE = '/borrow';
 
 export const borrowApi = {
     getResources: () => api.get(`${BASE}/resources`),
-    create: (data) => api.post(`${BASE}/requests`, data),
+    create: (data, { idempotencyKey } = {}) =>
+        api.post(
+            `${BASE}/requests`,
+            data,
+            idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined
+        ),
     verify: (token) => api.post(`${BASE}/verify`, { token }),
     exchangeLink: (code) => api.post(`${BASE}/link/exchange`, { code }),
     logoutSession: () => api.post(`${BASE}/session/logout`),

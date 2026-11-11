@@ -1,4 +1,5 @@
 const { db, borrowSessionsCollection } = require('../config/firebase');
+const { isHttpsRequest } = require('../config/borrow-security');
 const { LIMITS } = require('./borrow-constants');
 const { newToken, hash } = require('./borrow-token-service');
 const { revokeLinkCodesForRequestIds } = require('./borrow-link-service');
@@ -25,18 +26,6 @@ function parseCookies(cookieHeader) {
     return out;
 }
 
-function isHttpsRequest(req) {
-    if (!req) return false;
-    if (req.secure) return true;
-    const forwarded = typeof req.get === 'function'
-        ? req.get('x-forwarded-proto')
-        : req.headers?.['x-forwarded-proto'];
-    if (typeof forwarded === 'string') {
-        return forwarded.split(',')[0].trim().toLowerCase() === 'https';
-    }
-    return false;
-}
-
 function getCookieName(req) {
     return isHttpsRequest(req) ? SESSION_COOKIE_HTTPS : SESSION_COOKIE_HTTP;
 }
@@ -44,8 +33,8 @@ function getCookieName(req) {
 function extractSessionId(req) {
     if (!req) return null;
     const cookies = req.cookies || parseCookies(req.headers?.cookie);
-    const preferred = getCookieName(req);
-    const val = cookies[preferred] || cookies[SESSION_COOKIE_HTTPS] || cookies[SESSION_COOKIE_HTTP];
+    const cookieName = getCookieName(req);
+    const val = cookies[cookieName];
     return typeof val === 'string' && val.trim() ? val.trim() : null;
 }
 

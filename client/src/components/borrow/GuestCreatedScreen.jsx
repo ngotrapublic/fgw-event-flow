@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Mail, Send } from 'lucide-react';
 
 export default function GuestCreatedScreen({
     email,
+    sessionIssued = true,
     resendCooldown,
     isResending,
     onResend,
@@ -56,26 +57,32 @@ export default function GuestCreatedScreen({
                     </div>
 
                     <div className="space-y-3 pt-2">
-                        <button
-                            type="button"
-                            onClick={onResend}
-                            disabled={resendCooldown > 0 || isResending}
-                            className="w-full min-h-[44px] py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:bg-slate-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            {isResending ? (
-                                <>
-                                    <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                                    Đang gửi lại...
-                                </>
-                            ) : resendCooldown > 0 ? (
-                                `Gửi lại email sau (${resendCooldown}s)`
-                            ) : (
-                                <>
-                                    <Send size={14} aria-hidden="true" />
-                                    Gửi lại email xác nhận
-                                </>
-                            )}
-                        </button>
+                        {sessionIssued ? (
+                            <button
+                                type="button"
+                                onClick={onResend}
+                                disabled={resendCooldown > 0 || isResending}
+                                className="w-full min-h-[44px] py-2.5 px-4 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[3px_3px_0_#000] hover:bg-slate-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isResending ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                                        Đang gửi lại...
+                                    </>
+                                ) : resendCooldown > 0 ? (
+                                    `Gửi lại email sau (${resendCooldown}s)`
+                                ) : (
+                                    <>
+                                        <Send size={14} aria-hidden="true" />
+                                        Gửi lại email xác nhận
+                                    </>
+                                )}
+                            </button>
+                        ) : (
+                            <p className="text-xs font-medium text-slate-600 bg-amber-50 border border-amber-300 rounded-xl p-2.5">
+                                Phiếu đã được ghi nhận và email đã gửi. Nếu không dùng được phiên trình duyệt, bạn vẫn có thể mở liên kết trong email hoặc tra cứu bằng SĐT & OTP.
+                            </p>
+                        )}
 
                         <button
                             type="button"

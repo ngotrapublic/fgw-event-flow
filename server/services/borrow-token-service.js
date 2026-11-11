@@ -1,13 +1,8 @@
 const crypto = require('crypto');
+const { getHmacSecret } = require('../config/borrow-security');
 
 const newToken = () => crypto.randomBytes(32).toString('base64url');
 const hash = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
-
-const getHmacSecret = () =>
-    process.env.BORROW_HMAC_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.FIREBASE_PROJECT_ID ||
-    'borrow-hmac-default-key';
 
 const hmacKey = (s) => crypto.createHmac('sha256', getHmacSecret()).update(String(s)).digest('hex');
 const newOtp = () => String(crypto.randomInt(0, 1e6)).padStart(6, '0');

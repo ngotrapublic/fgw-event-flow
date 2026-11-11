@@ -4,7 +4,14 @@ const { hmacKey } = require('../services/borrow-token-service');
 const { LIMITS } = require('../services/borrow-constants');
 
 /**
- * Rate limiters for borrow endpoints using express-rate-limit v7
+ * Rate limiters for borrow endpoints using express-rate-limit v7.
+ *
+ * NOTE (LOW-03 / Horizontal Scaling):
+ * These limiters use express-rate-limit's default in-memory store (process-local).
+ * Authoritative abuse caps (account open/daily quotas, OTP hourly cap & 5-attempt lockout)
+ * are persisted and enforced transactionally in Firestore (`borrow_quotas`, `borrow_otps`).
+ * When scaling horizontally across multiple Node instances/replicas, attach a shared store
+ * (e.g. `rate-limit-redis`) so IP-based rate limits remain cluster-wide.
  */
 const make = (windowMs, limit, options = {}) =>
     rateLimit({

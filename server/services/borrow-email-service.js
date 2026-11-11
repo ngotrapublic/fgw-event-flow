@@ -1,5 +1,6 @@
 const emailService = require('./emailService');
 const { getSettingsInternal } = require('../controllers/settingsController');
+const { getValidatedAppPublicUrl } = require('../config/borrow-security');
 const HttpError = require('../utils/http-error');
 
 function escapeHtml(str) {
@@ -20,11 +21,11 @@ function assertEmailEnabled() {
 }
 
 function getAppPublicUrl() {
-    const url = process.env.APP_PUBLIC_URL;
-    if (!url) {
-        throw new HttpError(503, 'Chưa cấu hình APP_PUBLIC_URL');
+    try {
+        return getValidatedAppPublicUrl();
+    } catch (err) {
+        throw new HttpError(503, err.message);
     }
-    return url.replace(/\/+$/, '');
 }
 
 function formatDate(dateStr) {

@@ -1,4 +1,4 @@
-const { db, borrowQuotasCollection, borrowRequestsCollection } = require('../config/firebase');
+const { db, borrowQuotasCollection, borrowRequestsCollection, borrowLinkCodesCollection } = require('../config/firebase');
 const { OPEN_STATUSES, LIMITS } = require('./borrow-constants');
 const { hmacKey } = require('./borrow-token-service');
 const HttpError = require('../utils/http-error');
@@ -176,13 +176,26 @@ function applyReleaseQuotaInTx(tx, releasePlans, nowIso = new Date().toISOString
 
 /**
  * Compensating atomic rollback if guest email dispatch fails on creation.
+ * Deletes request, cleans up unconsumed link code & idempotency record, and releases quota atomically.
  */
-async function rollbackCreatedRequest(docRef, reqData) {
+async function rollbackCreatedRequest(docRef, reqData, { linkCodeHash = null, idemRef = null } = {}) {
     await db.runTransaction(async (tx) => {
-        const snap = await tx.get(docRef);
-        const releasePlans = await prepareReleaseQuotaInTx(tx, reqData, docRef.id);
+        const linkRef = linkCodeHash ? borrowLinkCodesCollection.doc(linkCodeHash) : null;
+        const [snap, linkSnap, idemSnap, releasePlans] = await Promise.all([
+            tx.get(docRef),
+            linkRef ? tx.get(linkRef) : Promise.resolve(null),
+            idemRef ? tx.get(idemRef) : Promise.resolve(null),
+            prepareReleaseQuotaInTx(tx, reqData, docRef.id)
+        ]);
+
         if (snap.exists) {
             tx.delete(docRef);
+        }
+        if (linkSnap?.exists && !linkSnap.data()?.consumedAt) {
+            tx.delete(linkRef);
+        }
+        if (idemSnap?.exists && idemSnap.data()?.requestId === docRef.id) {
+            tx.delete(idemRef);
         }
         applyReleaseQuotaInTx(tx, releasePlans);
     });

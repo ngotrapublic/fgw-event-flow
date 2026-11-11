@@ -9,6 +9,7 @@ import BorrowForm from '../BorrowForm';
 import BorrowHome from '../BorrowHome';
 import BorrowReturn from '../BorrowReturn';
 import BorrowRequestCard from '../BorrowRequestCard';
+import BorrowVerify from '../BorrowVerify';
 import AccessibleDialog from '../AccessibleDialog';
 import { formatVnDueDate, getVnOffsetDateStr } from '../../../lib/borrow-utils';
 
@@ -18,6 +19,7 @@ const {
     mockUseAuth,
     mockGetResources,
     mockCreate,
+    mockVerify,
     mockGetMy,
     mockLookupOtp,
     mockLookupVerify,
@@ -30,6 +32,7 @@ const {
     mockUseAuth: vi.fn(() => ({ user: null, loading: false })),
     mockGetResources: vi.fn(),
     mockCreate: vi.fn(),
+    mockVerify: vi.fn(),
     mockGetMy: vi.fn(),
     mockLookupOtp: vi.fn(),
     mockLookupVerify: vi.fn(),
@@ -61,6 +64,7 @@ vi.mock('../../../api/borrow', () => ({
     borrowApi: {
         getResources: (...args) => mockGetResources(...args),
         create: (...args) => mockCreate(...args),
+        verify: (...args) => mockVerify(...args),
         getMy: (...args) => mockGetMy(...args),
         lookupOtp: (...args) => mockLookupOtp(...args),
         lookupVerify: (...args) => mockLookupVerify(...args),
@@ -334,5 +338,114 @@ describe('Borrow Public UI — Timezone, Accessibility, OTP & Error Handling', (
         await user.click(disabledCheckbox);
         expect(disabledCheckbox).toHaveAttribute('aria-checked', 'false');
         expect(screen.getByText('0 món')).toBeInTheDocument();
+    });
+
+    // Test #6 from Follow-up Audit §4 (LOW-01 + StrictMode dedup)
+    it('verify_page_strips_token_from_url_immediately_under_strict_mode', async () => {
+        let resolveVerify;
+        mockVerify.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveVerify = resolve;
+                })
+        );
+
+        window.history.replaceState({}, '', '/borrow/verify?token=secret-verify-tok-123');
+
+        render(
+            <React.StrictMode>
+                <MemoryRouter initialEntries={['/borrow/verify?token=secret-verify-tok-123']}>
+                    <BorrowVerify />
+                </MemoryRouter>
+            </React.StrictMode>
+        );
+
+        // Even BEFORE verify resolves, ?token= must already be removed from URL & history
+        await waitFor(() => {
+            expect(window.location.search).toBe('');
+            expect(window.location.pathname).toBe('/borrow/verify');
+        });
+
+        // StrictMode double-mount must call verify API only ONCE with the captured token
+        expect(mockVerify).toHaveBeenCalledTimes(1);
+        expect(mockVerify).toHaveBeenCalledWith('secret-verify-tok-123');
+
+        // Completing API call renders confirmation UI using preserved token state
+        resolveVerify({ data: { request: { id: 'req-verified-1' } } });
+        expect(await screen.findByText(/Xác Nhận Thành Công!/i)).toBeInTheDocument();
+        expect(screen.getByText(/#req-verified-1/)).toBeInTheDocument();
+    });
+
+    // Test #7 from Follow-up Audit §4 (Dialog focus trap Tab / Shift+Tab / Escape / Restore focus)
+    it('accessible_dialog_traps_focus_wraps_tab_shift_tab_handles_escape_and_restores_focus', async () => {
+        const user = userEvent.setup();
+
+        function TrapHarness() {
+            const [open, setOpen] = React.useState(false);
+            const [closeDisabled, setCloseDisabled] = React.useState(false);
+            return (
+                <div>
+                    <button type="button" onClick={() => setOpen(true)}>
+                        Mở hộp thoại trap
+                    </button>
+                    <button type="button">Nút bên ngoài</button>
+                    <AccessibleDialog
+                        open={open}
+                        onClose={() => setOpen(false)}
+                        closeDisabled={closeDisabled}
+                        titleId="trap-title"
+                    >
+                        <h2 id="trap-title">Kiểm tra focus trap</h2>
+                        <input aria-label="Ghi chú nội bộ" type="text" />
+                        <button type="button" onClick={() => setCloseDisabled(true)}>
+                            Khoá đóng
+                        </button>
+                        <button type="button" onClick={() => setOpen(false)}>
+                            Xác nhận cuối
+                        </button>
+                    </AccessibleDialog>
+                </div>
+            );
+        }
+
+        render(<TrapHarness />);
+
+        const trigger = screen.getByRole('button', { name: 'Mở hộp thoại trap' });
+        const outsideBtn = screen.getByRole('button', { name: 'Nút bên ngoài' });
+        await user.click(trigger);
+
+        const closeBtn = screen.getByRole('button', { name: 'Đóng' });
+        const noteInput = screen.getByLabelText('Ghi chú nội bộ');
+        const lockBtn = screen.getByRole('button', { name: 'Khoá đóng' });
+        const lastBtn = screen.getByRole('button', { name: 'Xác nhận cuối' });
+
+        // Initial focus placed inside dialog on first focusable control
+        expect(closeBtn).toHaveFocus();
+
+        // Tab through every element inside dialog and verify forward wrap back to first focusable
+        await user.tab();
+        expect(noteInput).toHaveFocus();
+        await user.tab();
+        expect(lockBtn).toHaveFocus();
+        await user.tab();
+        expect(lastBtn).toHaveFocus();
+        await user.tab();
+        expect(closeBtn).toHaveFocus();
+        expect(outsideBtn).not.toHaveFocus();
+
+        // Shift+Tab on first element wraps backward to last element inside dialog
+        await user.tab({ shift: true });
+        expect(lastBtn).toHaveFocus();
+        expect(outsideBtn).not.toHaveFocus();
+
+        // When closeDisabled is enabled, Escape does not close dialog
+        await user.click(lockBtn);
+        await user.keyboard('{Escape}');
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+        // Confirm button still closes dialog and restores focus back to trigger
+        await user.click(lastBtn);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
     });
 });

@@ -1,25 +1,26 @@
-const { db, resourcesCollection, borrowRequestsCollection, borrowOtpsCollection } = require('../config/firebase');
+const { db, resourcesCollection, borrowRequestsCollection, borrowOtpsCollection, borrowIdempotencyCollection } = require('../config/firebase');
 const HttpError = require('../utils/http-error');
 const { OPEN_STATUSES, LIMITS } = require('../services/borrow-constants');
 const { transition } = require('../services/borrow-transition-service');
 const borrowValidation = require('../services/borrow-validation');
-const { newToken, hash, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
-const { createLinkCode, exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = require('../services/borrow-link-service');
+const { newToken, hash, hmacKey, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
+const borrowLinkService = require('../services/borrow-link-service');
+const { createLinkCode, exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = borrowLinkService;
 const {
     prepareQuotaReservationInTx,
     commitQuotaReservationInTx,
     rollbackCreatedRequest
 } = require('../services/borrow-quota-service');
+const borrowSessionService = require('../services/borrow-session-service');
 const {
     extractSessionId,
     applySensitiveHeaders,
     clearSessionCookie,
     resolveSession,
-    grantRequestAccessToSession,
     pruneSessionRequestIds,
     replaceSessionAfterOtp,
     revokeSessionById
-} = require('../services/borrow-session-service');
+} = borrowSessionService;
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 
@@ -204,9 +205,27 @@ async function createBorrowRequest(req, res, next) {
             verifyExpiresAt = new Date(Date.now() + LIMITS.VERIFY_TTL_MS).toISOString();
         }
 
-        // 3. Atomic quota reservation + borrow request creation
+        // Optional client-supplied idempotency key to prevent duplicate requests on network/session retry
+        const rawIdemKey =
+            (typeof req.get === 'function' ? req.get('Idempotency-Key') : null) ||
+            req.headers?.['idempotency-key'] ||
+            req.headers?.['x-idempotency-key'] ||
+            req.body?.idempotencyKey ||
+            '';
+        const cleanIdemKey = typeof rawIdemKey === 'string' ? rawIdemKey.trim() : '';
+        if (cleanIdemKey.length > 128) {
+            throw new HttpError(400, 'Idempotency-Key vượt quá độ dài tối đa 128 ký tự');
+        }
+        const ownerScope = req.user?.uid ? `uid:${req.user.uid}` : `guest:${email}:${phone}`;
+        const idemRef = cleanIdemKey
+            ? borrowIdempotencyCollection.doc(hmacKey(`idem:${ownerScope}:${cleanIdemKey}`))
+            : null;
+
+        // 3. Atomic idempotency check + quota reservation + borrow request + one-time link code creation
         const docRef = borrowRequestsCollection.doc();
-        const nowIso = new Date().toISOString();
+        const nowMs = Date.now();
+        const nowIso = new Date(nowMs).toISOString();
+        const linkPlan = borrowLinkService.prepareLinkCodeData(docRef.id, { nowMs });
 
         const docData = {
             id: docRef.id,
@@ -232,7 +251,17 @@ async function createBorrowRequest(req, res, next) {
             updatedAt: nowIso
         };
 
-        await db.runTransaction(async (tx) => {
+        const txResult = await db.runTransaction(async (tx) => {
+            if (idemRef) {
+                const idemSnap = await tx.get(idemRef);
+                if (idemSnap.exists && idemSnap.data()?.requestId) {
+                    const prevSnap = await tx.get(borrowRequestsCollection.doc(idemSnap.data().requestId));
+                    if (prevSnap.exists) {
+                        return { idempotentHit: true, request: { id: prevSnap.id, ...prevSnap.data() } };
+                    }
+                }
+            }
+
             const quotaPlans = await prepareQuotaReservationInTx(tx, {
                 borrowerType,
                 uid: borrower.uid,
@@ -241,7 +270,37 @@ async function createBorrowRequest(req, res, next) {
             });
             commitQuotaReservationInTx(tx, quotaPlans, docRef.id, nowIso);
             tx.set(docRef, docData);
+            borrowLinkService.commitLinkCodeInTx(tx, linkPlan);
+            if (idemRef) {
+                tx.set(idemRef, {
+                    requestId: docRef.id,
+                    ownerScope,
+                    createdAt: nowMs,
+                    expiresAt: nowMs + LIMITS.VERIFY_TTL_MS
+                });
+            }
+
+            return { idempotentHit: false, request: docData };
         });
+
+        applySensitiveHeaders(res);
+
+        if (txResult.idempotentHit) {
+            let sessionIssued = true;
+            if (!req.user) {
+                try {
+                    await borrowSessionService.grantRequestAccessToSession(req, res, txResult.request.id);
+                } catch (sessErr) {
+                    sessionIssued = false;
+                    console.error('[BORROW] Non-fatal session grant failure on idempotent retry:', sessErr.message);
+                }
+            }
+            return res.status(200).json({
+                request: toPublicView(txResult.request),
+                deduplicated: true,
+                ...(sessionIssued === false ? { sessionIssued: false } : {})
+            });
+        }
 
         if (req.user?.uid) {
             try {
@@ -251,28 +310,35 @@ async function createBorrowRequest(req, res, next) {
             }
         }
 
-        const linkCode = await createLinkCode(docRef.id);
-
-        // 4. Send emails
+        // 4. Send emails & best-effort session issuance
         let emailSent = true;
+        let sessionIssued = true;
         if (borrowerType === 'guest') {
             try {
-                await borrowEmailService.sendVerify(docData, verifyToken, linkCode);
+                await borrowEmailService.sendVerify(docData, verifyToken, linkPlan.code);
             } catch (mailErr) {
-                // Atomically release quota + delete doc and revoke code on failure for guests
-                await Promise.all([
-                    rollbackCreatedRequest(docRef, docData).catch(() => docRef.delete()),
-                    revokeLinkCodesForRequestIds([docRef.id]).catch(() => {})
-                ]);
+                // Atomically release quota + delete doc, link code, and idempotency marker on mail failure
+                await rollbackCreatedRequest(docRef, docData, {
+                    linkCodeHash: linkPlan.codeHash,
+                    idemRef
+                }).catch(() => docRef.delete());
                 console.error('[BORROW] Failed to send verify email to guest:', mailErr.message);
                 throw new HttpError(502, 'Không gửi được email, vui lòng kiểm tra địa chỉ hoặc thử lại');
             }
 
-            // Issue short-lived HttpOnly cookie session for this browser
-            await grantRequestAccessToSession(req, res, docRef.id);
+            // Email has already been delivered; session failure must NOT fail request creation or prompt duplicates
+            try {
+                await borrowSessionService.grantRequestAccessToSession(req, res, docRef.id);
+            } catch (sessErr) {
+                sessionIssued = false;
+                console.error(
+                    '[BORROW] Non-fatal error issuing session after guest email sent:',
+                    sessErr.message
+                );
+            }
         } else {
             try {
-                await borrowEmailService.sendCreatedForAccount(docData, linkCode);
+                await borrowEmailService.sendCreatedForAccount(docData, linkPlan.code);
             } catch (mailErr) {
                 console.error('[BORROW] Failed to send creation email for account:', mailErr.message);
                 emailSent = false;
@@ -297,10 +363,10 @@ async function createBorrowRequest(req, res, next) {
             }
         }
 
-        applySensitiveHeaders(res);
         res.status(201).json({
             request: toPublicView(docData),
-            ...(emailSent === false ? { emailSent: false } : {})
+            ...(emailSent === false ? { emailSent: false } : {}),
+            ...(sessionIssued === false ? { sessionIssued: false } : {})
         });
     } catch (err) {
         next(err);
@@ -379,7 +445,7 @@ async function verifyEmail(req, res, next) {
         }
 
         // Grant short-lived HttpOnly cookie session on the initial verification response
-        await grantRequestAccessToSession(req, res, updated.id);
+        await borrowSessionService.grantRequestAccessToSession(req, res, updated.id);
 
         // Notify admins/managers
         try {
@@ -416,14 +482,9 @@ async function exchangeLinkCodeHandler(req, res, next) {
             throw new HttpError(400, 'Thiếu mã truy cập liên kết');
         }
 
-        const result = await exchangeOneTimeLinkCode(code);
+        const result = await exchangeOneTimeLinkCode(code, { viewerUid: req.user?.uid || null });
 
-        // Prevent logged-in User B from binding User A's account request into session
-        if (req.user?.uid && result.request?.borrower?.uid && result.request.borrower.uid !== req.user.uid) {
-            throw new HttpError(403, 'Phiếu mượn thuộc về một tài khoản khác');
-        }
-
-        await grantRequestAccessToSession(req, res, result.requestId);
+        await borrowSessionService.grantRequestAccessToSession(req, res, result.requestId);
         res.status(200).json({ request: toPublicView(result.request) });
     } catch (err) {
         next(err);

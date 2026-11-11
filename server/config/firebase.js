@@ -18,7 +18,8 @@ if (!process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID === 'you
 console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`📁 Config loaded from: ${envFile}`);
 
-// Initialize Firebase Admin SDK with service account
+// Initialize Firebase Admin SDK with service account (or emulator projectId when FIRESTORE_EMULATOR_HOST is set)
+const isEmulatorMode = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 const serviceAccount = {
     type: "service_account",
     project_id: process.env.FIREBASE_PROJECT_ID,
@@ -27,10 +28,19 @@ const serviceAccount = {
 };
 
 try {
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
-    console.log('✓ Firebase Admin SDK initialized successfully');
+    if (!admin.apps.length) {
+        if (isEmulatorMode) {
+            admin.initializeApp({
+                projectId: process.env.FIREBASE_PROJECT_ID || 'demo-antigravity-borrow'
+            });
+            console.log(`✓ Firebase Admin SDK initialized for Firestore Emulator (${process.env.FIRESTORE_EMULATOR_HOST})`);
+        } else {
+            admin.initializeApp({
+                credential: admin.credential.cert(serviceAccount)
+            });
+            console.log('✓ Firebase Admin SDK initialized successfully');
+        }
+    }
 } catch (error) {
     console.error('✗ Firebase Admin SDK initialization failed:', error.message);
     process.exit(1);
@@ -50,6 +60,7 @@ const borrowSessionsCollection = db.collection('borrow_sessions');
 const borrowLinkCodesCollection = db.collection('borrow_link_codes');
 const borrowQuotasCollection = db.collection('borrow_quotas');
 const borrowReminderOutboxCollection = db.collection('borrow_reminder_outbox');
+const borrowIdempotencyCollection = db.collection('borrow_idempotency');
 
 module.exports = {
     admin,
@@ -63,5 +74,6 @@ module.exports = {
     borrowSessionsCollection,
     borrowLinkCodesCollection,
     borrowQuotasCollection,
-    borrowReminderOutboxCollection
+    borrowReminderOutboxCollection,
+    borrowIdempotencyCollection
 };

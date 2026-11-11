@@ -43,6 +43,7 @@ export default function BorrowForm() {
     const [resendCooldown, setResendCooldown] = useState(0);
     const [isResending, setIsResending] = useState(false);
 
+    const idempotencyKeyRef = useRef(null);
     const itemsFirstButtonRef = useRef(null);
     const nameInputRef = useRef(null);
     const emailInputRef = useRef(null);
@@ -97,6 +98,7 @@ export default function BorrowForm() {
     }, [resources, selectedCategory]);
 
     const clearFieldError = (field) => {
+        idempotencyKeyRef.current = null;
         setFieldErrors((prev) => {
             if (!prev[field]) return prev;
             const next = { ...prev };
@@ -108,12 +110,14 @@ export default function BorrowForm() {
     const incrementQty = (resourceId, maxQty) => {
         const cur = selectedItems[resourceId] || 0;
         if (cur < maxQty) {
+            idempotencyKeyRef.current = null;
             setSelectedItems((prev) => ({ ...prev, [resourceId]: cur + 1 }));
             clearFieldError('items');
         }
     };
 
     const decrementQty = (resourceId) => {
+        idempotencyKeyRef.current = null;
         const cur = selectedItems[resourceId] || 0;
         if (cur <= 1) {
             setSelectedItems((prev) => {
@@ -219,6 +223,13 @@ export default function BorrowForm() {
 
         setSubmitting(true);
         try {
+            if (!idempotencyKeyRef.current) {
+                idempotencyKeyRef.current =
+                    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                        ? crypto.randomUUID()
+                        : `borrow-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            }
+
             const payload = {
                 items: itemsPayload,
                 phone: cleanPhone,
@@ -231,8 +242,11 @@ export default function BorrowForm() {
                 payload.email = email.trim().toLowerCase();
             }
 
-            const res = await borrowApi.create(payload);
-            const { request } = res.data || {};
+            const res = await borrowApi.create(payload, {
+                idempotencyKey: idempotencyKeyRef.current
+            });
+            const { request, sessionIssued } = res.data || {};
+            idempotencyKeyRef.current = null;
             borrowTokenStore.purgeLegacy();
 
             if (user) {
@@ -241,7 +255,8 @@ export default function BorrowForm() {
             } else {
                 setCreatedGuestRequest({
                     request,
-                    email: email.trim().toLowerCase()
+                    email: email.trim().toLowerCase(),
+                    sessionIssued: sessionIssued !== false
                 });
                 setResendCooldown(60);
             }
@@ -291,6 +306,7 @@ export default function BorrowForm() {
         return (
             <GuestCreatedScreen
                 email={createdGuestRequest.email}
+                sessionIssued={createdGuestRequest.sessionIssued}
                 resendCooldown={resendCooldown}
                 isResending={isResending}
                 onResend={handleResend}

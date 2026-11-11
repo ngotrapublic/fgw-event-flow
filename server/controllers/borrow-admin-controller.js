@@ -1,5 +1,6 @@
 const QRCode = require('qrcode');
 const { borrowRequestsCollection } = require('../config/firebase');
+const { getValidatedAppPublicUrl } = require('../config/borrow-security');
 const HttpError = require('../utils/http-error');
 const { transition } = require('../services/borrow-transition-service');
 const borrowEmailService = require('../services/borrow-email-service');
@@ -415,9 +416,11 @@ async function confirmReturn(req, res, next) {
  */
 async function getQrStation(req, res, next) {
     try {
-        const baseUrl = (process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
-        if (!baseUrl) {
-            throw new HttpError(503, 'Chưa cấu hình APP_PUBLIC_URL');
+        let baseUrl;
+        try {
+            baseUrl = getValidatedAppPublicUrl();
+        } catch (err) {
+            throw new HttpError(503, err.message);
         }
         const url = `${baseUrl}/borrow`;
         const qr = await QRCode.toDataURL(url, { width: 512, margin: 2 });

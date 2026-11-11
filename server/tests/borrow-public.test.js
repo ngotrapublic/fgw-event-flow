@@ -9,6 +9,7 @@ jest.mock('../config/firebase', () => {
         borrow_link_codes: {},
         borrow_quotas: {},
         borrow_reminder_outbox: {},
+        borrow_idempotency: {},
         audit_logs: {},
         users: {}
     });
@@ -44,6 +45,8 @@ jest.mock('../controllers/settingsController', () => ({
 
 const borrowCtrl = require('../controllers/borrow-public-controller');
 const borrowEmailService = require('../services/borrow-email-service');
+const borrowLinkService = require('../services/borrow-link-service');
+const borrowSessionService = require('../services/borrow-session-service');
 const notificationService = require('../services/notificationService');
 const { transition } = require('../services/borrow-transition-service');
 const { hash } = require('../services/borrow-token-service');
@@ -125,10 +128,12 @@ beforeEach(() => {
     mockFirebase.__stores.borrow_link_codes.clear();
     mockFirebase.__stores.borrow_quotas.clear();
     mockFirebase.__stores.borrow_reminder_outbox.clear();
+    mockFirebase.__stores.borrow_idempotency.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
     mockFirebase.db.__txChain = Promise.resolve();
 
+    jest.restoreAllMocks();
     jest.clearAllMocks();
 
     mockFirebase.__stores.resources.set('loa', {
@@ -1464,6 +1469,219 @@ describe('getAvailableResources', () => {
             expect(item.quantity).toBeUndefined();
             expect(item.availableQty).toBeGreaterThanOrEqual(0);
         });
+    });
+});
+
+describe('Follow-up Audit Security & Reliability Regressions', () => {
+    // Test #1 from Follow-up Audit §4
+    test('cross_account_exchange_must_not_consume_code', async () => {
+        const dueDate = getTomorrowVnDate();
+        const ownerUser = {
+            uid: 'uid-owner-a',
+            email: 'ownera@fpt.edu.vn',
+            profile: { name: 'Owner A', role: 'user' }
+        };
+        const otherUser = {
+            uid: 'uid-intruder-b',
+            email: 'intruderb@fpt.edu.vn',
+            profile: { name: 'Intruder B', role: 'user' }
+        };
+
+        const createRes = await callHandler(borrowCtrl.createBorrowRequest, {
+            body: {
+                phone: '0901112223',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: ownerUser
+        });
+        expect(createRes.statusCode).toBe(201);
+        const rawCode = borrowEmailService.sendCreatedForAccount.mock.calls[0][1];
+        expect(typeof rawCode).toBe('string');
+
+        // 1. Account B attempts to exchange A's link code -> 403, no cookie, code NOT consumed!
+        const resB = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: rawCode },
+            user: otherUser
+        });
+        expect(resB.statusCode).toBe(403);
+        expect(Object.keys(resB.cookies)).toHaveLength(0);
+        expect(mockFirebase.__stores.borrow_link_codes.get(hash(rawCode)).consumedAt).toBeNull();
+
+        // 2. Account A still exchanges the exact same code successfully ONCE
+        const resA = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: rawCode },
+            user: ownerUser
+        });
+        expect(resA.statusCode).toBe(200);
+        expect(resA.body.request.id).toBe(createRes.body.request.id);
+        expect(resA.cookies.borrow_session).toBeDefined();
+        expect(mockFirebase.__stores.borrow_link_codes.get(hash(rawCode)).consumedAt).not.toBeNull();
+
+        // 3. Subsequent replay fails cleanly with 410
+        const replay = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: rawCode },
+            user: ownerUser
+        });
+        expect(replay.statusCode).toBe(410);
+    });
+
+    // Test #2 from Follow-up Audit §4
+    test('create_link_failure_rolls_back_request_and_quota', async () => {
+        const dueDate = getTomorrowVnDate();
+        jest.spyOn(borrowLinkService, 'commitLinkCodeInTx').mockImplementationOnce(() => {
+            throw new Error('Simulated Firestore write failure on borrow_link_codes');
+        });
+
+        const failRes = await callHandler(borrowCtrl.createBorrowRequest, {
+            headers: { 'idempotency-key': 'idem-link-fail-1' },
+            body: {
+                name: 'Atomic Failure Guest',
+                email: 'atomic@test.com',
+                phone: '0904445556',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+
+        expect(failRes.statusCode).toBe(500);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(0);
+        expect(mockFirebase.__stores.borrow_quotas.size).toBe(0);
+        expect(mockFirebase.__stores.borrow_link_codes.size).toBe(0);
+        expect(mockFirebase.__stores.borrow_idempotency.size).toBe(0);
+        expect(borrowEmailService.sendVerify).not.toHaveBeenCalled();
+
+        // Subsequent normal retry creates exactly 1 clean request + quota + link code
+        const retryRes = await callHandler(borrowCtrl.createBorrowRequest, {
+            headers: { 'idempotency-key': 'idem-link-fail-1' },
+            body: {
+                name: 'Atomic Failure Guest',
+                email: 'atomic@test.com',
+                phone: '0904445556',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+        expect(retryRes.statusCode).toBe(201);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(1);
+        expect(mockFirebase.__stores.borrow_link_codes.size).toBe(1);
+    });
+
+    // Test #3 from Follow-up Audit §4
+    test('session_issue_failure_after_email_does_not_create_duplicate_on_retry', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'client-attempt-uuid-9876';
+
+        // Simulate transient DB failure when issuing cookie session AFTER guest email succeeded
+        jest.spyOn(borrowSessionService, 'grantRequestAccessToSession').mockRejectedValueOnce(
+            new Error('Simulated session transaction unavailable')
+        );
+
+        const firstReq = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Guest Session Fail',
+                email: 'sessfail@test.com',
+                phone: '0909998887',
+                dueDate,
+                items: [{ resourceId: 'mic', qty: 1 }]
+            },
+            user: null
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, firstReq);
+
+        // Request IS created, email WAS sent, and caller receives 201 + sessionIssued:false (NOT 500 error)
+        expect(res1.statusCode).toBe(201);
+        expect(res1.body.sessionIssued).toBe(false);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(1);
+        const createdId = res1.body.request.id;
+
+        // If client still retries with same Idempotency-Key -> deduplicated: true, NO duplicate request/email/quota, and recovers session cookie!
+        const resRetry = await callHandler(borrowCtrl.createBorrowRequest, firstReq);
+        expect(resRetry.statusCode).toBe(200);
+        expect(resRetry.body.deduplicated).toBe(true);
+        expect(resRetry.body.request.id).toBe(createdId);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(1);
+        expect(resRetry.cookies.borrow_session).toBeDefined();
+    });
+
+    // Test #5 from Follow-up Audit §4
+    test('https_request_rejects_legacy_http_cookie', async () => {
+        const sid = 'legacy-http-sid-value';
+        mockFirebase.__stores.borrow_requests.set('req-cookie-policy', {
+            id: 'req-cookie-policy',
+            status: 'handed_over',
+            isOpen: true,
+            borrower: { name: 'Cookie Tester', email: 'cookie@test.com', phone: '0907771122' },
+            items: [{ resourceId: 'loa', label: 'Loa / Âm thanh', qty: 1 }],
+            dueDate: getTomorrowVnDate(),
+            dueAt: new Date(Date.now() + 36 * 3600e3).toISOString(),
+            history: []
+        });
+        mockFirebase.__stores.borrow_sessions.set(hash(sid), {
+            requestIds: ['req-cookie-policy'],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
+
+        // HTTPS via req.secure=true carrying ONLY legacy borrow_session cookie -> MUST reject
+        const httpsLegacyMy = await callHandler(borrowCtrl.getMyRequests, {
+            secure: true,
+            headers: { cookie: `borrow_session=${sid}` }
+        });
+        expect(httpsLegacyMy.statusCode).toBe(200);
+        expect(httpsLegacyMy.body.requests).toEqual([]);
+
+        const httpsLegacyReturn = await callHandler(borrowCtrl.requestReturn, {
+            secure: true,
+            params: { id: 'req-cookie-policy' },
+            headers: { cookie: `borrow_session=${sid}` }
+        });
+        expect(httpsLegacyReturn.statusCode).toBe(404);
+
+        // HTTPS via x-forwarded-proto carrying ONLY borrow_session -> MUST reject
+        const fwdLegacyMy = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { 'x-forwarded-proto': 'https', cookie: `borrow_session=${sid}` }
+        });
+        expect(fwdLegacyMy.body.requests).toEqual([]);
+
+        // HTTPS with proper __Host-borrow cookie -> succeeds & allows actions
+        const httpsStrictMy = await callHandler(borrowCtrl.getMyRequests, {
+            secure: true,
+            headers: { cookie: `__Host-borrow=${sid}` }
+        });
+        expect(httpsStrictMy.statusCode).toBe(200);
+        expect(httpsStrictMy.body.requests).toHaveLength(1);
+        expect(httpsStrictMy.body.requests[0].id).toBe('req-cookie-policy');
+
+        // Creating a guest request over HTTPS mints __Host-borrow with Secure flag (no borrow_session)
+        const createHttps = await callHandler(borrowCtrl.createBorrowRequest, {
+            secure: true,
+            body: {
+                name: 'HTTPS Guest',
+                email: 'httpsguest@test.com',
+                phone: '0902223344',
+                dueDate: getTomorrowVnDate(),
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+        expect(createHttps.statusCode).toBe(201);
+        expect(createHttps.cookies['__Host-borrow']).toBeDefined();
+        expect(createHttps.cookies['__Host-borrow'].opts).toMatchObject({
+            httpOnly: true,
+            secure: true,
+            sameSite: 'lax',
+            path: '/'
+        });
+        expect(createHttps.cookies.borrow_session).toBeUndefined();
     });
 });
 

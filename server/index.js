@@ -1,6 +1,21 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+const {
+    validateProductionSecurityConfig,
+    enforceHttpsMiddleware
+} = require('./config/borrow-security');
+
+// Validate security invariants immediately at startup (fail-fast in production)
+let securityConfig;
+try {
+    securityConfig = validateProductionSecurityConfig();
+} catch (secErr) {
+    console.error(`[SECURITY FATAL] ${secErr.message}`);
+    process.exit(1);
+}
 
 // Routes
 const eventsRouter = require('./routes/events');
@@ -23,31 +38,11 @@ const borrowReminderJob = require('./jobs/borrow-reminder-job');
 // Services (for /api/notify endpoint)
 const retentionService = require('./services/retentionService');
 const emailService = require('./services/emailService');
-const path = require('path'); // ✅ NEW
 
 const app = express();
 
-function resolveTrustProxy() {
-    const raw = process.env.TRUST_PROXY;
-    if (!raw || !raw.trim()) {
-        if (process.env.NODE_ENV === 'production') {
-            console.warn(
-                '[SECURITY] TRUST_PROXY is defaulting to 1 hop. In production, set TRUST_PROXY to trusted proxy subnet/IPs (e.g. "127.0.0.1,10.0.0.0/8" or "loopback") and firewall direct access to backend port.'
-            );
-        }
-        return 1;
-    }
-    const trimmed = raw.trim();
-    if (trimmed === 'true') return true;
-    if (trimmed === 'false') return false;
-    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
-    if (trimmed.includes(',')) {
-        return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
-    }
-    return trimmed;
-}
-
-app.set('trust proxy', resolveTrustProxy()); // configurable trusted reverse-proxy hop/subnet
+app.set('trust proxy', securityConfig.trustProxy); // configurable trusted reverse-proxy hop/subnet
+app.use(enforceHttpsMiddleware);
 
 if (!process.env.APP_PUBLIC_URL) {
     console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');
@@ -59,9 +54,7 @@ retentionService.startScheduler();
 exportJob.start(); // ✅ NEW
 
 // CORS — only allow configured origins
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:5173', 'http://localhost:3000', 'http://event.greenwichvietnam.edu.vn'];
+const allowedOrigins = securityConfig.allowedOrigins;
 
 app.use(cors({
     origin: (origin, callback) => {

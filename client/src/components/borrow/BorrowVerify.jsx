@@ -30,14 +30,37 @@ function verifyTokenOnce(cleanToken) {
 }
 
 export default function BorrowVerify() {
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
 
-    const token = searchParams.get('token');
+    const queryToken = searchParams.get('token') || '';
+    const [token, setToken] = useState(() => {
+        if (queryToken) return queryToken;
+        if (typeof window !== 'undefined' && window.location.search) {
+            return new URLSearchParams(window.location.search).get('token') || '';
+        }
+        return '';
+    });
 
     const [status, setStatus] = useState('verifying');
     const [errorMessage, setErrorMessage] = useState('');
     const [requestData, setRequestData] = useState(null);
+
+    useEffect(() => {
+        if (queryToken && queryToken !== token) {
+            setToken(queryToken);
+        }
+    }, [queryToken, token]);
+
+    // Immediately strip ?token=... from address bar, history & router search params once captured
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState(null, '', window.location.pathname || '/borrow/verify');
+        }
+        if (searchParams.toString()) {
+            setSearchParams({}, { replace: true });
+        }
+    }, [searchParams, setSearchParams]);
 
     useEffect(() => {
         let isMounted = true;

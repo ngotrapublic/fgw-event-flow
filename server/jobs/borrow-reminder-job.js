@@ -136,22 +136,28 @@ class BorrowReminderJob {
         });
     }
 
+    /**
+     * Atomically finalize outbox slot and request sent timestamp in a single Firestore batch commit.
+     * Note on delivery semantics: Lease claim prevents concurrent multi-worker sends; however, because
+     * Nodemailer/SMTP lacks provider-side idempotency keys, delivery remains at-least-once if the
+     * process crashes after the mail server accepts the message and before this batch commits.
+     */
     async completeOutboxSlot({ outboxRef, reqRef, reqFieldSentAt }) {
         const sentAtIso = new Date(Date.now()).toISOString();
-        await Promise.all([
-            outboxRef.update({
-                status: 'sent',
-                sentAt: sentAtIso,
-                leaseExpiresAt: null,
-                nextRetryAt: null,
-                lastError: null,
-                updatedAt: sentAtIso
-            }),
-            reqRef.update({
-                [reqFieldSentAt]: sentAtIso,
-                updatedAt: sentAtIso
-            })
-        ]);
+        const batch = db.batch();
+        batch.update(outboxRef, {
+            status: 'sent',
+            sentAt: sentAtIso,
+            leaseExpiresAt: null,
+            nextRetryAt: null,
+            lastError: null,
+            updatedAt: sentAtIso
+        });
+        batch.update(reqRef, {
+            [reqFieldSentAt]: sentAtIso,
+            updatedAt: sentAtIso
+        });
+        await batch.commit();
     }
 
     async failOutboxSlot({ outboxRef, linkCodeHash, err }) {
