@@ -135,20 +135,15 @@ export default function BorrowReturn() {
     const [lookupError, setLookupError] = useState(null);
     const [showLookupBox, setShowLookupBox] = useState(false);
     const [lookedUpInfo, setLookedUpInfo] = useState(null);
-    const [lookedUpTokens, setLookedUpTokens] = useState([]);
 
     // Fetch user's borrow requests
     const fetchRequests = useCallback(async () => {
         if (authLoading) return;
         setLoading(true);
         try {
-            const tokens = borrowTokenStore.load();
-            const res = await borrowApi.getMy(tokens);
+            borrowTokenStore.purgeLegacy();
+            const res = await borrowApi.getMy();
             const data = res.data || {};
-
-            if (data.invalidTokens && data.invalidTokens.length > 0) {
-                borrowTokenStore.remove(data.invalidTokens);
-            }
 
             const allRequests = data.requests || [];
             const closedRequests = allRequests.filter((r) => CLOSED_STATUSES.includes(r.status));
@@ -177,7 +172,6 @@ export default function BorrowReturn() {
             setOtherOpenRequests([]);
             setClosedRequestsCount(0);
             setLookedUpInfo(null);
-            setLookedUpTokens([]);
             fetchRequests();
         }
     }, [user?.uid, authLoading, fetchRequests]);
@@ -195,8 +189,7 @@ export default function BorrowReturn() {
         if (!selectedRequestToReturn) return;
         setSubmittingReturn(true);
         try {
-            const allTokens = Array.from(new Set([...lookedUpTokens, ...borrowTokenStore.load()]));
-            const res = await borrowApi.returnRequest(selectedRequestToReturn.id, allTokens);
+            const res = await borrowApi.returnRequest(selectedRequestToReturn.id);
             const updated = res.data?.request;
 
             showSuccess('Đã báo trả thành công! Vui lòng mang thiết bị đến kho để hoàn tất.');
@@ -270,14 +263,6 @@ export default function BorrowReturn() {
         try {
             const res = await borrowApi.lookupVerify(cleanPhone, cleanCode);
             const lookedUpRequests = res.data?.requests || [];
-            const accessTokens = res.data?.accessTokens || [];
-
-            if (accessTokens.length > 0) {
-                setLookedUpTokens((prev) => Array.from(new Set([...accessTokens, ...prev])));
-                if (!user) {
-                    borrowTokenStore.addMany(accessTokens);
-                }
-            }
 
             if (lookedUpRequests.length > 0) {
                 const activeToReturn = lookedUpRequests.filter((r) => r.status === 'handed_over');

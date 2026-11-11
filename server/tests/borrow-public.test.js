@@ -5,6 +5,8 @@ jest.mock('../config/firebase', () => {
         resources: {},
         borrow_requests: {},
         borrow_otps: {},
+        borrow_sessions: {},
+        borrow_link_codes: {},
         audit_logs: {},
         users: {}
     });
@@ -41,13 +43,38 @@ jest.mock('../controllers/settingsController', () => ({
 const borrowCtrl = require('../controllers/borrow-public-controller');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
+const { transition } = require('../services/borrow-transition-service');
 const { hash } = require('../services/borrow-token-service');
 const HttpError = require('../utils/http-error');
 
 const mkRes = () => ({
     statusCode: 200,
     body: null,
+    headers: {},
+    cookies: {},
+    clearedCookies: {},
     status(code) {
+        this.statusCode = code;
+        return this;
+    },
+    set(obj, val) {
+        if (typeof obj === 'string') {
+            this.headers[obj] = val;
+        } else if (obj && typeof obj === 'object') {
+            Object.assign(this.headers, obj);
+        }
+        return this;
+    },
+    cookie(name, value, opts) {
+        this.cookies[name] = { value, opts };
+        return this;
+    },
+    clearCookie(name, opts) {
+        delete this.cookies[name];
+        this.clearedCookies[name] = opts || {};
+        return this;
+    },
+    sendStatus(code) {
         this.statusCode = code;
         return this;
     },
@@ -56,6 +83,12 @@ const mkRes = () => ({
         return this;
     }
 });
+
+const extractSessionCookieHeader = (res) => {
+    const cookieObj = res.cookies['__Host-borrow'] || res.cookies.borrow_session;
+    const cookieName = res.cookies['__Host-borrow'] ? '__Host-borrow' : 'borrow_session';
+    return cookieObj ? `${cookieName}=${encodeURIComponent(cookieObj.value)}` : '';
+};
 
 const callHandler = async (fn, req) => {
     const res = mkRes();
@@ -86,8 +119,11 @@ beforeEach(() => {
     mockFirebase.__stores.resources.clear();
     mockFirebase.__stores.borrow_requests.clear();
     mockFirebase.__stores.borrow_otps.clear();
+    mockFirebase.__stores.borrow_sessions.clear();
+    mockFirebase.__stores.borrow_link_codes.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
+    mockFirebase.db.__txChain = Promise.resolve();
 
     jest.clearAllMocks();
 
@@ -112,7 +148,7 @@ beforeEach(() => {
 });
 
 describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
-    test('1. Khách tạo phiếu hợp lệ -> unverified, có accessToken, sendVerify được gọi 1 lần, doc không chứa token gốc', async () => {
+    test('1. Khách tạo phiếu hợp lệ -> unverified, không trả accessToken, cấp HttpOnly session cookie + one-time linkCode', async () => {
         const dueDate = getTomorrowVnDate();
         const req = {
             body: {
@@ -129,22 +165,32 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         const res = await callHandler(borrowCtrl.createBorrowRequest, req);
 
         expect(res.statusCode).toBe(201);
-        expect(res.body.accessToken).toBeDefined();
-        expect(typeof res.body.accessToken).toBe('string');
+        expect(res.body.accessToken).toBeUndefined();
         expect(res.body.request.status).toBe('unverified');
         expect(res.body.request.borrower.email).toBe('ng***@gmail.com');
         expect(res.body.request.borrower.phone).toBe('091****678');
+        expect(res.headers['Cache-Control']).toBe('no-store');
+        expect(res.headers['Referrer-Policy']).toBe('no-referrer');
 
-        // Verify email called once
+        // Cookie session issued (borrow_session on HTTP, __Host-borrow on HTTPS)
+        const sessionCookie = res.cookies.borrow_session;
+        expect(sessionCookie).toBeDefined();
+        expect(sessionCookie.opts.httpOnly).toBe(true);
+        expect(sessionCookie.opts.sameSite).toBe('lax');
+
+        // Verify email called once with verifyToken + one-time linkCode
         expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+        const linkCodeArg = borrowEmailService.sendVerify.mock.calls[0][2];
+        expect(typeof linkCodeArg).toBe('string');
+        expect(mockFirebase.__stores.borrow_link_codes.get(hash(linkCodeArg))).toBeDefined();
 
-        // Doc in store does not contain raw tokens
+        // Doc in store does not contain raw tokens or permanent accessTokenHash
         const createdId = res.body.request.id;
         const storedDoc = mockFirebase.__stores.borrow_requests.get(createdId);
         expect(storedDoc).toBeDefined();
         expect(storedDoc.accessToken).toBeUndefined();
         expect(storedDoc.verifyToken).toBeUndefined();
-        expect(storedDoc.accessTokenHash).toBe(hash(res.body.accessToken));
+        expect(storedDoc.accessTokenHash).toBeUndefined();
         expect(storedDoc.verifyTokenHash).toBeDefined();
     });
 
@@ -275,17 +321,16 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(res.body.error).toBe('Bạn đang có quá nhiều phiếu chưa hoàn tất');
     });
 
-    test('8. verify token đúng -> pending, thông báo được gọi; gọi lại -> 200 idempotent kèm accessToken mới; token sai -> 404; quá hạn -> 410', async () => {
+    test('8. verify token one-time: lần 1 -> pending + session cookie; lần 2 -> 404 không mint token/cookie; token sai -> 404; quá hạn -> 410', async () => {
         const rawToken = 'secret-verify-token-123';
         const verifyTokenHash = hash(rawToken);
-        const origAccessToken = 'original-manage-token-123';
 
         mockFirebase.__stores.borrow_requests.set('req-verify-1', {
             id: 'req-verify-1',
             status: 'unverified',
             isOpen: true,
-            accessTokenHash: hash(origAccessToken),
             verifyTokenHash,
+            verifiedTokenHash: null,
             verifyExpiresAt: new Date(Date.now() + 24 * 3600e3).toISOString(),
             borrower: { name: 'Test Verify', email: 'verify@test.com', phone: '0901111222' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
@@ -297,29 +342,36 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         const resWrong = await callHandler(borrowCtrl.verifyEmail, { body: { token: 'invalid-token' } });
         expect(resWrong.statusCode).toBe(404);
 
-        // Correct token -> 200, status pending, notification called, accessToken returned
-        const resCorrect = await callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } });
+        // Correct token first use -> 200, status pending, notification called, session cookie set, NO accessToken returned
+        const resCorrect = await callHandler(borrowCtrl.verifyEmail, {
+            body: { token: rawToken },
+            secure: true
+        });
         expect(resCorrect.statusCode).toBe(200);
         expect(resCorrect.body.request.status).toBe('pending');
-        expect(typeof resCorrect.body.accessToken).toBe('string');
-        expect(resCorrect.body.accessToken.length).toBeGreaterThan(10);
+        expect(resCorrect.body.accessToken).toBeUndefined();
+        expect(resCorrect.cookies['__Host-borrow']).toBeDefined();
+        expect(resCorrect.cookies['__Host-borrow'].opts.httpOnly).toBe(true);
+        expect(resCorrect.cookies['__Host-borrow'].opts.secure).toBe(true);
         expect(notificationService.create).toHaveBeenCalled();
 
-        // Idempotent call again -> 200 AND issues accessToken so reopening link on another device works
-        const resAgain = await callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } });
-        expect(resAgain.statusCode).toBe(200);
-        expect(resAgain.body.request.status).toBe('pending');
-        expect(typeof resAgain.body.accessToken).toBe('string');
-        expect(resAgain.body.accessToken).not.toBe(resCorrect.body.accessToken);
-
-        // Both the newly issued token (idempotent) AND the original manageUrl token open GET /my
+        // Session cookie opens GET /my
         const resMy = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': `${resAgain.body.accessToken},${origAccessToken}` }
+            secure: true,
+            headers: { cookie: extractSessionCookieHeader(resCorrect) }
         });
         expect(resMy.statusCode).toBe(200);
         expect(resMy.body.requests).toHaveLength(1);
         expect(resMy.body.requests[0].id).toBe('req-verify-1');
-        expect(resMy.body.invalidTokens).toEqual([]);
+
+        // Replay of old verify token -> 404 and NO token or cookie minted!
+        const resReplay = await callHandler(borrowCtrl.verifyEmail, {
+            body: { token: rawToken },
+            secure: true
+        });
+        expect(resReplay.statusCode).toBe(404);
+        expect(resReplay.body.accessToken).toBeUndefined();
+        expect(Object.keys(resReplay.cookies)).toHaveLength(0);
 
         // Expired unverified token -> 410
         const expiredToken = 'expired-token-456';
@@ -328,7 +380,7 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             status: 'unverified',
             isOpen: true,
             verifyTokenHash: hash(expiredToken),
-            verifyExpiresAt: new Date(Date.now() - 1000).toISOString(), // expired
+            verifyExpiresAt: new Date(Date.now() - 1000).toISOString(),
             borrower: { email: 'exp@test.com' },
             history: []
         });
@@ -352,13 +404,12 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         expect(resJobExpired.statusCode).toBe(410);
     });
 
-    test('8b. verify gọi đồng thời 2 lần (StrictMode / double-click) -> cả 2 đều 200 kèm accessToken hợp lệ', async () => {
+    test('8b. verify gọi đồng thời 2 lần (StrictMode race) -> đúng 1 lần cấp session cookie, lần kia không mint thêm credential', async () => {
         const rawToken = 'race-verify-token-123';
         mockFirebase.__stores.borrow_requests.set('req-verify-race', {
             id: 'req-verify-race',
             status: 'unverified',
             isOpen: true,
-            accessTokenHash: hash('orig-race-tok'),
             verifyTokenHash: hash(rawToken),
             verifyExpiresAt: new Date(Date.now() + 24 * 3600e3).toISOString(),
             borrower: { name: 'Race Verify', email: 'race@test.com', phone: '0901119999' },
@@ -372,56 +423,71 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             callHandler(borrowCtrl.verifyEmail, { body: { token: rawToken } })
         ]);
 
-        expect(res1.statusCode).toBe(200);
-        expect(res2.statusCode).toBe(200);
-        expect(res1.body.request.status).toBe('pending');
-        expect(res2.body.request.status).toBe('pending');
-        expect(typeof res1.body.accessToken).toBe('string');
-        expect(typeof res2.body.accessToken).toBe('string');
+        expect([200, 404]).toContain(res1.statusCode);
+        expect([200, 404]).toContain(res2.statusCode);
 
-        // Both tokens are valid in /my
+        // Exactly one winner received a session cookie; neither received accessToken in JSON
+        const cookieWinners = [res1, res2].filter((r) => Boolean(r.cookies.borrow_session));
+        expect(cookieWinners).toHaveLength(1);
+        expect(res1.body.accessToken).toBeUndefined();
+        expect(res2.body.accessToken).toBeUndefined();
+
+        // Winner's cookie opens GET /my
         const resMy = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': `${res1.body.accessToken},${res2.body.accessToken}` }
+            headers: { cookie: extractSessionCookieHeader(cookieWinners[0]) }
         });
         expect(resMy.statusCode).toBe(200);
         expect(resMy.body.requests).toHaveLength(1);
-        expect(resMy.body.invalidTokens).toEqual([]);
     });
 
-    test('9. my với 1 token đúng + 1 token rác -> 1 phiếu, invalidTokens chứa token rác. Response không có history/*Hash/uid', async () => {
-        const validToken = 'my-valid-token-777';
+    test('9. getMyRequests qua HttpOnly cookie session -> trả phiếu mở, ẩn history/*Hash/uid/studentId, cookie hỏng bị xoá', async () => {
+        const sid = 'valid-session-id-777';
+        mockFirebase.__stores.borrow_sessions.set(hash(sid), {
+            requestIds: ['req-my-1'],
+            expiresAt: Date.now() + 60 * 60e3,
+            revokedAt: null
+        });
         mockFirebase.__stores.borrow_requests.set('req-my-1', {
             id: 'req-my-1',
             status: 'pending',
             isOpen: true,
-            accessTokenHash: hash(validToken),
             verifyTokenHash: 'some-hash',
-            borrower: { uid: 'secret-uid', name: 'Nguyễn My', email: 'my@test.com', phone: '0988777666' },
+            borrower: {
+                uid: 'secret-uid',
+                studentId: 'GCS210001',
+                name: 'Nguyễn My',
+                email: 'my@test.com',
+                phone: '0988777666'
+            },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: [{ status: 'created', note: 'secret' }]
         });
 
-        const junkToken = 'junk-token-999';
-        const req = {
-            headers: {
-                'x-borrow-tokens': `${validToken},${junkToken}`
-            },
+        const res = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { cookie: `borrow_session=${sid}` },
             user: null
-        };
-
-        const res = await callHandler(borrowCtrl.getMyRequests, req);
+        });
         expect(res.statusCode).toBe(200);
         expect(res.body.requests).toHaveLength(1);
         expect(res.body.requests[0].id).toBe('req-my-1');
-        expect(res.body.invalidTokens).toEqual([junkToken]);
 
-        // Security check: no uid, history, or hash in public view
+        // Security & data minimization check: no uid, studentId, history, or hash in public view
         const item = res.body.requests[0];
         expect(item.history).toBeUndefined();
         expect(item.accessTokenHash).toBeUndefined();
         expect(item.verifyTokenHash).toBeUndefined();
         expect(item.borrower.uid).toBeUndefined();
+        expect(item.borrower.studentId).toBeUndefined();
         expect(item.borrower.email).toBe('my***@test.com');
+
+        // Invalid/revoked cookie -> empty requests and cookie cleared
+        const resInvalid = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { cookie: 'borrow_session=revoked-or-nonexistent' },
+            user: null
+        });
+        expect(resInvalid.statusCode).toBe(200);
+        expect(resInvalid.body.requests).toEqual([]);
+        expect(resInvalid.clearedCookies.borrow_session).toBeDefined();
     });
 
     test('10. lookup/otp: SĐT không có phiếu và SĐT có phiếu -> cùng status + body; chỉ trường hợp sau gọi sendOtp', async () => {
@@ -583,10 +649,12 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         const otpDocBefore = mockFirebase.__stores.borrow_otps.get(phoneHash);
         expect(otpDocBefore.attempts).toBe(4);
 
-        // 5th attempt with CORRECT code -> 200
+        // 5th attempt with CORRECT code -> 200, sets HttpOnly session cookie
         const rCorrect = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
         expect(rCorrect.statusCode).toBe(200);
-        expect(rCorrect.body.accessTokens).toHaveLength(1);
+        expect(rCorrect.body.accessTokens).toBeUndefined();
+        expect(rCorrect.body.requests).toHaveLength(1);
+        expect(rCorrect.cookies.borrow_session).toBeDefined();
 
         // OTP doc must be deleted
         expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
@@ -614,15 +682,29 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
 
         const res = await callHandler(borrowCtrl.verifyOtp, { body: { phone: '+84 901.234.567', code: '456 789' } });
         expect(res.statusCode).toBe(200);
-        expect(res.body.accessTokens).toHaveLength(1);
+        expect(res.body.requests).toHaveLength(1);
+        expect(res.cookies.borrow_session).toBeDefined();
         expect(mockFirebase.__stores.borrow_otps.has(phoneHash)).toBe(false);
     });
 
-    test('13. lookup/verify đúng -> token mới mở được phiếu; token cũ -> my trả trong invalidTokens', async () => {
+    test('13. lookup/verify đúng -> session mới mở được phiếu; session cũ và link code cũ bị thu hồi', async () => {
         const phone = '0901234567';
         const code = '654321';
         const phoneHash = hash(phone);
-        const oldToken = 'old-access-token-000';
+        const oldSid = 'old-session-id-000';
+        const oldLinkCode = 'old-link-code-000';
+
+        mockFirebase.__stores.borrow_sessions.set(hash(oldSid), {
+            requestIds: ['req-lookup-1'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
+        mockFirebase.__stores.borrow_link_codes.set(hash(oldLinkCode), {
+            requestId: 'req-lookup-1',
+            expiresAt: Date.now() + 3600e3,
+            consumedAt: null,
+            revokedAt: null
+        });
 
         mockFirebase.__stores.borrow_otps.set(phoneHash, {
             phoneHash,
@@ -635,63 +717,73 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             id: 'req-lookup-1',
             status: 'pending',
             isOpen: true,
-            accessTokenHash: hash(oldToken),
             borrower: { phone, email: 'user@test.com' }
         });
 
         const resVerify = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
         expect(resVerify.statusCode).toBe(200);
-        expect(resVerify.body.accessTokens).toHaveLength(1);
+        expect(resVerify.body.requests).toHaveLength(1);
+        const newCookieHeader = extractSessionCookieHeader(resVerify);
+        expect(newCookieHeader).toContain('borrow_session=');
+        expect(newCookieHeader).not.toContain(oldSid);
 
-        const newToken = resVerify.body.accessTokens[0];
-        expect(newToken).not.toBe(oldToken);
+        // Old session is revoked in store and gets empty requests on /my
+        const oldSessionDoc = mockFirebase.__stores.borrow_sessions.get(hash(oldSid));
+        expect(oldSessionDoc.revokedAt).toBeDefined();
+        expect(oldSessionDoc.revokedAt).not.toBeNull();
 
-        // Old token is now invalid in getMyRequests
         const resMyOld = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': oldToken }
+            headers: { cookie: `borrow_session=${oldSid}` }
         });
-        expect(resMyOld.body.invalidTokens).toContain(oldToken);
+        expect(resMyOld.body.requests).toHaveLength(0);
 
-        // New token successfully fetches request
+        // Old unconsumed link code cannot be exchanged after OTP recovery
+        const resExchangeOld = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: oldLinkCode }
+        });
+        expect(resExchangeOld.statusCode).toBe(410);
+
+        // New session successfully fetches request
         const resMyNew = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': newToken }
+            headers: { cookie: newCookieHeader }
         });
         expect(resMyNew.body.requests).toHaveLength(1);
         expect(resMyNew.body.requests[0].id).toBe('req-lookup-1');
     });
 
-    test('13b. token từ email nhắc hạn mở được phiếu và báo trả; token gốc vẫn dùng được; OTP thu hồi token nhắc hạn', async () => {
-        const originalToken = 'original-access-token';
-        const reminderToken = 'reminder-access-token';
+    test('13b. quản lý bằng one-time link code (#code=) -> đổi sang session cookie và báo trả; OTP thu hồi link code', async () => {
         const phone = '0907654321';
         const code = '111222';
+        const linkCode = 'one-time-link-code-xyz';
 
         mockFirebase.__stores.borrow_requests.set('req-reminder-1', {
             id: 'req-reminder-1',
             status: 'handed_over',
             isOpen: true,
-            accessTokenHash: hash(originalToken),
-            accessTokenHashes: [hash(reminderToken)],
             borrower: { phone, email: 'reminder@test.com' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: []
         });
-
-        // Both tokens sent together: both are recognised, neither is reported invalid.
-        const resBoth = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': `${reminderToken},${originalToken}` }
+        mockFirebase.__stores.borrow_link_codes.set(hash(linkCode), {
+            requestId: 'req-reminder-1',
+            expiresAt: Date.now() + 3600e3,
+            consumedAt: null,
+            revokedAt: null
         });
-        expect(resBoth.body.requests).toHaveLength(1);
-        expect(resBoth.body.invalidTokens).toEqual([]);
 
-        // Reminder token alone opens the request.
+        const resEx = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: linkCode }
+        });
+        expect(resEx.statusCode).toBe(200);
+        const cookieHdr = extractSessionCookieHeader(resEx);
+        expect(cookieHdr).toContain('borrow_session=');
+
         const resReminder = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': reminderToken }
+            headers: { cookie: cookieHdr }
         });
         expect(resReminder.body.requests).toHaveLength(1);
-        expect(resReminder.body.requests[0].accessTokenHashes).toBeUndefined();
 
-        // OTP lookup revokes the reminder token.
+        // OTP lookup revokes session opened by linkCode
         mockFirebase.__stores.borrow_otps.set(hash(phone), {
             phoneHash: hash(phone),
             codeHash: hash(code),
@@ -699,43 +791,62 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             attempts: 0
         });
         await callHandler(borrowCtrl.verifyOtp, { body: { phone, code } });
+
         const resAfterOtp = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': reminderToken }
+            headers: { cookie: cookieHdr }
         });
         expect(resAfterOtp.body.requests).toHaveLength(0);
-        expect(resAfterOtp.body.invalidTokens).toContain(reminderToken);
     });
 
-    test('13c. báo trả bằng token từ email nhắc hạn -> return_pending', async () => {
-        const reminderToken = 'reminder-return-token';
+    test('13c. báo trả qua session cookie vừa đổi từ link code -> return_pending', async () => {
+        const linkCode = 'link-code-for-return';
         mockFirebase.__stores.borrow_requests.set('req-reminder-return', {
             id: 'req-reminder-return',
             status: 'handed_over',
             isOpen: true,
-            accessTokenHash: hash('some-original-token'),
-            accessTokenHashes: [hash(reminderToken)],
             borrower: { email: 'remret@test.com' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: []
         });
+        mockFirebase.__stores.borrow_link_codes.set(hash(linkCode), {
+            requestId: 'req-reminder-return',
+            expiresAt: Date.now() + 3600e3,
+            consumedAt: null,
+            revokedAt: null
+        });
+
+        const resEx = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: linkCode }
+        });
+        const cookieHdr = extractSessionCookieHeader(resEx);
 
         const res = await callHandler(borrowCtrl.requestReturn, {
             params: { id: 'req-reminder-return' },
-            headers: { 'x-borrow-token': reminderToken }
+            headers: { cookie: cookieHdr }
         });
         expect(res.statusCode).toBe(200);
         expect(res.body.request.status).toBe('return_pending');
     });
 
-    test('14. return với token đúng khi handed_over -> return_pending; khi approved -> 409; token phiếu khác -> 404', async () => {
-        const token1 = 'token-for-req1';
-        const token2 = 'token-for-req2';
+    test('14. return với session đúng khi handed_over -> return_pending; khi approved -> 409; session phiếu khác -> 404', async () => {
+        const sid1 = 'session-for-req1';
+        const sid2 = 'session-for-req2';
+
+        mockFirebase.__stores.borrow_sessions.set(hash(sid1), {
+            requestIds: ['req-return-1'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
+        mockFirebase.__stores.borrow_sessions.set(hash(sid2), {
+            requestIds: ['req-return-2'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
 
         mockFirebase.__stores.borrow_requests.set('req-return-1', {
             id: 'req-return-1',
             status: 'handed_over',
             isOpen: true,
-            accessTokenHash: hash(token1),
             borrower: { email: 'borrower@test.com' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: []
@@ -745,31 +856,30 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             id: 'req-return-2',
             status: 'approved',
             isOpen: true,
-            accessTokenHash: hash(token2),
             borrower: { email: 'borrower2@test.com' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: []
         });
 
-        // 1. Wrong token (token2 on req-return-1) -> 404
+        // 1. Wrong session (sid2 on req-return-1) -> 404
         const resWrong = await callHandler(borrowCtrl.requestReturn, {
             params: { id: 'req-return-1' },
-            headers: { 'x-borrow-token': token2 }
+            headers: { cookie: `borrow_session=${sid2}` }
         });
         expect(resWrong.statusCode).toBe(404);
 
-        // 2. Correct token on approved request -> 409
+        // 2. Correct session on approved request -> 409
         const resApproved = await callHandler(borrowCtrl.requestReturn, {
             params: { id: 'req-return-2' },
-            headers: { 'x-borrow-token': token2 }
+            headers: { cookie: `borrow_session=${sid2}` }
         });
         expect(resApproved.statusCode).toBe(409);
         expect(resApproved.body.error).toBe('Bạn chưa nhận thiết bị');
 
-        // 3. Correct token on handed_over request -> 200, return_pending
+        // 3. Correct session on handed_over request -> 200, return_pending
         const resHandedOver = await callHandler(borrowCtrl.requestReturn, {
             params: { id: 'req-return-1' },
-            headers: { 'x-borrow-token': token1 }
+            headers: { cookie: `borrow_session=${sid1}` }
         });
         expect(resHandedOver.statusCode).toBe(200);
         expect(resHandedOver.body.request.status).toBe('return_pending');
@@ -811,39 +921,43 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
         const updatedUser = mockFirebase.__stores.users.get('user-uid-999');
         expect(updatedUser?.phone).toBe('0977665544');
 
-        // Check account creation email was called
+        // Check account creation email was called with one-time link code
         expect(borrowEmailService.sendCreatedForAccount).toHaveBeenCalledTimes(1);
     });
 
-    test('16. toPublicView trả về cancelReason khi phiếu bị huỷ', async () => {
-        const token = 'token-cancelled-view';
+    test('16. toPublicView trả về cancelReason khi phiếu bị huỷ và ẩn PII không cần thiết', async () => {
         mockFirebase.__stores.borrow_requests.set('req-canc-view', {
             id: 'req-canc-view',
             status: 'cancelled',
             isOpen: false,
-            accessTokenHash: hash(token),
             cancelReason: 'Không đủ thiết bị phục vụ đợt này',
-            borrower: { email: 'canc@test.com' },
+            note: 'Ghi chú nội bộ cần ẩn sau khi đóng',
+            borrower: { uid: 'uid-canc', name: 'Hidden Name', email: 'canc@test.com', phone: '0901234567' },
             items: []
         });
 
         const res = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': token }
+            user: { uid: 'uid-canc', email: 'canc@test.com' }
         });
         expect(res.statusCode).toBe(200);
         expect(res.body.requests).toHaveLength(1);
         expect(res.body.requests[0].cancelReason).toBe('Không đủ thiết bị phục vụ đợt này');
+        expect(res.body.requests[0].borrower).toEqual({});
+        expect(res.body.requests[0].note).toBeUndefined();
     });
 
-    test('17. Cross-account isolation: User B với token cũ của User A trong x-borrow-tokens -> không thấy phiếu User A, token bị đẩy vào invalidTokens', async () => {
-        const tokenA = 'token-owned-by-user-A';
-        const guestToken = 'token-owned-by-guest';
+    test('17. Cross-account isolation: User B có session cookie lẫn ID của User A -> không thấy phiếu User A, session bị lọc sạch', async () => {
+        const sid = 'mixed-browser-session';
+        mockFirebase.__stores.borrow_sessions.set(hash(sid), {
+            requestIds: ['req-user-a', 'req-guest-1'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
 
         mockFirebase.__stores.borrow_requests.set('req-user-a', {
             id: 'req-user-a',
             status: 'pending',
             isOpen: true,
-            accessTokenHash: hash(tokenA),
             borrower: { uid: 'uid-A', name: 'User A', email: 'a@test.com', phone: '0901111111' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             createdAt: '2026-11-10T01:00:00Z'
@@ -853,36 +967,38 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
             id: 'req-guest-1',
             status: 'pending',
             isOpen: true,
-            accessTokenHash: hash(guestToken),
             borrower: { name: 'Guest', email: 'guest@test.com', phone: '0902222222' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             createdAt: '2026-11-10T02:00:00Z'
         });
 
-        // Authenticated as User B (has no own requests yet), passes User A's leaked token and a guest token
         const res = await callHandler(borrowCtrl.getMyRequests, {
-            headers: { 'x-borrow-tokens': `${tokenA},${guestToken}` },
+            headers: { cookie: `borrow_session=${sid}` },
             user: { uid: 'uid-B', email: 'b@test.com' }
         });
 
         expect(res.statusCode).toBe(200);
-        // Must ONLY see guest request (or own requests), NEVER User A's request!
         const returnedIds = res.body.requests.map((r) => r.id);
         expect(returnedIds).not.toContain('req-user-a');
         expect(returnedIds).toContain('req-guest-1');
-        // User A's leaked token MUST be evicted via invalidTokens
-        expect(res.body.invalidTokens).toContain(tokenA);
+
+        // Session record no longer includes req-user-a
+        const storedSession = mockFirebase.__stores.borrow_sessions.get(hash(sid));
+        expect(storedSession.requestIds).toEqual(['req-guest-1']);
     });
 
-    test('18. requestReturn hỗ trợ xác thực qua x-borrow-tokens (nhiều token)', async () => {
-        const wrongToken = 'wrong-tok-1';
-        const rightToken = 'right-tok-2';
+    test('18. requestReturn hỗ trợ xác thực qua HttpOnly cookie hoặc tài khoản chủ phiếu', async () => {
+        const rightSid = 'right-session-2';
+        mockFirebase.__stores.borrow_sessions.set(hash(rightSid), {
+            requestIds: ['req-multi-return'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
 
         mockFirebase.__stores.borrow_requests.set('req-multi-return', {
             id: 'req-multi-return',
             status: 'handed_over',
             isOpen: true,
-            accessTokenHash: hash(rightToken),
             borrower: { name: 'Guest Multi', email: 'multi@test.com', phone: '0903333333' },
             items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
             history: []
@@ -890,15 +1006,176 @@ describe('Phase 02 — Public Borrow API (/api/borrow)', () => {
 
         const res = await callHandler(borrowCtrl.requestReturn, {
             params: { id: 'req-multi-return' },
-            headers: {
-                'x-borrow-token': wrongToken,
-                'x-borrow-tokens': `${wrongToken},${rightToken}`
-            },
+            headers: { cookie: `borrow_session=${rightSid}` },
             user: null
         });
 
         expect(res.statusCode).toBe(200);
         expect(res.body.request.status).toBe('return_pending');
+    });
+
+    // =========================================================================
+    // P0 Security Regression Tests (§5 #1–#3)
+    // =========================================================================
+
+    test('19. [P0] verify_replayed_token_must_not_mint_access_after_otp_revocation', async () => {
+        const phone = '0908887776';
+        const createRes = await callHandler(borrowCtrl.createBorrowRequest, {
+            body: {
+                name: 'Victim',
+                email: 'victim@test.com',
+                phone,
+                dueDate: getTomorrowVnDate(),
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+        expect(createRes.statusCode).toBe(201);
+        const verifyToken = borrowEmailService.sendVerify.mock.calls[0][1];
+        const reqId = createRes.body.request.id;
+
+        // 1. Verify email initially -> pending + session cookie
+        const firstVerifyRes = await callHandler(borrowCtrl.verifyEmail, {
+            body: { token: verifyToken }
+        });
+        expect(firstVerifyRes.statusCode).toBe(200);
+        const leakedCookie = extractSessionCookieHeader(firstVerifyRes);
+
+        // 2. Owner performs OTP recovery -> revokes old session
+        const otpCode = '999888';
+        mockFirebase.__stores.borrow_otps.set(hash(phone), {
+            phoneHash: hash(phone),
+            codeHash: hash(otpCode),
+            expiresAt: new Date(Date.now() + 10 * 60e3).toISOString(),
+            attempts: 0
+        });
+        const otpRes = await callHandler(borrowCtrl.verifyOtp, { body: { phone, code: otpCode } });
+        expect(otpRes.statusCode).toBe(200);
+
+        // 3. Attacker replays old verifyToken -> must NOT mint accessToken or cookie!
+        const replayRes = await callHandler(borrowCtrl.verifyEmail, {
+            body: { token: verifyToken }
+        });
+        expect(replayRes.statusCode).toBe(404);
+        expect(replayRes.body.accessToken).toBeUndefined();
+        expect(Object.keys(replayRes.cookies)).toHaveLength(0);
+
+        // 4. Old leaked session cookie cannot open /my
+        const myWithOldCookie = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { cookie: leakedCookie }
+        });
+        expect(myWithOldCookie.body.requests).toEqual([]);
+        expect(mockFirebase.__stores.borrow_requests.get(reqId).verifyTokenHash).toBeNull();
+    });
+
+    test('20. [P0] management_link_code_is_single_use_and_expires', async () => {
+        const code = 'single-use-mgmt-code-123';
+        mockFirebase.__stores.borrow_requests.set('req-link-test', {
+            id: 'req-link-test',
+            status: 'approved',
+            isOpen: true,
+            borrower: { name: 'Link User', email: 'link@test.com', phone: '0904445556' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }]
+        });
+        mockFirebase.__stores.borrow_link_codes.set(hash(code), {
+            requestId: 'req-link-test',
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+            consumedAt: null,
+            revokedAt: null
+        });
+
+        // Two parallel exchange calls -> exactly one succeeds (200), the other returns 410
+        const [r1, r2] = await Promise.all([
+            callHandler(borrowCtrl.exchangeLinkCode, { body: { code } }),
+            callHandler(borrowCtrl.exchangeLinkCode, { body: { code } })
+        ]);
+
+        const statuses = [r1.statusCode, r2.statusCode].sort((a, b) => a - b);
+        expect(statuses).toEqual([200, 410]);
+
+        // Expired code cannot be exchanged for a session
+        const expiredCode = 'expired-mgmt-code-456';
+        mockFirebase.__stores.borrow_link_codes.set(hash(expiredCode), {
+            requestId: 'req-link-test',
+            createdAt: Date.now() - 120_000,
+            expiresAt: Date.now() - 1000,
+            consumedAt: null,
+            revokedAt: null
+        });
+        const rExpired = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: expiredCode }
+        });
+        expect(rExpired.statusCode).toBe(410);
+        expect(Object.keys(rExpired.cookies)).toHaveLength(0);
+    });
+
+    test('21. [P0] closed_request_session_is_revoked_or_minimized', async () => {
+        const sid = 'guest-session-to-close';
+        mockFirebase.__stores.borrow_requests.set('req-to-close', {
+            id: 'req-to-close',
+            status: 'handed_over',
+            isOpen: true,
+            borrower: { name: 'Close Me', email: 'close@test.com', phone: '0906667778' },
+            items: [{ resourceId: 'loa', label: 'Loa', qty: 1 }],
+            note: 'Note bí mật không được lộ khi đóng',
+            history: []
+        });
+        mockFirebase.__stores.borrow_sessions.set(hash(sid), {
+            requestIds: ['req-to-close'],
+            expiresAt: Date.now() + 3600e3,
+            revokedAt: null
+        });
+
+        // Close request via transition service (returned)
+        await transition('req-to-close', 'returned', {
+            actor: { uid: 'admin1', email: 'admin@test.com', role: 'admin' }
+        });
+
+        // Session is revoked in DB and /my returns empty for guest cookie
+        const sessionDoc = mockFirebase.__stores.borrow_sessions.get(hash(sid));
+        expect(sessionDoc.revokedAt).not.toBeNull();
+        expect(sessionDoc.requestIds).toEqual([]);
+
+        const resMy = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { cookie: `borrow_session=${sid}` }
+        });
+        expect(resMy.statusCode).toBe(200);
+        expect(resMy.body.requests).toEqual([]);
+        expect(resMy.clearedCookies.borrow_session).toBeDefined();
+
+        // Data minimization on closed request view even if serialized
+        const closedPublic = borrowCtrl.toPublicView(mockFirebase.__stores.borrow_requests.get('req-to-close'));
+        expect(closedPublic.borrower).toEqual({});
+        expect(closedPublic.note).toBeUndefined();
+    });
+
+    test('22. [P0] HTTP dev dung borrow_session, HTTPS prod dung __Host-borrow; logout thu hoi session', async () => {
+        const createHttp = await callHandler(borrowCtrl.createBorrowRequest, {
+            body: {
+                name: 'HTTP Guest',
+                email: 'httpguest@test.com',
+                phone: '0901122334',
+                dueDate: getTomorrowVnDate(),
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        });
+        expect(createHttp.cookies.borrow_session).toBeDefined();
+        expect(createHttp.cookies.borrow_session.opts.secure).toBe(false);
+        expect(createHttp.cookies['__Host-borrow']).toBeUndefined();
+
+        const cookieHdr = extractSessionCookieHeader(createHttp);
+        const logoutRes = await callHandler(borrowCtrl.logoutSession, {
+            headers: { cookie: cookieHdr }
+        });
+        expect(logoutRes.statusCode).toBe(204);
+        expect(logoutRes.clearedCookies.borrow_session).toBeDefined();
+
+        const afterLogout = await callHandler(borrowCtrl.getMyRequests, {
+            headers: { cookie: cookieHdr }
+        });
+        expect(afterLogout.body.requests).toEqual([]);
     });
 });
 

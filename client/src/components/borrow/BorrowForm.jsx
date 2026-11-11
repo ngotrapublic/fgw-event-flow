@@ -231,12 +231,8 @@ export default function BorrowForm() {
             }
 
             const res = await borrowApi.create(payload);
-            const { request, accessToken } = res.data || {};
-
-            // Only store guest access tokens in localStorage; authenticated accounts query via uid
-            if (!user && accessToken) {
-                borrowTokenStore.add(accessToken);
-            }
+            const { request } = res.data || {};
+            borrowTokenStore.purgeLegacy();
 
             if (user) {
                 showSuccess('Đã tạo phiếu mượn thành công! Đang chờ Quản trị viên duyệt.');
@@ -244,7 +240,6 @@ export default function BorrowForm() {
             } else {
                 setCreatedGuestRequest({
                     request,
-                    accessToken,
                     email: email.trim().toLowerCase()
                 });
                 setResendCooldown(60);
@@ -278,10 +273,7 @@ export default function BorrowForm() {
         if (!createdGuestRequest || resendCooldown > 0) return;
         setIsResending(true);
         try {
-            await borrowApi.resendVerification(
-                createdGuestRequest.request.id,
-                createdGuestRequest.accessToken
-            );
+            await borrowApi.resendVerification(createdGuestRequest.request.id);
             showSuccess('Đã gửi lại email xác nhận thành công!');
             setResendCooldown(60);
         } catch (err) {

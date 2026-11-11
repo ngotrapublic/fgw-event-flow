@@ -1,8 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { CheckCircle2, AlertTriangle, Loader2, Package, ArrowRight, Sparkles } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
+
+// Deduplicate concurrent verify calls per token (protects React 18 StrictMode double-mount)
+const inFlightVerifications = new Map();
+const verifiedResultsCache = new Map();
+
+function verifyTokenOnce(cleanToken) {
+    if (verifiedResultsCache.has(cleanToken)) {
+        return Promise.resolve(verifiedResultsCache.get(cleanToken));
+    }
+    if (!inFlightVerifications.has(cleanToken)) {
+        const promise = borrowApi
+            .verify(cleanToken)
+            .then((res) => {
+                verifiedResultsCache.set(cleanToken, res.data || {});
+                inFlightVerifications.delete(cleanToken);
+                return res.data || {};
+            })
+            .catch((err) => {
+                inFlightVerifications.delete(cleanToken);
+                throw err;
+            });
+        inFlightVerifications.set(cleanToken, promise);
+    }
+    return inFlightVerifications.get(cleanToken);
+}
 
 export default function BorrowVerify() {
     const [searchParams] = useSearchParams();
@@ -16,6 +41,7 @@ export default function BorrowVerify() {
 
     useEffect(() => {
         let isMounted = true;
+        borrowTokenStore.purgeLegacy();
 
         if (!token || !token.trim()) {
             setStatus('error');
@@ -23,17 +49,14 @@ export default function BorrowVerify() {
             return;
         }
 
-        async function verifyToken() {
+        const cleanToken = token.trim();
+
+        async function runVerify() {
             try {
-                const res = await borrowApi.verify(token.trim());
+                const data = await verifyTokenOnce(cleanToken);
                 if (!isMounted) return;
 
-                const { request, accessToken } = res.data || {};
-                if (accessToken) {
-                    borrowTokenStore.add(accessToken);
-                }
-
-                setRequestData(request);
+                setRequestData(data?.request || null);
                 setStatus('success');
             } catch (err) {
                 if (!isMounted) return;
@@ -44,7 +67,7 @@ export default function BorrowVerify() {
                 if (statusCode === 404 || statusCode === 410) {
                     setErrorMessage(
                         errText ||
-                            'Liên kết xác nhận không hợp lệ hoặc đã hết hạn (24 giờ). Vui lòng gửi lại yêu cầu mượn mới.'
+                            'Liên kết xác nhận chỉ dùng một lần, không hợp lệ hoặc đã hết hạn (24 giờ). Nếu bạn đã xác nhận trước đó, hãy về trang chủ hoặc tra cứu bằng SĐT.'
                     );
                 } else {
                     setErrorMessage(
@@ -55,7 +78,7 @@ export default function BorrowVerify() {
             }
         }
 
-        verifyToken();
+        runVerify();
 
         return () => {
             isMounted = false;

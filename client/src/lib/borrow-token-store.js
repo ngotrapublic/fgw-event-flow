@@ -1,78 +1,24 @@
-const KEY = 'borrowTokens';
-const MAX = 10;
+const LEGACY_KEY = 'borrowTokens';
 
 /**
- * Borrow Token Store
- * Manages guest and client access tokens stored in localStorage.
- * Only stores token strings, capped at 10 items.
+ * Legacy Borrow Token Store cleanup helper.
+ * Guest access now uses short-lived HttpOnly session cookies issued by the server;
+ * this helper actively removes any old localStorage tokens left from prior versions.
  */
 export const borrowTokenStore = {
-    load() {
+    purgeLegacy() {
         try {
-            const raw = localStorage.getItem(KEY);
-            if (!raw) return [];
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return [];
-            return parsed.filter((t) => typeof t === 'string' && t.trim().length > 0);
-        } catch {
-            return [];
-        }
-    },
-
-    save(tokens) {
-        try {
-            if (!Array.isArray(tokens)) return [];
-            // Deduplicate while preserving order
-            const unique = Array.from(
-                new Set(tokens.filter((t) => typeof t === 'string' && t.trim().length > 0))
-            ).slice(0, MAX);
-            localStorage.setItem(KEY, JSON.stringify(unique));
-            return unique;
-        } catch {
-            return [];
-        }
-    },
-
-    add(token) {
-        if (!token || typeof token !== 'string') return this.load();
-        const clean = token.trim();
-        if (!clean) return this.load();
-
-        const current = this.load();
-        const updated = [clean, ...current.filter((t) => t !== clean)].slice(0, MAX);
-        return this.save(updated);
-    },
-
-    addMany(tokens) {
-        if (!Array.isArray(tokens) || tokens.length === 0) return this.load();
-        const cleanTokens = tokens
-            .filter((t) => typeof t === 'string' && t.trim().length > 0)
-            .map((t) => t.trim());
-
-        const current = this.load();
-        const updated = [...cleanTokens, ...current].slice(0, MAX);
-        return this.save(updated);
-    },
-
-    remove(tokensToRemove) {
-        if (!tokensToRemove) return this.load();
-        const toRemove = Array.isArray(tokensToRemove) ? tokensToRemove : [tokensToRemove];
-        const removeSet = new Set(toRemove.map((t) => String(t).trim()));
-
-        const current = this.load();
-        const updated = current.filter((t) => !removeSet.has(t));
-        return this.save(updated);
-    },
-
-    clear() {
-        try {
-            localStorage.removeItem(KEY);
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.removeItem(LEGACY_KEY);
+            }
         } catch {
             // ignore storage errors
         }
+    },
+    clear() {
+        this.purgeLegacy();
         return [];
     }
 };
 
 export default borrowTokenStore;
-

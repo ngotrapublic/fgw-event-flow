@@ -1,18 +1,69 @@
 const { db, resourcesCollection, borrowRequestsCollection, borrowOtpsCollection } = require('../config/firebase');
 const HttpError = require('../utils/http-error');
-const { LIMITS } = require('../services/borrow-constants');
+const { OPEN_STATUSES, LIMITS } = require('../services/borrow-constants');
 const { transition } = require('../services/borrow-transition-service');
 const borrowValidation = require('../services/borrow-validation');
-const { newToken, hash, issueReminderToken, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
+const { newToken, hash, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
+const { createLinkCode, exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = require('../services/borrow-link-service');
+const {
+    extractSessionId,
+    applySensitiveHeaders,
+    clearSessionCookie,
+    resolveSession,
+    grantRequestAccessToSession,
+    pruneSessionRequestIds,
+    replaceSessionAfterOtp,
+    revokeSessionById
+} = require('../services/borrow-session-service');
 const borrowEmailService = require('../services/borrow-email-service');
 const notificationService = require('../services/notificationService');
 
+function deriveVnDateOnly(doc) {
+    if (doc?.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.dueDate)) {
+        return doc.dueDate;
+    }
+    if (doc?.dueAt) {
+        const d = new Date(doc.dueAt);
+        if (!isNaN(d.getTime())) {
+            return new Date(d.getTime() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+        }
+    }
+    return '';
+}
+
 /**
  * Serialize borrow request for public/guest view.
- * Strictly NEVER expose uid, history, or raw/hashed tokens.
+ * Strictly NEVER expose uid, history, studentId, or raw/hashed tokens.
+ * Minimizes borrower PII and notes once a request is closed.
  */
 function toPublicView(doc) {
     if (!doc) return null;
+    const isOpen = OPEN_STATUSES.includes(doc.status) && doc.isOpen !== false;
+    const dueDate = deriveVnDateOnly(doc);
+    const items = (doc.items || []).map((item) => ({
+        resourceId: item.resourceId,
+        label: item.label || item.resourceId,
+        qty: item.qty,
+        receivedQty: item.receivedQty !== undefined ? item.receivedQty : null
+    }));
+
+    if (!isOpen) {
+        return {
+            id: doc.id,
+            status: doc.status,
+            isOverdue: false,
+            borrower: {},
+            items,
+            dueDate,
+            dueAt: doc.dueAt,
+            rejectReason: doc.rejectReason || '',
+            cancelReason: doc.cancelReason || '',
+            returnNote: doc.returnNote || '',
+            createdAt: doc.createdAt,
+            updatedAt: doc.updatedAt
+        };
+    }
+
     return {
         id: doc.id,
         status: doc.status,
@@ -20,15 +71,10 @@ function toPublicView(doc) {
         borrower: {
             name: doc.borrower?.name || '',
             email: maskEmail(doc.borrower?.email),
-            phone: maskPhone(doc.borrower?.phone),
-            ...(doc.borrower?.studentId ? { studentId: doc.borrower.studentId } : {})
+            phone: maskPhone(doc.borrower?.phone)
         },
-        items: (doc.items || []).map((item) => ({
-            resourceId: item.resourceId,
-            label: item.label || item.resourceId,
-            qty: item.qty,
-            receivedQty: item.receivedQty !== undefined ? item.receivedQty : null
-        })),
+        items,
+        dueDate,
         dueAt: doc.dueAt,
         note: doc.note || '',
         rejectReason: doc.rejectReason || '',
@@ -37,35 +83,6 @@ function toPublicView(doc) {
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt
     };
-}
-
-/**
- * Find matching raw token from request headers (supports both X-Borrow-Token and X-Borrow-Tokens).
- * Matches the current accessTokenHash or any reminder token hash issued by the reminder emails.
- */
-function findMatchingToken(req, expectedHash, extraHashes) {
-    if (!expectedHash && !(Array.isArray(extraHashes) && extraHashes.length)) return null;
-    const accepted = new Set(
-        [expectedHash, ...(Array.isArray(extraHashes) ? extraHashes : [])].filter(Boolean)
-    );
-    const single = req.headers['x-borrow-token'];
-    if (single && typeof single === 'string' && accepted.has(hash(single.trim()))) {
-        return single.trim();
-    }
-    const multiHeader = req.headers['x-borrow-tokens'] || '';
-    if (multiHeader && typeof multiHeader === 'string') {
-        const candidates = multiHeader
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .slice(0, LIMITS.MAX_CLIENT_TOKENS);
-        for (const candidate of candidates) {
-            if (accepted.has(hash(candidate))) {
-                return candidate;
-            }
-        }
-    }
-    return null;
 }
 
 /**
@@ -206,9 +223,7 @@ async function createBorrowRequest(req, res, next) {
             verifyExpiresAt = new Date(Date.now() + LIMITS.VERIFY_TTL_MS).toISOString();
         }
 
-        // 3. Generate access token and save document
-        const accessToken = newToken();
-        const accessTokenHash = hash(accessToken);
+        // 3. Save document and create one-time management code for email
         const docRef = borrowRequestsCollection.doc();
         const nowIso = new Date().toISOString();
 
@@ -222,8 +237,8 @@ async function createBorrowRequest(req, res, next) {
             dueDate,
             dueAt,
             note: note || '',
-            accessTokenHash,
             verifyTokenHash: verifyTokenHash || null,
+            verifiedTokenHash: null,
             verifyExpiresAt: verifyExpiresAt || null,
             history: [{
                 status,
@@ -238,23 +253,32 @@ async function createBorrowRequest(req, res, next) {
 
         await docRef.set(docData);
 
+        const linkCode = await createLinkCode(docRef.id);
+
         // 4. Send emails
         let emailSent = true;
         if (borrowerType === 'guest') {
             try {
-                await borrowEmailService.sendVerify(docData, verifyToken, accessToken);
+                await borrowEmailService.sendVerify(docData, verifyToken, linkCode);
             } catch (mailErr) {
-                // Delete doc on failure for guests to avoid stranded requests
-                await docRef.delete();
+                // Delete doc and revoke code on failure for guests to avoid stranded requests
+                await Promise.all([
+                    docRef.delete(),
+                    revokeLinkCodesForRequestIds([docRef.id]).catch(() => {})
+                ]);
                 console.error('[BORROW] Failed to send verify email to guest:', mailErr.message);
                 throw new HttpError(502, 'Không gửi được email, vui lòng kiểm tra địa chỉ hoặc thử lại');
             }
+
+            // Issue short-lived HttpOnly cookie session for this browser
+            await grantRequestAccessToSession(req, res, docRef.id);
         } else {
             try {
-                await borrowEmailService.sendCreatedForAccount(docData, accessToken);
+                await borrowEmailService.sendCreatedForAccount(docData, linkCode);
             } catch (mailErr) {
                 console.error('[BORROW] Failed to send creation email for account:', mailErr.message);
                 emailSent = false;
+                await revokeLinkCodesForRequestIds([docRef.id]).catch(() => {});
             }
 
             // Notify admins & managers for pending requests
@@ -275,9 +299,9 @@ async function createBorrowRequest(req, res, next) {
             }
         }
 
+        applySensitiveHeaders(res);
         res.status(201).json({
             request: toPublicView(docData),
-            accessToken,
             ...(emailSent === false ? { emailSent: false } : {})
         });
     } catch (err) {
@@ -287,12 +311,13 @@ async function createBorrowRequest(req, res, next) {
 
 /**
  * POST /api/borrow/verify
- * Guest email verification via verify token.
+ * Guest email verification via strictly one-time verify token.
  */
 async function verifyEmail(req, res, next) {
     try {
+        applySensitiveHeaders(res);
         const { token } = req.body || {};
-        if (!token || typeof token !== 'string') {
+        if (!token || typeof token !== 'string' || !token.trim()) {
             throw new HttpError(400, 'Thiếu token xác nhận');
         }
 
@@ -303,7 +328,6 @@ async function verifyEmail(req, res, next) {
             .get();
 
         if (snap.empty) {
-            // Check verifiedTokenHash for idempotent retry
             snap = await borrowRequestsCollection
                 .where('verifiedTokenHash', '==', tokenHash)
                 .limit(1)
@@ -311,7 +335,7 @@ async function verifyEmail(req, res, next) {
         }
 
         if (snap.empty) {
-            throw new HttpError(404, 'Link không hợp lệ');
+            throw new HttpError(404, 'Liên kết xác nhận không hợp lệ hoặc đã được sử dụng');
         }
 
         const docSnap = snap.docs[0];
@@ -321,11 +345,9 @@ async function verifyEmail(req, res, next) {
             throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
         }
 
-        // Idempotent: already transitioned past unverified — issue an extra access token
-        // so opening the verify link again or on another device still unlocks /borrow.
+        // Security guard (High #1): NEVER mint an access token or session cookie on replay.
         if (docData.status !== 'unverified') {
-            const accessToken = await issueReminderToken(docSnap, docData.accessTokenHashes);
-            return res.status(200).json({ request: toPublicView(docData), accessToken });
+            return res.status(200).json({ request: toPublicView(docData) });
         }
 
         // Expired check
@@ -333,21 +355,15 @@ async function verifyEmail(req, res, next) {
             throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
         }
 
-        const extraAccessToken = newToken();
-        const extraHashes = [
-            hash(extraAccessToken),
-            ...(Array.isArray(docData.accessTokenHashes) ? docData.accessTokenHashes : [])
-        ].slice(0, LIMITS.MAX_REMINDER_TOKENS);
-
-        // Transition unverified -> pending, null verifyTokenHash, keep verifiedTokenHash for idempotent retries
+        // Strictly single-use transition unverified -> pending: clear both verify hashes
         let updated;
         try {
             updated = await transition(docSnap.id, 'pending', {
                 actor: { uid: 'guest', email: docData.borrower?.email },
+                expectFrom: 'unverified',
                 patch: {
                     verifyTokenHash: null,
-                    verifiedTokenHash: tokenHash,
-                    accessTokenHashes: extraHashes
+                    verifiedTokenHash: null
                 }
             });
         } catch (transErr) {
@@ -358,12 +374,14 @@ async function verifyEmail(req, res, next) {
                     throw new HttpError(410, 'Link đã hết hạn, vui lòng tạo phiếu mới');
                 }
                 if (latestData && latestData.status !== 'unverified') {
-                    const accessToken = await issueReminderToken(latestSnap, latestData.accessTokenHashes);
-                    return res.status(200).json({ request: toPublicView(latestData), accessToken });
+                    return res.status(200).json({ request: toPublicView(latestData) });
                 }
             }
             throw transErr;
         }
+
+        // Grant short-lived HttpOnly cookie session on the initial verification response
+        await grantRequestAccessToSession(req, res, updated.id);
 
         // Notify admins/managers
         try {
@@ -382,7 +400,54 @@ async function verifyEmail(req, res, next) {
             console.error('[BORROW] Notification error:', notifErr.message);
         }
 
-        res.status(200).json({ request: toPublicView(updated), accessToken: extraAccessToken });
+        res.status(200).json({ request: toPublicView(updated) });
+    } catch (err) {
+        next(err);
+    }
+}
+
+/**
+ * POST /api/borrow/link/exchange
+ * Atomically exchange a one-time management code (#code=...) for a short-lived HttpOnly session cookie.
+ */
+async function exchangeLinkCodeHandler(req, res, next) {
+    try {
+        applySensitiveHeaders(res);
+        const { code } = req.body || {};
+        if (!code || typeof code !== 'string' || !code.trim()) {
+            throw new HttpError(400, 'Thiếu mã truy cập liên kết');
+        }
+
+        const result = await exchangeOneTimeLinkCode(code);
+
+        // Prevent logged-in User B from binding User A's account request into session
+        if (req.user?.uid && result.request?.borrower?.uid && result.request.borrower.uid !== req.user.uid) {
+            throw new HttpError(403, 'Phiếu mượn thuộc về một tài khoản khác');
+        }
+
+        await grantRequestAccessToSession(req, res, result.requestId);
+        res.status(200).json({ request: toPublicView(result.request) });
+    } catch (err) {
+        next(err);
+    }
+}
+
+/**
+ * POST /api/borrow/session/logout
+ * Clear current guest session cookie and revoke its server-side session record.
+ */
+async function logoutSession(req, res, next) {
+    try {
+        applySensitiveHeaders(res);
+        const sid = extractSessionId(req);
+        if (sid) {
+            await revokeSessionById(sid);
+        }
+        clearSessionCookie(req, res);
+        if (typeof res.sendStatus === 'function') {
+            return res.sendStatus(204);
+        }
+        res.status(204).json({ ok: true });
     } catch (err) {
         next(err);
     }
@@ -390,10 +455,11 @@ async function verifyEmail(req, res, next) {
 
 /**
  * POST /api/borrow/requests/:id/resend-verification
- * Resend verification email for unverified request.
+ * Resend verification email for unverified request using active session or account auth.
  */
 async function resendVerification(req, res, next) {
     try {
+        applySensitiveHeaders(res);
         const docRef = borrowRequestsCollection.doc(req.params.id);
         const docSnap = await docRef.get();
         if (!docSnap.exists) {
@@ -401,10 +467,17 @@ async function resendVerification(req, res, next) {
         }
 
         const data = docSnap.data();
-        const matchedToken = findMatchingToken(req, data.accessTokenHash, data.accessTokenHashes);
+        const session = await resolveSession(req);
 
-        if (!matchedToken) {
-            throw new HttpError(404, 'Phiếu không tồn tại hoặc token không hợp lệ');
+        if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
+            throw new HttpError(404, 'Phiếu không tồn tại hoặc phiên truy cập đã hết hạn');
+        }
+
+        const hasSessionAccess = Boolean(session && session.requestIds.includes(docSnap.id));
+        const hasUserAccess = Boolean(req.user?.uid && req.user.uid === data.borrower?.uid);
+
+        if (!hasSessionAccess && !hasUserAccess) {
+            throw new HttpError(404, 'Phiếu không tồn tại hoặc phiên truy cập đã hết hạn');
         }
 
         if (data.status !== 'unverified') {
@@ -421,10 +494,13 @@ async function resendVerification(req, res, next) {
             updatedAt: new Date().toISOString()
         });
 
+        await revokeLinkCodesForRequestIds([docSnap.id]);
+        const linkCode = await createLinkCode(docSnap.id);
+
         await borrowEmailService.sendVerify(
             { ...data, verifyTokenHash: newVerifyTokenHash, verifyExpiresAt: newVerifyExpiresAt },
             newVerifyToken,
-            matchedToken
+            linkCode
         );
 
         res.status(200).json({ message: 'Đã gửi lại email xác nhận' });
@@ -435,59 +511,54 @@ async function resendVerification(req, res, next) {
 
 /**
  * GET /api/borrow/my
- * Retrieve active borrow requests for guest tokens or authenticated user.
+ * Retrieve open borrow requests for the active HttpOnly session cookie, plus authenticated user's history.
  */
 async function getMyRequests(req, res, next) {
     try {
-        const tokenHeader = req.headers['x-borrow-tokens'] || '';
-        const rawTokens = tokenHeader
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .slice(0, LIMITS.MAX_CLIENT_TOKENS);
+        applySensitiveHeaders(res);
+        const rawCookieSid = extractSessionId(req);
+        const session = await resolveSession(req);
 
-        const matchedDocs = new Map();
-        const matchedTokens = new Set();
-
-        if (rawTokens.length > 0) {
-            const hashedList = rawTokens.map((t) => hash(t));
-            const snap = await borrowRequestsCollection.where('accessTokenHash', 'in', hashedList).get();
-
-            snap.docs.forEach((doc) => {
-                const data = doc.data();
-                // Prevent cross-account leak: if client is authenticated as User B,
-                // never match docs owned by another authenticated User A.
-                if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
-                    return;
-                }
-
-                matchedDocs.set(doc.id, data);
-                const matched = rawTokens.find((t) => hash(t) === data.accessTokenHash);
-                if (matched) matchedTokens.add(matched);
-            });
-
-            // Reminder emails issue extra tokens stored in accessTokenHashes. A token is only
-            // accepted here when its hash sits in that array, so `in` cannot express it.
-            // hashedList holds at most MAX_CLIENT_TOKENS (10), under Firestore's 30-value cap.
-            const reminderSnap = await borrowRequestsCollection
-                .where('accessTokenHashes', 'array-contains-any', hashedList)
-                .get();
-
-            reminderSnap.docs.forEach((doc) => {
-                const data = doc.data();
-                if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
-                    return;
-                }
-                const hashes = new Set(data.accessTokenHashes || []);
-                // A doc can match through several tokens; keep all so none is reported invalid.
-                const matched = rawTokens.filter((t) => hashes.has(hash(t)));
-                if (matched.length === 0) return;
-                matchedDocs.set(doc.id, data);
-                matched.forEach((t) => matchedTokens.add(t));
-            });
+        if (rawCookieSid && !session) {
+            clearSessionCookie(req, res);
         }
 
-        const invalidTokens = rawTokens.filter((t) => !matchedTokens.has(t));
+        const matchedDocs = new Map();
+
+        if (session && session.requestIds.length > 0) {
+            const snaps = await Promise.all(
+                session.requestIds.map((id) => borrowRequestsCollection.doc(id).get())
+            );
+            const staleIds = [];
+
+            snaps.forEach((doc, idx) => {
+                const reqId = session.requestIds[idx];
+                if (!doc.exists) {
+                    staleIds.push(reqId);
+                    return;
+                }
+                const data = doc.data();
+                const isOpen = OPEN_STATUSES.includes(data.status) && data.isOpen !== false;
+                // Revoke/hide closed requests from guest session view
+                if (!isOpen) {
+                    staleIds.push(reqId);
+                    return;
+                }
+                // Cross-account guard
+                if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
+                    staleIds.push(reqId);
+                    return;
+                }
+                matchedDocs.set(doc.id, data);
+            });
+
+            if (staleIds.length > 0) {
+                await pruneSessionRequestIds(session.sessionHash, staleIds);
+                if (staleIds.length === session.requestIds.length) {
+                    clearSessionCookie(req, res);
+                }
+            }
+        }
 
         // If authenticated, also fetch by borrower.uid
         if (req.user?.uid) {
@@ -503,7 +574,7 @@ async function getMyRequests(req, res, next) {
         }
 
         const requests = Array.from(matchedDocs.values()).map(toPublicView);
-        res.status(200).json({ requests, invalidTokens });
+        res.status(200).json({ requests });
     } catch (err) {
         next(err);
     }
@@ -598,10 +669,11 @@ async function requestOtp(req, res, next) {
 
 /**
  * POST /api/borrow/lookup/verify
- * Verify OTP and regenerate access tokens for open requests.
+ * Verify OTP, revoke prior sessions/link-codes for those requests, and issue a fresh HttpOnly session cookie.
  */
 async function verifyOtp(req, res, next) {
     try {
+        applySensitiveHeaders(res);
         const { phone, code } = req.body || {};
         const cleanCode = code !== undefined && code !== null ? String(code).replace(/\s+/g, '') : '';
         if (!phone || !cleanCode) {
@@ -630,31 +702,30 @@ async function verifyOtp(req, res, next) {
             throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
         }
 
-        // Retrieve all open requests for this phone and issue new access tokens
+        // Retrieve all open requests for this phone, revoke prior sessions & link codes, issue a fresh session
         const snap = await borrowRequestsCollection
             .where('borrower.phone', '==', normalizedPhone)
             .where('isOpen', '==', true)
             .get();
 
-        const accessTokens = [];
+        const openIds = snap.docs.map((doc) => doc.id);
+        const nowIso = new Date().toISOString();
         const requests = [];
 
         for (const doc of snap.docs) {
-            const newAccessToken = newToken();
-            const newAccessTokenHash = hash(newAccessToken);
-
-            // OTP lookup revokes every earlier token, including reminder-email tokens.
+            const d = doc.data();
             await doc.ref.update({
-                accessTokenHash: newAccessTokenHash,
+                accessTokenHash: null,
                 accessTokenHashes: [],
-                updatedAt: new Date().toISOString()
+                verifiedTokenHash: null,
+                updatedAt: nowIso
             });
-
-            accessTokens.push(newAccessToken);
-            requests.push(toPublicView({ ...doc.data(), accessTokenHash: newAccessTokenHash }));
+            requests.push(toPublicView({ ...d }));
         }
 
-        res.status(200).json({ requests, accessTokens });
+        await replaceSessionAfterOtp(req, res, openIds);
+
+        res.status(200).json({ requests });
     } catch (err) {
         next(err);
     }
@@ -666,19 +737,26 @@ async function verifyOtp(req, res, next) {
  */
 async function requestReturn(req, res, next) {
     try {
+        applySensitiveHeaders(res);
         const docRef = borrowRequestsCollection.doc(req.params.id);
         const docSnap = await docRef.get();
 
         if (!docSnap.exists) {
-            throw new HttpError(404, 'Phiếu không tồn tại hoặc token không hợp lệ');
+            throw new HttpError(404, 'Phiếu không tồn tại hoặc phiên truy cập đã hết hạn');
         }
 
         const data = docSnap.data();
-        const isTokenValid = Boolean(findMatchingToken(req, data.accessTokenHash, data.accessTokenHashes));
-        const isUserValid = req.user?.uid && req.user.uid === data.borrower?.uid;
+        const session = await resolveSession(req);
 
-        if (!isTokenValid && !isUserValid) {
-            throw new HttpError(404, 'Phiếu không tồn tại hoặc token không hợp lệ');
+        if (req.user?.uid && data.borrower?.uid && data.borrower.uid !== req.user.uid) {
+            throw new HttpError(404, 'Phiếu không tồn tại hoặc phiên truy cập đã hết hạn');
+        }
+
+        const isSessionValid = Boolean(session && session.requestIds.includes(docSnap.id));
+        const isUserValid = Boolean(req.user?.uid && req.user.uid === data.borrower?.uid);
+
+        if (!isSessionValid && !isUserValid) {
+            throw new HttpError(404, 'Phiếu không tồn tại hoặc phiên truy cập đã hết hạn');
         }
 
         if (data.status !== 'handed_over') {
@@ -733,6 +811,8 @@ module.exports = {
     getAvailableResources,
     createBorrowRequest,
     verifyEmail,
+    exchangeLinkCode: exchangeLinkCodeHandler,
+    logoutSession,
     resendVerification,
     getMyRequests,
     requestOtp,

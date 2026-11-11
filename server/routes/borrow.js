@@ -22,8 +22,14 @@ router.post('/requests', optionalAuth, limiters.createLimiter, borrowCtrl.create
 // POST /api/borrow/verify · verifyLimiter
 router.post('/verify', limiters.verifyLimiter, borrowCtrl.verifyEmail);
 
-// POST /api/borrow/requests/:id/resend-verification · resendLimiter
-router.post('/requests/:id/resend-verification', limiters.resendLimiter, borrowCtrl.resendVerification);
+// POST /api/borrow/link/exchange · optionalAuth, linkExchangeLimiter
+router.post('/link/exchange', optionalAuth, limiters.linkExchangeLimiter, borrowCtrl.exchangeLinkCode);
+
+// POST /api/borrow/session/logout · borrowRead
+router.post('/session/logout', limiters.borrowRead, borrowCtrl.logoutSession);
+
+// POST /api/borrow/requests/:id/resend-verification · optionalAuth, resendLimiter
+router.post('/requests/:id/resend-verification', optionalAuth, limiters.resendLimiter, borrowCtrl.resendVerification);
 
 // GET /api/borrow/my · optionalAuth, borrowRead
 router.get('/my', optionalAuth, limiters.borrowRead, borrowCtrl.getMyRequests);

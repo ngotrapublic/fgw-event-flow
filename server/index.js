@@ -108,6 +108,12 @@ app.post('/api/notify', verifyToken, async (req, res, next) => {
 
 // React Router Fallback (Phase 4 Deployment Patch)
 app.get(/^(?!\/api).+/, (req, res) => {
+    if (req.path.startsWith('/borrow')) {
+        res.set({
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer'
+        });
+    }
     res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
 });
 

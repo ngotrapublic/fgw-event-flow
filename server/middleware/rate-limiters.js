@@ -17,6 +17,7 @@ module.exports = {
     borrowRead: make(15 * 60e3, 120),
     createLimiter: make(60 * 60e3, 5, { skip: (req) => Boolean(req.user) }), // POST /requests (guests only; authenticated users skip)
     verifyLimiter: make(15 * 60e3, 20),
+    linkExchangeLimiter: make(15 * 60e3, 20),
     otpIpLimiter: make(60 * 60e3, 5),
     otpVerifyLimiter: make(15 * 60e3, 20),
     resendLimiter: make(60 * 60e3, 3),

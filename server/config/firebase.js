@@ -46,6 +46,8 @@ const resourcesCollection = db.collection('resources');
 const auditLogsCollection = db.collection('audit_logs');
 const borrowRequestsCollection = db.collection('borrow_requests');
 const borrowOtpsCollection = db.collection('borrow_otps');
+const borrowSessionsCollection = db.collection('borrow_sessions');
+const borrowLinkCodesCollection = db.collection('borrow_link_codes');
 
 module.exports = {
     admin,
@@ -55,5 +57,7 @@ module.exports = {
     resourcesCollection,
     auditLogsCollection,
     borrowRequestsCollection,
-    borrowOtpsCollection
+    borrowOtpsCollection,
+    borrowSessionsCollection,
+    borrowLinkCodesCollection
 };

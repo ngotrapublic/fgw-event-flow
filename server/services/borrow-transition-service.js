@@ -1,6 +1,8 @@
 const { db, borrowRequestsCollection } = require('../config/firebase');
 const { OPEN_STATUSES, TRANSITIONS } = require('./borrow-constants');
 const { reserveInTx, restockInTx } = require('./borrow-stock-service');
+const { revokeSessionsForRequestIds } = require('./borrow-session-service');
+const { revokeLinkCodesForRequestIds } = require('./borrow-link-service');
 const { logAction } = require('../controllers/auditLogController');
 const HttpError = require('../utils/http-error');
 
@@ -68,6 +70,13 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
             updatedAt: now
         };
 
+        if (!isOpen) {
+            updateData.verifyTokenHash = null;
+            updateData.verifiedTokenHash = null;
+            updateData.accessTokenHash = null;
+            updateData.accessTokenHashes = [];
+        }
+
         if (fromStatus === 'pending' && toStatus === 'approved' && !updateData.approvedAt) {
             updateData.approvedAt = now;
         }
@@ -75,6 +84,17 @@ async function transition(requestId, toStatus, { actor = {}, note = '', patch = 
         tx.update(docRef, updateData);
         return { id: requestId, ...current, ...updateData };
     });
+
+    if (!OPEN_STATUSES.includes(toStatus)) {
+        try {
+            await Promise.all([
+                revokeSessionsForRequestIds([requestId]),
+                revokeLinkCodesForRequestIds([requestId])
+            ]);
+        } catch (revokeErr) {
+            console.error('[BORROW] Session/link revocation error on close:', revokeErr.message);
+        }
+    }
 
     // Post-transaction audit logging (failure does not fail request)
     try {

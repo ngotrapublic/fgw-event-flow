@@ -192,6 +192,8 @@ const buildFirebaseMock = (seed = {}) => {
         auditLogsCollection: db.collection('audit_logs'),
         borrowRequestsCollection: db.collection('borrow_requests'),
         borrowOtpsCollection: db.collection('borrow_otps'),
+        borrowSessionsCollection: db.collection('borrow_sessions'),
+        borrowLinkCodesCollection: db.collection('borrow_link_codes'),
         __stores: stores
     };
 };

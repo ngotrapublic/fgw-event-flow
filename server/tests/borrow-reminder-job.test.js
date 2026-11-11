@@ -3,6 +3,8 @@ let mockFirebase;
 jest.mock('../config/firebase', () => {
     mockFirebase = require('./helpers/firestoreMock').buildFirebaseMock({
         borrow_requests: {},
+        borrow_link_codes: {},
+        borrow_sessions: {},
         audit_logs: {},
         users: {}
     });
@@ -27,6 +29,8 @@ const { hash } = require('../services/borrow-token-service');
 
 beforeEach(() => {
     mockFirebase.__stores.borrow_requests.clear();
+    mockFirebase.__stores.borrow_link_codes.clear();
+    mockFirebase.__stores.borrow_sessions.clear();
     mockFirebase.__stores.audit_logs.clear();
     mockFirebase.__stores.users.clear();
     jest.clearAllMocks();
@@ -220,17 +224,15 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
         expect(notificationService.create).not.toHaveBeenCalled();
     });
 
-    test('9. nhắc sắp hạn và quá hạn cấp access token mới, token gốc vẫn còn hiệu lực', async () => {
+    test('9. nhắc sắp hạn và quá hạn cấp one-time link code hashed trong borrow_link_codes (không phát hành bearer token dài hạn)', async () => {
         const in10h = new Date(Date.now() + 10 * 3600e3).toISOString();
         const pastDue = new Date(Date.now() - 2 * 3600e3).toISOString();
-        const originalHash = hash('original-token');
 
         mockFirebase.__stores.borrow_requests.set('req-duesoon-token', {
             id: 'req-duesoon-token',
             status: 'handed_over',
             isOpen: true,
             dueAt: in10h,
-            accessTokenHash: originalHash,
             borrower: { name: 'Due Soon', email: 'duesoon@test.com' },
             items: []
         });
@@ -239,7 +241,6 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
             status: 'handed_over',
             isOpen: true,
             dueAt: pastDue,
-            accessTokenHash: originalHash,
             borrower: { name: 'Overdue', email: 'overdue@test.com' },
             items: []
         });
@@ -247,16 +248,22 @@ describe('BorrowReminderJob (/server/jobs/borrow-reminder-job.js)', () => {
         await borrowReminderJob.run();
 
         const dueSoonDoc = mockFirebase.__stores.borrow_requests.get('req-duesoon-token');
-        expect(dueSoonDoc.accessTokenHash).toBe(originalHash);
-        expect(dueSoonDoc.accessTokenHashes).toHaveLength(1);
-        const dueSoonToken = borrowEmailService.sendDueSoon.mock.calls[0][1];
-        expect(hash(dueSoonToken)).toBe(dueSoonDoc.accessTokenHashes[0]);
+        expect(dueSoonDoc.accessTokenHashes).toBeUndefined();
+        const dueSoonCode = borrowEmailService.sendDueSoon.mock.calls[0][1];
+        expect(typeof dueSoonCode).toBe('string');
+        const dueSoonLinkRecord = mockFirebase.__stores.borrow_link_codes.get(hash(dueSoonCode));
+        expect(dueSoonLinkRecord).toBeDefined();
+        expect(dueSoonLinkRecord.requestId).toBe('req-duesoon-token');
+        expect(dueSoonLinkRecord.consumedAt).toBeNull();
 
         const overdueDoc = mockFirebase.__stores.borrow_requests.get('req-overdue-token');
-        expect(overdueDoc.accessTokenHash).toBe(originalHash);
-        expect(overdueDoc.accessTokenHashes).toHaveLength(1);
-        const overdueToken = borrowEmailService.sendOverdue.mock.calls[0][1];
-        expect(hash(overdueToken)).toBe(overdueDoc.accessTokenHashes[0]);
+        expect(overdueDoc.accessTokenHashes).toBeUndefined();
+        const overdueCode = borrowEmailService.sendOverdue.mock.calls[0][1];
+        expect(typeof overdueCode).toBe('string');
+        const overdueLinkRecord = mockFirebase.__stores.borrow_link_codes.get(hash(overdueCode));
+        expect(overdueLinkRecord).toBeDefined();
+        expect(overdueLinkRecord.requestId).toBe('req-overdue-token');
+        expect(overdueLinkRecord.consumedAt).toBeNull();
     });
 
     test('8. start() an toàn khi gọi nhiều lần (idempotent), stop() xoá intervalId', () => {

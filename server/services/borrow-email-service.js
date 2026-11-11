@@ -89,14 +89,16 @@ const borrowEmailService = {
     getAppPublicUrl,
     escapeHtml,
 
-    async sendVerify(req, verifyToken, accessToken) {
+    async sendVerify(req, verifyToken, linkCode) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
         const verifyUrl = `${appUrl}/borrow/verify?token=${encodeURIComponent(verifyToken)}`;
-        const manageUrl = `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`;
+        const manageUrl = linkCode
+            ? `${appUrl}/borrow/manage#code=${encodeURIComponent(linkCode)}`
+            : `${appUrl}/borrow`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `
@@ -128,13 +130,15 @@ const borrowEmailService = {
         await emailService.send([recipient], subject, html);
     },
 
-    async sendCreatedForAccount(req, accessToken) {
+    async sendCreatedForAccount(req, linkCode) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
-        const manageUrl = `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`;
+        const manageUrl = linkCode
+            ? `${appUrl}/borrow/manage#code=${encodeURIComponent(linkCode)}`
+            : `${appUrl}/borrow`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `
@@ -286,15 +290,15 @@ const borrowEmailService = {
         await emailService.send([email], subject, html);
     },
 
-    async sendDueSoon(req, accessToken) {
+    async sendDueSoon(req, linkCode) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
-        const manageUrl = accessToken
-            ? `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`
-            : `${appUrl}/borrow/manage`;
+        const manageUrl = linkCode
+            ? `${appUrl}/borrow/manage#code=${encodeURIComponent(linkCode)}`
+            : `${appUrl}/borrow`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `
@@ -324,15 +328,15 @@ const borrowEmailService = {
         await emailService.send([recipient], subject, html);
     },
 
-    async sendOverdue(req, accessToken) {
+    async sendOverdue(req, linkCode) {
         assertEmailEnabled();
         const appUrl = getAppPublicUrl();
         const recipient = req.borrower?.email;
         if (!recipient) return;
 
-        const manageUrl = accessToken
-            ? `${appUrl}/borrow/manage?t=${encodeURIComponent(accessToken)}`
-            : `${appUrl}/borrow/manage`;
+        const manageUrl = linkCode
+            ? `${appUrl}/borrow/manage#code=${encodeURIComponent(linkCode)}`
+            : `${appUrl}/borrow`;
         const dueFormatted = formatDate(req.dueAt || req.dueDate);
 
         const content = `

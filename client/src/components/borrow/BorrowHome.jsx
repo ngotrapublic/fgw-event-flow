@@ -77,14 +77,9 @@ export default function BorrowHome() {
         if (authLoading) return;
         setLoading(true);
         try {
-            const tokens = borrowTokenStore.load();
-            const res = await borrowApi.getMy(tokens);
+            borrowTokenStore.purgeLegacy();
+            const res = await borrowApi.getMy();
             const data = res.data || {};
-
-            if (data.invalidTokens && data.invalidTokens.length > 0) {
-                borrowTokenStore.remove(data.invalidTokens);
-            }
-
             setRequests(data.requests || []);
         } catch (err) {
             console.error('[BORROW HOME] Error loading requests:', err);
@@ -106,8 +101,7 @@ export default function BorrowHome() {
     const handleResendVerification = async (request) => {
         setResendingId(request.id);
         try {
-            const tokens = borrowTokenStore.load();
-            await borrowApi.resendVerification(request.id, tokens);
+            await borrowApi.resendVerification(request.id);
             showSuccess('Đã gửi lại email xác nhận! Vui lòng kiểm tra hộp thư.');
         } catch (err) {
             const msg =
