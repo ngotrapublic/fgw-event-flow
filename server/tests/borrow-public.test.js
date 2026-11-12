@@ -1775,5 +1775,248 @@ describe('Follow-up Audit Security & Reliability Regressions', () => {
         expect(verifyRes.statusCode).toBe(200);
         expect(verifyRes.body.request.status).toBe('pending');
     });
+
+    // MEDIUM-POST-01: Concurrent same Idempotency-Key only sends 1 email, keeps 1 valid verify token & 1 active link code
+    test('concurrent_same_idempotency_key_sends_one_delivery_and_leaves_one_valid_verify_token', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-concurrent-create-1';
+        borrowEmailService.sendVerify.mockImplementation(
+            () => new Promise((resolve) => setTimeout(resolve, 80))
+        );
+
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Concurrent Guest',
+                email: 'concurrent@test.com',
+                phone: '0907112233',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        };
+
+        const [resA, resB] = await Promise.all([
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload),
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload)
+        ]);
+
+        const statuses = [resA.statusCode, resB.statusCode].sort();
+        expect(statuses).toEqual([200, 201]);
+        expect(mockFirebase.__stores.borrow_requests.size).toBe(1);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+
+        const activeLinks = Array.from(mockFirebase.__stores.borrow_link_codes.values()).filter(
+            (l) => !l.revokedAt && !l.consumedAt
+        );
+        expect(activeLinks).toHaveLength(1);
+
+        const [, verifyToken, linkCode] = borrowEmailService.sendVerify.mock.calls[0];
+        const linkRes = await callHandler(borrowCtrl.exchangeLinkCode, { body: { code: linkCode } });
+        expect(linkRes.statusCode).toBe(200);
+
+        const verifyRes = await callHandler(borrowCtrl.verifyEmail, { body: { token: verifyToken } });
+        expect(verifyRes.statusCode).toBe(200);
+        expect(verifyRes.body.request.status).toBe('pending');
+    });
+
+    // MEDIUM-POST-01: Concurrent recovery after crash claims exclusive lease once, revokes old links & avoids double email
+    test('concurrent_recovery_after_crash_rotates_token_and_revokes_old_links_once', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-concurrent-recovery-1';
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Concurrent Recovery Guest',
+                email: 'conc.recover@test.com',
+                phone: '0907223344',
+                dueDate,
+                items: [{ resourceId: 'mic', qty: 1 }]
+            },
+            user: null
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res1.statusCode).toBe(201);
+        const createdId = res1.body.request.id;
+        const [, oldToken, oldLinkCode] = borrowEmailService.sendVerify.mock.calls[0];
+
+        // Simulate crash mid-send whose lease has now expired before recovery races
+        const storedReq = mockFirebase.__stores.borrow_requests.get(createdId);
+        mockFirebase.__stores.borrow_requests.set(createdId, {
+            ...storedReq,
+            emailDeliveryStatus: 'sending',
+            emailDispatchLeaseOwner: 'crashed-worker',
+            emailDispatchLeaseExpiresAt: Date.now() - 5000,
+            emailDispatchedAt: null
+        });
+
+        borrowEmailService.sendVerify.mockClear();
+        borrowEmailService.sendVerify.mockImplementation(
+            () => new Promise((resolve) => setTimeout(resolve, 80))
+        );
+
+        const [retryA, retryB] = await Promise.all([
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload),
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload)
+        ]);
+
+        expect(retryA.statusCode).toBe(200);
+        expect(retryB.statusCode).toBe(200);
+        expect(retryA.body.deduplicated).toBe(true);
+        expect(retryB.body.deduplicated).toBe(true);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+
+        // Old link code & old verify token must both be invalidated; only fresh credentials work
+        const oldLinkRes = await callHandler(borrowCtrl.exchangeLinkCode, { body: { code: oldLinkCode } });
+        expect(oldLinkRes.statusCode).toBe(410);
+
+        const oldVerifyRes = await callHandler(borrowCtrl.verifyEmail, { body: { token: oldToken } });
+        expect(oldVerifyRes.statusCode).toBe(404);
+
+        const activeLinks = Array.from(mockFirebase.__stores.borrow_link_codes.values()).filter(
+            (l) => !l.revokedAt && !l.consumedAt
+        );
+        expect(activeLinks).toHaveLength(1);
+
+        const [, freshToken, freshLinkCode] = borrowEmailService.sendVerify.mock.calls[0];
+        const freshLinkRes = await callHandler(borrowCtrl.exchangeLinkCode, { body: { code: freshLinkCode } });
+        expect(freshLinkRes.statusCode).toBe(200);
+
+        const freshVerifyRes = await callHandler(borrowCtrl.verifyEmail, { body: { token: freshToken } });
+        expect(freshVerifyRes.statusCode).toBe(200);
+        expect(freshVerifyRes.body.request.status).toBe('pending');
+    });
+
+    // MEDIUM-POST-01: Failed SMTP recovery releases lease immediately for retry & DB stamp failure is never silently swallowed
+    test('recovery_clears_lease_on_smtp_error_and_surfaces_delivery_state_persistence_errors', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-recovery-failure-1';
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Lease Failure Guest',
+                email: 'leasefail@test.com',
+                phone: '0907334455',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: null
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res1.statusCode).toBe(201);
+        const createdId = res1.body.request.id;
+
+        // Simulate expired crashed send -> retry 1 fails SMTP -> lease immediately transitions to 'failed' (no 60s wait!)
+        const storedReq = mockFirebase.__stores.borrow_requests.get(createdId);
+        mockFirebase.__stores.borrow_requests.set(createdId, {
+            ...storedReq,
+            emailDeliveryStatus: 'sending',
+            emailDispatchLeaseOwner: 'crashed-worker',
+            emailDispatchLeaseExpiresAt: Date.now() - 5000,
+            emailDispatchedAt: null
+        });
+        borrowEmailService.sendVerify.mockClear();
+        borrowEmailService.sendVerify.mockRejectedValueOnce(new Error('Transient SMTP timeout'));
+
+        const smtpFailRes = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(smtpFailRes.statusCode).toBe(502);
+        const afterSmtpFail = mockFirebase.__stores.borrow_requests.get(createdId);
+        expect(afterSmtpFail.emailDeliveryStatus).toBe('failed');
+        expect(afterSmtpFail.emailDispatchLeaseExpiresAt).toBeNull();
+        expect(afterSmtpFail.emailDispatchedAt).toBeNull();
+
+        // Immediate retry (without waiting 60s) claims & succeeds SMTP, but DB fails on the second runTransaction (status stamp)
+        const origRunTx = mockFirebase.db.runTransaction.bind(mockFirebase.db);
+        let txCallCount = 0;
+        const consoleErrSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(mockFirebase.db, 'runTransaction').mockImplementation(async (fn) => {
+            txCallCount += 1;
+            if (txCallCount === 2) {
+                throw new Error('Simulated Firestore write unavailable');
+            }
+            return origRunTx(fn);
+        });
+
+        const stateErrRes = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(stateErrRes.statusCode).toBe(500);
+        expect(mockFirebase.__stores.borrow_requests.get(createdId).emailDispatchedAt).toBeNull();
+        consoleErrSpy.mockRestore();
+    });
+
+    // LOW-POST-02: Account idempotent retry recovers missing email AND admin notification safely
+    test('account_idempotent_retry_recovers_missing_email_and_admin_notification', async () => {
+        const dueDate = getTomorrowVnDate();
+        const idemKey = 'idem-account-recover-1';
+        const accountUser = {
+            uid: 'uid-acc-recover',
+            email: 'accrecover@fpt.edu.vn',
+            profile: { name: 'Lecturer Recover', role: 'user', department: 'IT' }
+        };
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                phone: '0907445566',
+                dueDate,
+                items: [{ resourceId: 'loa', qty: 1 }]
+            },
+            user: accountUser
+        };
+
+        const res1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(res1.statusCode).toBe(201);
+        const createdId = res1.body.request.id;
+        const oldLinkCode = borrowEmailService.sendCreatedForAccount.mock.calls[0][1];
+
+        // Simulate process crash right after initial transaction commit before email & admin notification finished
+        const storedReq = mockFirebase.__stores.borrow_requests.get(createdId);
+        mockFirebase.__stores.borrow_requests.set(createdId, {
+            ...storedReq,
+            emailDeliveryStatus: 'sending',
+            emailDispatchLeaseOwner: 'crashed-worker',
+            emailDispatchLeaseExpiresAt: Date.now() - 5000,
+            emailDispatchedAt: null,
+            adminNotifStatus: 'sending',
+            adminNotifLeaseOwner: 'crashed-worker',
+            adminNotifLeaseExpiresAt: Date.now() - 5000,
+            adminNotifiedAt: null
+        });
+        borrowEmailService.sendCreatedForAccount.mockClear();
+        notificationService.create.mockClear();
+
+        const retry1 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(retry1.statusCode).toBe(200);
+        expect(retry1.body.deduplicated).toBe(true);
+        expect(borrowEmailService.sendCreatedForAccount).toHaveBeenCalledTimes(1);
+        expect(notificationService.create).toHaveBeenCalledTimes(1);
+
+        // Prior link code was revoked cleanly and fresh link code works
+        const oldExchange = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: oldLinkCode },
+            user: accountUser
+        });
+        expect(oldExchange.statusCode).toBe(410);
+
+        const freshLinkCode = borrowEmailService.sendCreatedForAccount.mock.calls[0][1];
+        const freshExchange = await callHandler(borrowCtrl.exchangeLinkCode, {
+            body: { code: freshLinkCode },
+            user: accountUser
+        });
+        expect(freshExchange.statusCode).toBe(200);
+
+        const updatedStored = mockFirebase.__stores.borrow_requests.get(createdId);
+        expect(updatedStored.emailDeliveryStatus).toBe('sent');
+        expect(updatedStored.emailDispatchedAt).toBeTruthy();
+        expect(updatedStored.adminNotifStatus).toBe('sent');
+        expect(updatedStored.adminNotifiedAt).toBeTruthy();
+
+        // Subsequent retry does NOT duplicate email or admin notification
+        const retry2 = await callHandler(borrowCtrl.createBorrowRequest, reqPayload);
+        expect(retry2.statusCode).toBe(200);
+        expect(retry2.body.deduplicated).toBe(true);
+        expect(borrowEmailService.sendCreatedForAccount).toHaveBeenCalledTimes(1);
+        expect(notificationService.create).toHaveBeenCalledTimes(1);
+    });
 });
 

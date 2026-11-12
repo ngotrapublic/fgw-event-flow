@@ -47,7 +47,8 @@ const {
     db,
     resourcesCollection,
     borrowRequestsCollection,
-    borrowOtpsCollection
+    borrowOtpsCollection,
+    borrowLinkCodesCollection
 } = require('../../config/firebase');
 const borrowCtrl = require('../../controllers/borrow-public-controller');
 const borrowAdminCtrl = require('../../controllers/borrow-admin-controller');
@@ -277,5 +278,54 @@ describe('Firestore Emulator Integration — Rules, Transactions & Queries', () 
 
         await borrowReminderJob.run();
         expect(borrowEmailService.sendOverdue).toHaveBeenCalledTimes(1);
+    });
+
+    test('concurrent_same_idempotency_key_sends_one_delivery_and_leaves_one_valid_verify_token', async () => {
+        const tomorrow = new Date(Date.now() + 36 * 3600e3).toISOString().slice(0, 10);
+        const idemKey = 'emu-concurrent-idem-1';
+        borrowEmailService.sendVerify.mockImplementation(
+            () => new Promise((resolve) => setTimeout(resolve, 100))
+        );
+
+        const reqPayload = {
+            headers: { 'idempotency-key': idemKey },
+            body: {
+                name: 'Emulator Idem Guest',
+                email: 'emuidem@test.com',
+                phone: '0905556677',
+                dueDate: tomorrow,
+                items: [{ resourceId: 'loa-emu', qty: 1 }]
+            },
+            user: null
+        };
+
+        const responses = await Promise.all([
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload),
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload),
+            callHandler(borrowCtrl.createBorrowRequest, reqPayload)
+        ]);
+
+        const created = responses.filter((r) => r.statusCode === 201);
+        const deduped = responses.filter((r) => r.statusCode === 200);
+        expect(created).toHaveLength(1);
+        expect(deduped).toHaveLength(2);
+        expect(borrowEmailService.sendVerify).toHaveBeenCalledTimes(1);
+
+        const reqSnap = await borrowRequestsCollection.get();
+        expect(reqSnap.size).toBe(1);
+
+        const linkSnap = await borrowLinkCodesCollection
+            .where('requestId', '==', created[0].body.request.id)
+            .get();
+        const activeLinks = linkSnap.docs.filter((d) => !d.data().revokedAt && !d.data().consumedAt);
+        expect(activeLinks).toHaveLength(1);
+
+        const [, verifyToken, linkCode] = borrowEmailService.sendVerify.mock.calls[0];
+        const linkRes = await exchangeLinkCode(linkCode);
+        expect(linkRes.requestId).toBe(created[0].body.request.id);
+
+        const verifyRes = await callHandler(borrowCtrl.verifyEmail, { body: { token: verifyToken } });
+        expect(verifyRes.statusCode).toBe(200);
+        expect(verifyRes.body.request.status).toBe('pending');
     });
 });

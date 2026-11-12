@@ -5,7 +5,7 @@ const { transition } = require('../services/borrow-transition-service');
 const borrowValidation = require('../services/borrow-validation');
 const { newToken, hash, hmacKey, newOtp, safeEqualHex, maskEmail, maskPhone } = require('../services/borrow-token-service');
 const borrowLinkService = require('../services/borrow-link-service');
-const { createLinkCode, exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = borrowLinkService;
+const { exchangeLinkCode: exchangeOneTimeLinkCode, revokeLinkCodesForRequestIds } = borrowLinkService;
 const {
     prepareQuotaReservationInTx,
     commitQuotaReservationInTx,
@@ -44,6 +44,145 @@ function toEpochMs(val) {
 
 function getOtpDocId(normalizedPhone) {
     return hmacKey(`otp:${normalizedPhone}`);
+}
+
+class DeliveryStateError extends Error {
+    constructor(message, cause) {
+        super(message);
+        this.name = 'DeliveryStateError';
+        this.isDeliveryStatePersistError = true;
+        this.cause = cause;
+    }
+}
+
+async function markEmailDispatched(docRef, attemptId, targetObj = null) {
+    const dispatchedIso = new Date().toISOString();
+    try {
+        const persistedIso = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(docRef);
+            if (!snap.exists) return null;
+            const cur = snap.data() || {};
+            if (cur.emailDispatchLeaseOwner !== attemptId) {
+                return cur.emailDispatchedAt || null;
+            }
+            tx.update(docRef, {
+                emailDeliveryStatus: 'sent',
+                emailDispatchedAt: dispatchedIso,
+                emailDispatchLeaseOwner: null,
+                emailDispatchLeaseExpiresAt: null,
+                emailDeliveryError: null,
+                updatedAt: dispatchedIso
+            });
+            return dispatchedIso;
+        });
+        if (targetObj && persistedIso) {
+            targetObj.emailDispatchedAt = persistedIso;
+            targetObj.emailDeliveryStatus = 'sent';
+            targetObj.emailDispatchLeaseOwner = null;
+            targetObj.emailDispatchLeaseExpiresAt = null;
+            targetObj.emailDeliveryError = null;
+        }
+        return persistedIso;
+    } catch (err) {
+        console.error('[BORROW] Failed to persist emailDispatchedAt state:', err.message);
+        throw new DeliveryStateError(`Không lưu được trạng thái gửi email: ${err.message}`, err);
+    }
+}
+
+async function markEmailDeliveryFailed(docRef, attemptId, mailErr, targetObj = null) {
+    const failedIso = new Date().toISOString();
+    const errMsg = String(mailErr?.message || mailErr || 'Email delivery failed').slice(0, 300);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(docRef);
+        if (!snap.exists) return;
+        const cur = snap.data() || {};
+        if (cur.emailDispatchLeaseOwner !== attemptId) return;
+        tx.update(docRef, {
+            emailDeliveryStatus: 'failed',
+            emailDispatchLeaseOwner: null,
+            emailDispatchLeaseExpiresAt: null,
+            emailDeliveryError: errMsg,
+            updatedAt: failedIso
+        });
+    });
+    if (targetObj) {
+        targetObj.emailDeliveryStatus = 'failed';
+        targetObj.emailDispatchLeaseOwner = null;
+        targetObj.emailDispatchLeaseExpiresAt = null;
+        targetObj.emailDeliveryError = errMsg;
+    }
+}
+
+async function markAdminNotifDispatched(docRef, attemptId, targetObj = null) {
+    const notifiedIso = new Date().toISOString();
+    try {
+        const persistedIso = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(docRef);
+            if (!snap.exists) return null;
+            const cur = snap.data() || {};
+            if (cur.adminNotifLeaseOwner !== attemptId) {
+                return cur.adminNotifiedAt || null;
+            }
+            tx.update(docRef, {
+                adminNotifStatus: 'sent',
+                adminNotifiedAt: notifiedIso,
+                adminNotifLeaseOwner: null,
+                adminNotifLeaseExpiresAt: null,
+                adminNotifError: null,
+                updatedAt: notifiedIso
+            });
+            return notifiedIso;
+        });
+        if (targetObj && persistedIso) {
+            targetObj.adminNotifiedAt = persistedIso;
+            targetObj.adminNotifStatus = 'sent';
+            targetObj.adminNotifLeaseOwner = null;
+            targetObj.adminNotifLeaseExpiresAt = null;
+            targetObj.adminNotifError = null;
+        }
+        return persistedIso;
+    } catch (err) {
+        console.error('[BORROW] Failed to persist adminNotifiedAt state:', err.message);
+        throw new DeliveryStateError(`Không lưu được trạng thái thông báo admin: ${err.message}`, err);
+    }
+}
+
+async function markAdminNotifFailed(docRef, attemptId, notifErr, targetObj = null) {
+    const failedIso = new Date().toISOString();
+    const errMsg = String(notifErr?.message || notifErr || 'Admin notification failed').slice(0, 300);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(docRef);
+        if (!snap.exists) return;
+        const cur = snap.data() || {};
+        if (cur.adminNotifLeaseOwner !== attemptId) return;
+        tx.update(docRef, {
+            adminNotifStatus: 'failed',
+            adminNotifLeaseOwner: null,
+            adminNotifLeaseExpiresAt: null,
+            adminNotifError: errMsg,
+            updatedAt: failedIso
+        });
+    });
+    if (targetObj) {
+        targetObj.adminNotifStatus = 'failed';
+        targetObj.adminNotifLeaseOwner = null;
+        targetObj.adminNotifLeaseExpiresAt = null;
+        targetObj.adminNotifError = errMsg;
+    }
+}
+
+async function dispatchAccountAdminNotification(requestDoc) {
+    const adminUids = await notificationService.getUidsByRoles(['admin', 'manager']);
+    if (adminUids.length > 0) {
+        await notificationService.create({
+            recipients: adminUids,
+            type: 'info',
+            title: 'Yêu cầu mượn thiết bị mới',
+            message: `${requestDoc.borrower?.name}: ${(requestDoc.items || []).length} món, trả ${requestDoc.dueDate}`,
+            data: { borrowRequestId: requestDoc.id },
+            sender: 'Mượn trả thiết bị'
+        });
+    }
 }
 
 function deriveVnDateOnly(doc) {
@@ -244,9 +383,11 @@ async function createBorrowRequest(req, res, next) {
             : null;
 
         // 3. Atomic idempotency check + quota reservation + borrow request + one-time link code creation
+        const attemptId = newToken();
         const docRef = borrowRequestsCollection.doc();
         const nowMs = Date.now();
         const nowIso = new Date(nowMs).toISOString();
+        const leaseExpiresAt = nowMs + LIMITS.DELIVERY_LEASE_MS;
         const linkPlan = borrowLinkService.prepareLinkCodeData(docRef.id, { nowMs });
 
         const docData = {
@@ -263,6 +404,19 @@ async function createBorrowRequest(req, res, next) {
             verifiedTokenHash: null,
             verifyExpiresAt: verifyExpiresAt || null,
             emailDispatchedAt: null,
+            emailDeliveryStatus: 'sending',
+            emailDispatchLeaseOwner: attemptId,
+            emailDispatchLeaseExpiresAt: leaseExpiresAt,
+            emailDeliveryError: null,
+            ...(borrowerType === 'account'
+                ? {
+                    adminNotifStatus: 'sending',
+                    adminNotifLeaseOwner: attemptId,
+                    adminNotifLeaseExpiresAt: leaseExpiresAt,
+                    adminNotifiedAt: null,
+                    adminNotifError: null
+                }
+                : {}),
             history: [{
                 status,
                 at: nowIso,
@@ -275,58 +429,121 @@ async function createBorrowRequest(req, res, next) {
         };
 
         const txResult = await db.runTransaction(async (tx) => {
+            const txNowMs = Date.now();
+            const txNowIso = new Date(txNowMs).toISOString();
+
             if (idemRef) {
                 const idemSnap = await tx.get(idemRef);
                 if (idemSnap.exists) {
                     const idemData = idemSnap.data() || {};
                     const idemExpMs = toEpochMs(idemData.expiresAt);
                     const isActiveMarker = Boolean(
-                        idemData.requestId && idemExpMs !== null && idemExpMs > nowMs
+                        idemData.requestId && idemExpMs !== null && idemExpMs > txNowMs
                     );
                     if (isActiveMarker) {
                         const prevRef = borrowRequestsCollection.doc(idemData.requestId);
                         const prevSnap = await tx.get(prevRef);
                         if (prevSnap.exists) {
                             const prevData = prevSnap.data() || {};
-                            if (
+                            const emailLeaseExpMs = toEpochMs(prevData.emailDispatchLeaseExpiresAt) || 0;
+                            const emailLeaseActive =
+                                prevData.emailDeliveryStatus === 'sending' && emailLeaseExpMs > txNowMs;
+
+                            const claimGuestEmail = Boolean(
                                 borrowerType === 'guest' &&
                                 prevData.status === 'unverified' &&
-                                !prevData.emailDispatchedAt
-                            ) {
-                                // Crash-between-commit-and-email recovery (LOW-RECHECK-01):
-                                // rotate fresh verify token & link code atomically so retry completes email delivery
-                                const freshVerifyToken = newToken();
-                                const freshVerifyHash = hash(freshVerifyToken);
-                                const freshVerifyExpIso = new Date(nowMs + LIMITS.VERIFY_TTL_MS).toISOString();
-                                const freshLinkPlan = borrowLinkService.prepareLinkCodeData(prevSnap.id, { nowMs });
+                                !prevData.emailDispatchedAt &&
+                                !emailLeaseActive
+                            );
+                            const claimAccountEmail = Boolean(
+                                borrowerType === 'account' &&
+                                prevData.status === 'pending' &&
+                                !prevData.emailDispatchedAt &&
+                                !emailLeaseActive
+                            );
 
-                                tx.update(prevRef, {
+                            const adminLeaseExpMs = toEpochMs(prevData.adminNotifLeaseExpiresAt) || 0;
+                            const adminLeaseActive =
+                                prevData.adminNotifStatus === 'sending' && adminLeaseExpMs > txNowMs;
+                            const claimAdminNotif = Boolean(
+                                borrowerType === 'account' &&
+                                prevData.status === 'pending' &&
+                                !prevData.adminNotifiedAt &&
+                                !adminLeaseActive
+                            );
+
+                            // Firestore requires all tx.get reads BEFORE any writes in the transaction
+                            let linksToRevoke = [];
+                            if (claimGuestEmail || claimAccountEmail) {
+                                linksToRevoke = await borrowLinkService.prepareRevokeLinkCodesInTx(tx, prevSnap.id);
+                            }
+
+                            const reqPatch = {};
+                            let freshVerifyToken = null;
+                            let freshLinkPlan = null;
+
+                            if (claimGuestEmail) {
+                                // Crash/failure recovery with exclusive lease (MEDIUM-POST-01):
+                                // only lease claimant rotates token, revokes prior link codes, and dispatches mail
+                                freshVerifyToken = newToken();
+                                const freshVerifyHash = hash(freshVerifyToken);
+                                const freshVerifyExpIso = new Date(txNowMs + LIMITS.VERIFY_TTL_MS).toISOString();
+                                freshLinkPlan = borrowLinkService.prepareLinkCodeData(prevSnap.id, { nowMs: txNowMs });
+
+                                Object.assign(reqPatch, {
                                     verifyTokenHash: freshVerifyHash,
                                     verifyExpiresAt: freshVerifyExpIso,
-                                    updatedAt: nowIso
+                                    emailDeliveryStatus: 'sending',
+                                    emailDispatchLeaseOwner: attemptId,
+                                    emailDispatchLeaseExpiresAt: txNowMs + LIMITS.DELIVERY_LEASE_MS,
+                                    emailDeliveryError: null,
+                                    updatedAt: txNowIso
                                 });
-                                borrowLinkService.commitLinkCodeInTx(tx, freshLinkPlan);
+                            } else if (claimAccountEmail) {
+                                freshLinkPlan = borrowLinkService.prepareLinkCodeData(prevSnap.id, { nowMs: txNowMs });
 
-                                return {
-                                    idempotentHit: true,
-                                    needsGuestVerifyDispatch: true,
-                                    freshVerifyToken,
-                                    freshLinkCode: freshLinkPlan.code,
-                                    requestRef: prevRef,
-                                    request: {
-                                        id: prevSnap.id,
-                                        ...prevData,
-                                        verifyTokenHash: freshVerifyHash,
-                                        verifyExpiresAt: freshVerifyExpIso
-                                    }
-                                };
+                                Object.assign(reqPatch, {
+                                    emailDeliveryStatus: 'sending',
+                                    emailDispatchLeaseOwner: attemptId,
+                                    emailDispatchLeaseExpiresAt: txNowMs + LIMITS.DELIVERY_LEASE_MS,
+                                    emailDeliveryError: null,
+                                    updatedAt: txNowIso
+                                });
+                            }
+
+                            if (claimAdminNotif) {
+                                Object.assign(reqPatch, {
+                                    adminNotifStatus: 'sending',
+                                    adminNotifLeaseOwner: attemptId,
+                                    adminNotifLeaseExpiresAt: txNowMs + LIMITS.DELIVERY_LEASE_MS,
+                                    adminNotifError: null,
+                                    updatedAt: txNowIso
+                                });
+                            }
+
+                            if (claimGuestEmail || claimAccountEmail) {
+                                borrowLinkService.commitRevokeLinkCodesInTx(tx, linksToRevoke, txNowMs);
+                                borrowLinkService.commitLinkCodeInTx(tx, freshLinkPlan);
+                            }
+                            if (Object.keys(reqPatch).length > 0) {
+                                tx.update(prevRef, reqPatch);
                             }
 
                             return {
                                 idempotentHit: true,
-                                needsGuestVerifyDispatch: false,
+                                attemptId,
+                                claimGuestEmail,
+                                claimAccountEmail,
+                                claimAdminNotif,
+                                freshVerifyToken,
+                                freshLinkCode: freshLinkPlan?.code || null,
+                                freshLinkCodeHash: freshLinkPlan?.codeHash || null,
                                 requestRef: prevRef,
-                                request: { id: prevSnap.id, ...prevData }
+                                request: {
+                                    id: prevSnap.id,
+                                    ...prevData,
+                                    ...reqPatch
+                                }
                             };
                         }
                     }
@@ -352,23 +569,96 @@ async function createBorrowRequest(req, res, next) {
                 });
             }
 
-            return { idempotentHit: false, request: docData };
+            return { idempotentHit: false, attemptId, request: docData };
         });
 
         applySensitiveHeaders(res);
 
         if (txResult.idempotentHit) {
+            let emailSent = true;
             let sessionIssued = true;
-            if (txResult.needsGuestVerifyDispatch && txResult.freshVerifyToken) {
-                await borrowEmailService.sendVerify(
-                    txResult.request,
-                    txResult.freshVerifyToken,
-                    txResult.freshLinkCode
-                );
-                const dispatchedIso = new Date().toISOString();
-                await txResult.requestRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
-                txResult.request.emailDispatchedAt = dispatchedIso;
+            let emailStatePersistError = null;
+
+            if (txResult.claimGuestEmail && txResult.freshVerifyToken) {
+                try {
+                    await borrowEmailService.sendVerify(
+                        txResult.request,
+                        txResult.freshVerifyToken,
+                        txResult.freshLinkCode
+                    );
+                } catch (mailErr) {
+                    await markEmailDeliveryFailed(
+                        txResult.requestRef,
+                        txResult.attemptId,
+                        mailErr,
+                        txResult.request
+                    ).catch((stateErr) => {
+                        console.error('[BORROW] Failed to record guest email recovery failure:', stateErr.message);
+                    });
+                    console.error('[BORROW] Failed to send recovered verify email to guest:', mailErr.message);
+                    throw new HttpError(502, 'Không gửi được email, vui lòng kiểm tra địa chỉ hoặc thử lại');
+                }
+                await markEmailDispatched(txResult.requestRef, txResult.attemptId, txResult.request);
+            } else if (txResult.claimAccountEmail && txResult.freshLinkCode) {
+                let accountEmailDelivered = false;
+                try {
+                    await borrowEmailService.sendCreatedForAccount(
+                        txResult.request,
+                        txResult.freshLinkCode
+                    );
+                    accountEmailDelivered = true;
+                } catch (mailErr) {
+                    console.error('[BORROW] Failed to recover creation email for account:', mailErr.message);
+                    emailSent = false;
+                    await revokeLinkCodesForRequestIds([txResult.request.id]).catch((revErr) => {
+                        console.error('[BORROW] Failed to revoke link code after recovered account email error:', revErr.message);
+                    });
+                    await markEmailDeliveryFailed(
+                        txResult.requestRef,
+                        txResult.attemptId,
+                        mailErr,
+                        txResult.request
+                    ).catch((stateErr) => {
+                        console.error('[BORROW] Failed to record recovered account email failure:', stateErr.message);
+                    });
+                }
+                if (accountEmailDelivered) {
+                    try {
+                        await markEmailDispatched(txResult.requestRef, txResult.attemptId, txResult.request);
+                    } catch (stateErr) {
+                        emailStatePersistError = stateErr;
+                    }
+                }
             }
+
+            if (txResult.claimAdminNotif) {
+                let notifDelivered = false;
+                try {
+                    await dispatchAccountAdminNotification(txResult.request);
+                    notifDelivered = true;
+                } catch (notifErr) {
+                    console.error('[BORROW] Notification recovery error:', notifErr.message);
+                    await markAdminNotifFailed(
+                        txResult.requestRef,
+                        txResult.attemptId,
+                        notifErr,
+                        txResult.request
+                    ).catch((stateErr) => {
+                        console.error('[BORROW] Failed to record admin notif recovery failure:', stateErr.message);
+                    });
+                }
+                if (notifDelivered) {
+                    await markAdminNotifDispatched(txResult.requestRef, txResult.attemptId, txResult.request)
+                        .catch((stateErr) => {
+                            console.error('[BORROW] Failed to persist adminNotifiedAt on recovery:', stateErr.message);
+                        });
+                }
+            }
+
+            if (emailStatePersistError) {
+                throw emailStatePersistError;
+            }
+
             if (!req.user) {
                 try {
                     await borrowSessionService.grantRequestAccessToSession(req, res, txResult.request.id);
@@ -380,6 +670,7 @@ async function createBorrowRequest(req, res, next) {
             return res.status(200).json({
                 request: toPublicView(txResult.request),
                 deduplicated: true,
+                ...(emailSent === false ? { emailSent: false } : {}),
                 ...(sessionIssued === false ? { sessionIssued: false } : {})
             });
         }
@@ -398,18 +689,23 @@ async function createBorrowRequest(req, res, next) {
         if (borrowerType === 'guest') {
             try {
                 await borrowEmailService.sendVerify(docData, verifyToken, linkPlan.code);
-                const dispatchedIso = new Date().toISOString();
-                await docRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
-                docData.emailDispatchedAt = dispatchedIso;
             } catch (mailErr) {
                 // Atomically release quota + delete doc, link code, and idempotency marker on mail failure
-                await rollbackCreatedRequest(docRef, docData, {
-                    linkCodeHash: linkPlan.codeHash,
-                    idemRef
-                }).catch(() => docRef.delete());
+                try {
+                    await rollbackCreatedRequest(docRef, docData, {
+                        linkCodeHash: linkPlan.codeHash,
+                        idemRef
+                    });
+                } catch (rbErr) {
+                    console.error('[BORROW] Failed to atomically rollback request after mail error:', rbErr.message);
+                    await docRef.delete().catch((delErr) => {
+                        console.error('[BORROW] Fallback delete failed during mail rollback:', delErr.message);
+                    });
+                }
                 console.error('[BORROW] Failed to send verify email to guest:', mailErr.message);
                 throw new HttpError(502, 'Không gửi được email, vui lòng kiểm tra địa chỉ hoặc thử lại');
             }
+            await markEmailDispatched(docRef, attemptId, docData);
 
             // Email has already been delivered; session failure must NOT fail request creation or prompt duplicates
             try {
@@ -422,32 +718,48 @@ async function createBorrowRequest(req, res, next) {
                 );
             }
         } else {
+            let accountEmailDelivered = false;
+            let emailStatePersistError = null;
             try {
                 await borrowEmailService.sendCreatedForAccount(docData, linkPlan.code);
-                const dispatchedIso = new Date().toISOString();
-                await docRef.update({ emailDispatchedAt: dispatchedIso }).catch(() => {});
-                docData.emailDispatchedAt = dispatchedIso;
+                accountEmailDelivered = true;
             } catch (mailErr) {
                 console.error('[BORROW] Failed to send creation email for account:', mailErr.message);
                 emailSent = false;
-                await revokeLinkCodesForRequestIds([docRef.id]).catch(() => {});
+                await revokeLinkCodesForRequestIds([docRef.id]).catch((revErr) => {
+                    console.error('[BORROW] Failed to revoke link code after account email error:', revErr.message);
+                });
+                await markEmailDeliveryFailed(docRef, attemptId, mailErr, docData).catch((stateErr) => {
+                    console.error('[BORROW] Failed to record account email failure:', stateErr.message);
+                });
+            }
+            if (accountEmailDelivered) {
+                try {
+                    await markEmailDispatched(docRef, attemptId, docData);
+                } catch (stateErr) {
+                    emailStatePersistError = stateErr;
+                }
             }
 
-            // Notify admins & managers for pending requests
+            // Notify admins & managers for pending requests (with lease state for LOW-POST-02 recovery)
+            let notifDelivered = false;
             try {
-                const adminUids = await notificationService.getUidsByRoles(['admin', 'manager']);
-                if (adminUids.length > 0) {
-                    await notificationService.create({
-                        recipients: adminUids,
-                        type: 'info',
-                        title: 'Yêu cầu mượn thiết bị mới',
-                        message: `${borrower.name}: ${itemDetails.length} món, trả ${dueDate}`,
-                        data: { borrowRequestId: docData.id },
-                        sender: 'Mượn trả thiết bị'
-                    });
-                }
+                await dispatchAccountAdminNotification(docData);
+                notifDelivered = true;
             } catch (notifErr) {
                 console.error('[BORROW] Notification error:', notifErr.message);
+                await markAdminNotifFailed(docRef, attemptId, notifErr, docData).catch((stateErr) => {
+                    console.error('[BORROW] Failed to record admin notification failure:', stateErr.message);
+                });
+            }
+            if (notifDelivered) {
+                await markAdminNotifDispatched(docRef, attemptId, docData).catch((stateErr) => {
+                    console.error('[BORROW] Failed to persist adminNotifiedAt:', stateErr.message);
+                });
+            }
+
+            if (emailStatePersistError) {
+                throw emailStatePersistError;
             }
         }
 
@@ -631,26 +943,64 @@ async function resendVerification(req, res, next) {
             throw new HttpError(404, 'Phiếu không ở trạng thái chờ xác nhận');
         }
 
+        const resendAttemptId = newToken();
         const newVerifyToken = newToken();
         const newVerifyTokenHash = hash(newVerifyToken);
-        const newVerifyExpiresAt = new Date(Date.now() + LIMITS.VERIFY_TTL_MS).toISOString();
 
-        await docRef.update({
-            verifyTokenHash: newVerifyTokenHash,
-            verifyExpiresAt: newVerifyExpiresAt,
-            updatedAt: new Date().toISOString()
+        const txRotation = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(docRef);
+            if (!snap.exists) {
+                throw new HttpError(404, 'Phiếu không tồn tại');
+            }
+            const cur = snap.data() || {};
+            if (cur.status !== 'unverified') {
+                throw new HttpError(404, 'Phiếu không ở trạng thái chờ xác nhận');
+            }
+
+            const txNowMs = Date.now();
+            const txNowIso = new Date(txNowMs).toISOString();
+            const newVerifyExpiresAt = new Date(txNowMs + LIMITS.VERIFY_TTL_MS).toISOString();
+            const linksToRevoke = await borrowLinkService.prepareRevokeLinkCodesInTx(tx, snap.id);
+            const freshLinkPlan = borrowLinkService.prepareLinkCodeData(snap.id, { nowMs: txNowMs });
+
+            borrowLinkService.commitRevokeLinkCodesInTx(tx, linksToRevoke, txNowMs);
+            borrowLinkService.commitLinkCodeInTx(tx, freshLinkPlan);
+            tx.update(docRef, {
+                verifyTokenHash: newVerifyTokenHash,
+                verifyExpiresAt: newVerifyExpiresAt,
+                emailDeliveryStatus: 'sending',
+                emailDispatchLeaseOwner: resendAttemptId,
+                emailDispatchLeaseExpiresAt: txNowMs + LIMITS.DELIVERY_LEASE_MS,
+                emailDeliveryError: null,
+                updatedAt: txNowIso
+            });
+
+            return {
+                linkCode: freshLinkPlan.code,
+                request: {
+                    id: snap.id,
+                    ...cur,
+                    verifyTokenHash: newVerifyTokenHash,
+                    verifyExpiresAt: newVerifyExpiresAt
+                }
+            };
         });
 
-        await revokeLinkCodesForRequestIds([docSnap.id]);
-        const linkCode = await createLinkCode(docSnap.id);
+        try {
+            await borrowEmailService.sendVerify(
+                txRotation.request,
+                newVerifyToken,
+                txRotation.linkCode
+            );
+        } catch (mailErr) {
+            await markEmailDeliveryFailed(docRef, resendAttemptId, mailErr).catch((stateErr) => {
+                console.error('[BORROW] Failed to record resend email failure:', stateErr.message);
+            });
+            console.error('[BORROW] Failed to resend verify email:', mailErr.message);
+            throw new HttpError(502, 'Không gửi được email, vui lòng kiểm tra địa chỉ hoặc thử lại');
+        }
 
-        await borrowEmailService.sendVerify(
-            { ...data, verifyTokenHash: newVerifyTokenHash, verifyExpiresAt: newVerifyExpiresAt },
-            newVerifyToken,
-            linkCode
-        );
-
-        await docRef.update({ emailDispatchedAt: new Date().toISOString() }).catch(() => {});
+        await markEmailDispatched(docRef, resendAttemptId);
 
         res.status(200).json({ message: 'Đã gửi lại email xác nhận' });
     } catch (err) {

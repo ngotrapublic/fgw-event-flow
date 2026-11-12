@@ -73,11 +73,28 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+const distDir = process.env.FRONTEND_DIST_DIR
+    ? path.resolve(process.env.FRONTEND_DIST_DIR)
+    : path.join(__dirname, 'public', 'dist');
+
+const isBorrowUiPath = (reqPath) => reqPath === '/borrow' || reqPath.startsWith('/borrow/');
+
+// Apply Borrow privacy headers BEFORE express.static so static matches under /borrow cannot bypass them (MEDIUM-POST-02)
+app.use((req, res, next) => {
+    if (isBorrowUiPath(req.path)) {
+        res.set({
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer'
+        });
+    }
+    next();
+});
+
 // Serve static exports folder
 app.use('/exports', express.static(path.join(__dirname, 'public', 'exports')));
 
 // Serve React frontend (Phase 4 Deployment Patch)
-app.use(express.static(path.join(__dirname, 'public', 'dist')));
+app.use(express.static(distDir, { redirect: false }));
 
 // Health check endpoint (Phase 4 Deployment)
 app.get('/health', (req, res) => {
@@ -125,13 +142,13 @@ app.post('/api/notify', verifyToken, async (req, res, next) => {
 
 // React Router Fallback (Phase 4 Deployment Patch)
 app.get(/^(?!\/api).+/, (req, res) => {
-    if (req.path.startsWith('/borrow')) {
+    if (isBorrowUiPath(req.path)) {
         res.set({
             'Cache-Control': 'no-store',
             'Referrer-Policy': 'no-referrer'
         });
     }
-    res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
+    res.sendFile(path.join(distDir, 'index.html'));
 });
 
 // Error handling (must be last)

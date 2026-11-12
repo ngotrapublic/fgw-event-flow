@@ -105,6 +105,32 @@ async function exchangeLinkCode(rawCode, { viewerUid = null } = {}) {
 }
 
 /**
+ * Read phase for revoking all unconsumed, unrevoked link codes of a request inside a Firestore transaction.
+ * Must be executed BEFORE any writes in the enclosing transaction.
+ */
+async function prepareRevokeLinkCodesInTx(tx, requestId) {
+    if (!tx || !requestId || typeof requestId !== 'string') {
+        return [];
+    }
+    const snap = await tx.get(
+        borrowLinkCodesCollection.where('requestId', '==', requestId)
+    );
+    return snap.docs.filter((doc) => {
+        const data = doc.data() || {};
+        return !data.consumedAt && !data.revokedAt;
+    });
+}
+
+/**
+ * Write phase for revoking prepared link code documents inside the same Firestore transaction.
+ */
+function commitRevokeLinkCodesInTx(tx, docsToRevoke = [], nowMs = Date.now()) {
+    for (const doc of docsToRevoke || []) {
+        tx.update(doc.ref, { revokedAt: nowMs });
+    }
+}
+
+/**
  * Revoke all unconsumed link codes bound to the specified request IDs
  * (e.g. after OTP recovery or request closure).
  */
@@ -134,5 +160,7 @@ module.exports = {
     commitLinkCodeInTx,
     createLinkCode,
     exchangeLinkCode,
+    prepareRevokeLinkCodesInTx,
+    commitRevokeLinkCodesInTx,
     revokeLinkCodesForRequestIds
 };

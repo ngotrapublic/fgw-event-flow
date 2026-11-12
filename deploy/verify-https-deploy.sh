@@ -60,9 +60,13 @@ else
 fi
 
 # 3. Direct port 5000 must NOT be reachable from the Internet
-PORT5000_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://${DOMAIN}:5000/health" 2>/dev/null || echo 'UNREACHABLE')"
-if [[ "${PORT5000_STATUS}" == "UNREACHABLE" || "${PORT5000_STATUS}" == "000" ]]; then
-  pass "Direct port 5000 blocked externally (status=${PORT5000_STATUS})"
+set +e
+PORT5000_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://${DOMAIN}:5000/health" 2>/dev/null)"
+PORT5000_RC=$?
+set -e
+
+if [[ "${PORT5000_RC}" -ne 0 || "${PORT5000_STATUS:-000}" == "000" ]]; then
+  pass "Direct port 5000 blocked externally (curl_rc=${PORT5000_RC}, http=${PORT5000_STATUS:-000})"
 else
   fail "Port 5000 is exposed externally (HTTP ${PORT5000_STATUS})! Firewall/bind to 127.0.0.1:5000 immediately."
 fi

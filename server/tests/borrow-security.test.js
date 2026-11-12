@@ -283,6 +283,11 @@ describe('MEDIUM-RECHECK-01: Unified Env Loader & Process-Level .env.production 
 
     test('Spawned server boots cleanly from isolated temp .env.production (without shell NODE_ENV) and enforces HTTPS/proxy rules', async () => {
         const dir = makeTempDir();
+        const distDir = path.join(dir, 'dist');
+        fs.mkdirSync(path.join(distDir, 'borrow'), { recursive: true });
+        fs.writeFileSync(path.join(distDir, 'index.html'), '<!doctype html><html><body>SPA</body></html>');
+        fs.writeFileSync(path.join(distDir, 'borrow', 'static-check.txt'), 'borrow static asset');
+
         fs.writeFileSync(
             path.join(dir, '.env.production'),
             [
@@ -299,7 +304,10 @@ describe('MEDIUM-RECHECK-01: Unified Env Loader & Process-Level .env.production 
 
         const child = spawn(process.execPath, [serverEntry], {
             cwd: dir,
-            env: minimalHostEnv(),
+            env: {
+                ...minimalHostEnv(),
+                FRONTEND_DIST_DIR: distDir
+            },
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -355,6 +363,25 @@ describe('MEDIUM-RECHECK-01: Unified Env Loader & Process-Level .env.production 
             });
             expect(httpsProxiedRes.headers['strict-transport-security']).toMatch(/max-age=31536000/);
             expect(httpsProxiedRes.statusCode).not.toBe(403);
+
+            // 5. MEDIUM-POST-02: Every /borrow UI & static route served over HTTPS includes no-store, no-referrer, and HSTS
+            const borrowUiPaths = [
+                '/borrow',
+                '/borrow/',
+                '/borrow/verify?token=sensitive',
+                '/borrow/manage',
+                '/borrow/manage/test',
+                '/borrow/static-check.txt'
+            ];
+            for (const routePath of borrowUiPaths) {
+                const routeRes = await httpRequestRaw(port, routePath, {
+                    headers: { 'X-Forwarded-Proto': 'https' }
+                });
+                expect(routeRes.statusCode).toBe(200);
+                expect(routeRes.headers['strict-transport-security']).toMatch(/max-age=31536000/);
+                expect(routeRes.headers['cache-control']).toBe('no-store');
+                expect(routeRes.headers['referrer-policy']).toBe('no-referrer');
+            }
         } finally {
             child.stdout?.destroy();
             child.stderr?.destroy();
