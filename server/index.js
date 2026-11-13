@@ -45,18 +45,9 @@ const emailService = require('./services/emailService');
 const app = express();
 
 app.set('trust proxy', securityConfig.trustProxy); // configurable trusted reverse-proxy hop/subnet
-app.use(enforceHttpsMiddleware);
 
-if (!process.env.APP_PUBLIC_URL) {
-    console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');
-}
-const PORT = process.env.PORT || 5000;
-
-// Initialize Schedulers
-retentionService.startScheduler();
-exportJob.start(); // ✅ NEW
-
-// CORS — only allow configured origins
+// CORS — must be mounted BEFORE enforceHttpsMiddleware so preflight OPTIONS
+// and error responses carry proper Access-Control-Allow-* headers to the browser.
 const allowedOrigins = securityConfig.allowedOrigins;
 
 app.use(cors({
@@ -68,6 +59,17 @@ app.use(cors({
     },
     credentials: true
 }));
+
+app.use(enforceHttpsMiddleware);
+
+if (!process.env.APP_PUBLIC_URL) {
+    console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');
+}
+const PORT = process.env.PORT || 5000;
+
+// Initialize Schedulers
+retentionService.startScheduler();
+exportJob.start(); // ✅ NEW
 
 // Body parsers — 10mb is sufficient for PDF generation
 app.use(express.json({ limit: '10mb' }));
