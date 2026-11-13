@@ -1,29 +1,35 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Calendar, PlusCircle, LayoutDashboard, Settings, LogOut, Users, MapPin, ChevronRight, ChevronLeft, HelpCircle, Sparkles, Package } from 'lucide-react';
+import { Calendar, PlusCircle, LayoutDashboard, Settings, LogOut, Users, MapPin, ChevronRight, ChevronLeft, HelpCircle, Sparkles, Package, ClipboardList } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const SIDEBAR_ITEMS = [
     {
         section: 'Overview',
         items: [
-            { icon: LayoutDashboard, label: 'Dashboard', to: '/', color: 'blue' },
-            { icon: PlusCircle, label: 'Register Event', to: '/register', color: 'emerald' }
+            { icon: LayoutDashboard, label: 'Dashboard', to: '/', color: 'blue', roles: ['user', 'manager', 'admin'] },
+            { icon: PlusCircle, label: 'Register Event', to: '/register', color: 'emerald', roles: ['user', 'manager', 'admin'] }
+        ]
+    },
+    {
+        section: 'Dịch vụ',
+        items: [
+            { icon: Package, label: 'Mượn thiết bị của tôi', to: '/borrow', color: 'indigo', roles: ['user', 'manager', 'admin'] }
         ]
     },
     {
         section: 'Management',
         items: [
-            { icon: Package, label: 'Equipment Loans', to: '/equipment-loans', color: 'amber' },
-            { icon: Users, label: 'Departments', to: '/departments', color: 'violet' },
-            { icon: MapPin, label: 'Locations', to: '/locations', color: 'orange' }
+            { icon: ClipboardList, label: 'Quản lý mượn trả', to: '/equipment-loans', color: 'amber', roles: ['manager', 'admin'] },
+            { icon: Users, label: 'Departments', to: '/departments', color: 'violet', roles: ['manager', 'admin'] },
+            { icon: MapPin, label: 'Locations', to: '/locations', color: 'orange', roles: ['manager', 'admin'] }
         ]
     },
     {
         section: 'System',
         items: [
-            { icon: Settings, label: 'Settings', to: '/settings', color: 'slate' }
+            { icon: Settings, label: 'Settings', to: '/settings', color: 'slate', roles: ['admin'] }
         ]
     }
 ];
@@ -35,6 +41,7 @@ const colorMap = {
     violet: { bg: 'bg-violet-100', text: 'text-violet-600', border: 'border-violet-500', activeBg: 'bg-violet-500' },
     orange: { bg: 'bg-orange-100', text: 'text-orange-600', border: 'border-orange-500', activeBg: 'bg-orange-500' },
     slate: { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-500', activeBg: 'bg-slate-500' },
+    indigo: { bg: 'bg-indigo-100', text: 'text-indigo-600', border: 'border-indigo-500', activeBg: 'bg-indigo-500' },
 };
 
 const SidebarItem = ({ icon: Icon, label, to, active, color, collapsed }) => {
@@ -99,14 +106,19 @@ const Sidebar = ({ onOpenGuide, collapsed = false, onToggle }) => {
         }
     };
 
-    // Filter items based on role
-    const isAdmin = user?.role === 'admin';
-    const isManager = user?.role === 'manager';
+    // Filter items based on item-level roles
+    const currentRole = user?.role || 'user';
 
-    const filteredItems = SIDEBAR_ITEMS.map(section => {
-        if (section.section === 'System' && !isAdmin) return null;
-        if (section.section === 'Management' && (!isAdmin && !isManager)) return null;
-        return section;
+    const filteredItems = SIDEBAR_ITEMS.map((section) => {
+        const items = section.items.filter((item) => {
+            if (!item.roles) return true;
+            return item.roles.includes(currentRole);
+        });
+        if (items.length === 0) return null;
+        return {
+            ...section,
+            items
+        };
     }).filter(Boolean);
 
     return (

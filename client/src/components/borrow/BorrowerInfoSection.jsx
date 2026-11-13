@@ -39,6 +39,9 @@ export default function BorrowerInfoSection({
                             Đang mượn bằng tài khoản: {user.name || user.email}
                         </p>
                         <p className="text-xs font-bold text-violet-800">Email: {user.email}</p>
+                        <p className="text-[11px] font-semibold text-slate-600 pt-0.5">
+                            Phiếu này sẽ được gắn với tài khoản của bạn.
+                        </p>
                     </div>
                     {/@fgw-event\.com$/i.test(user.email || '') && (
                         <div className="p-3.5 bg-amber-100 border-2 border-black rounded-2xl text-xs text-amber-950 font-medium flex items-start gap-2 shadow-[2px_2px_0_#000]">
@@ -53,7 +56,11 @@ export default function BorrowerInfoSection({
                     )}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                    <div className="p-3.5 bg-amber-50 border-2 border-black rounded-2xl text-xs text-slate-800 font-medium shadow-[2px_2px_0_#000]">
+                        Bạn sẽ xác nhận email trước khi phiếu được gửi tới bộ phận quản lý.
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label
                             htmlFor="borrow-name"
@@ -116,7 +123,8 @@ export default function BorrowerInfoSection({
                         )}
                     </div>
                 </div>
-            )}
+            </div>
+        )}
 
             <PhoneField
                 ref={phoneInputRef}

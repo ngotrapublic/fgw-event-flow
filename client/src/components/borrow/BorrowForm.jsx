@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, AlertCircle, Send, Loader2 } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Send, Loader2, LayoutDashboard, LogIn } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
 import {
@@ -338,9 +338,31 @@ export default function BorrowForm() {
                         </div>
                     </div>
 
-                    <span className="flex-shrink-0 text-xs font-black bg-yellow-300 text-black px-2.5 py-1.5 rounded-xl border-2 border-black shadow-[2px_2px_0_#000]">
-                        {totalSelectedQty} món
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        {user ? (
+                            <Link
+                                to="/"
+                                aria-label="Về Dashboard EventFlow"
+                                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black text-black bg-white hover:bg-violet-50 border-2 border-black rounded-xl shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-all"
+                            >
+                                <LayoutDashboard size={15} strokeWidth={2.5} className="text-violet-700" aria-hidden="true" />
+                                <span className="hidden sm:inline">Về Dashboard</span>
+                            </Link>
+                        ) : (
+                            <Link
+                                to="/login"
+                                title="Đăng nhập để tự điền thông tin và xem lịch sử"
+                                aria-label="Đăng nhập để tự điền thông tin và xem lịch sử"
+                                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black text-slate-700 hover:text-black bg-white hover:bg-slate-50 border-2 border-slate-300 hover:border-black rounded-xl transition-all shadow-[1px_1px_0_#000]"
+                            >
+                                <LogIn size={14} strokeWidth={2.5} aria-hidden="true" />
+                                <span className="hidden sm:inline">Đăng nhập</span>
+                            </Link>
+                        )}
+                        <span className="text-xs font-black bg-yellow-300 text-black px-2.5 py-1.5 rounded-xl border-2 border-black shadow-[2px_2px_0_#000]">
+                            {totalSelectedQty} món
+                        </span>
+                    </div>
                 </div>
             </header>
 

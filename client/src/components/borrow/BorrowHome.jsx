@@ -25,6 +25,7 @@ import { useToast } from '../Toast';
 import BorrowRequestCard from './BorrowRequestCard';
 import BorrowStatGrid from './BorrowStatGrid';
 import WarehouseInfoDialog from './WarehouseInfoDialog';
+import BorrowPortalHeader from './BorrowPortalHeader';
 
 export default function BorrowHome() {
     const navigate = useNavigate();
@@ -95,59 +96,10 @@ export default function BorrowHome() {
             <div aria-hidden="true" className="hidden sm:block absolute top-12 -left-6 w-16 h-16 bg-yellow-400 rounded-full border-2 border-black shadow-[3px_3px_0_#000] opacity-80 pointer-events-none" />
             <div aria-hidden="true" className="hidden sm:block absolute top-64 -right-6 w-14 h-14 bg-cyan-400 rotate-12 border-2 border-black shadow-[3px_3px_0_#000] opacity-80 pointer-events-none" />
 
-            <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm">
-                <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div
-                            aria-hidden="true"
-                            className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 border-2 border-black flex items-center justify-center text-white shadow-[2px_2px_0_#000] flex-shrink-0"
-                        >
-                            <Package size={22} strokeWidth={2.5} />
-                        </div>
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                                <h1 className="text-base font-black tracking-tight text-black uppercase">
-                                    Mượn Trả Thiết Bị
-                                </h1>
-                                <span className="bg-amber-300 text-black text-xs font-black px-1.5 py-0.5 rounded border border-black">
-                                    GEAR PASS
-                                </span>
-                            </div>
-                            <p className="text-xs font-bold text-slate-600 truncate">
-                                Phòng IT • Campus HCM
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        {user ? (
-                            <div className="hidden sm:flex items-center gap-1.5 bg-violet-100 text-slate-900 text-xs px-3 py-1.5 rounded-full font-black border-2 border-black">
-                                <UserCheck size={14} className="text-violet-700" aria-hidden="true" />
-                                <span className="max-w-[110px] truncate">{user.name || user.email}</span>
-                            </div>
-                        ) : (
-                            <span className="hidden sm:inline-block text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1.5 rounded-full border border-slate-300">
-                                Khách vãng lai
-                            </span>
-                        )}
-
-                        <motion.button
-                            whileTap={shouldReduceMotion ? undefined : { scale: 0.94 }}
-                            type="button"
-                            onClick={fetchMyRequests}
-                            disabled={loading}
-                            aria-label="Làm mới danh sách phiếu"
-                            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center text-slate-800 bg-white border-2 border-black rounded-xl shadow-[2px_2px_0_#000] hover:bg-slate-100 transition-colors disabled:opacity-60"
-                        >
-                            <RefreshCw
-                                size={16}
-                                aria-hidden="true"
-                                className={loading ? 'animate-spin motion-reduce:animate-none' : ''}
-                            />
-                        </motion.button>
-                    </div>
-                </div>
-            </header>
+            <BorrowPortalHeader
+                onRefresh={fetchMyRequests}
+                refreshLoading={loading}
+            />
 
             <main className="max-w-2xl mx-auto px-4 pt-5 space-y-6 relative z-10">
                 {/* Primary Action CTAs */}
