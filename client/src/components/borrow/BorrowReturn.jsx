@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft,
@@ -10,9 +10,7 @@ import {
     Package,
     Clock,
     Info,
-    RefreshCw,
-    LayoutDashboard,
-    LogIn
+    RefreshCw
 } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { isValidVnPhone, normalizePhoneInput } from '../../lib/borrow-utils';
@@ -23,6 +21,7 @@ import BorrowRequestCard from './BorrowRequestCard';
 import { NON_RETURNABLE_HINTS } from './BorrowStatus';
 import OtpLookupSection from './OtpLookupSection';
 import ReturnConfirmDialog from './ReturnConfirmDialog';
+import BorrowPortalHeader from './BorrowPortalHeader';
 
 export default function BorrowReturn() {
     const navigate = useNavigate();
@@ -183,51 +182,13 @@ export default function BorrowReturn() {
 
     return (
         <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-20 relative overflow-x-hidden">
-            <header className="bg-white border-b-2 border-black sticky top-0 z-30 shadow-sm">
-                <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/borrow')}
-                            aria-label="Quay lại trang chủ mượn thiết bị"
-                            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center -ml-1 rounded-xl border-2 border-black bg-white hover:bg-slate-100 shadow-[2px_2px_0_#000] transition-colors flex-shrink-0"
-                        >
-                            <ArrowLeft size={18} strokeWidth={2.5} aria-hidden="true" />
-                        </button>
-                        <div className="min-w-0">
-                            <h1 className="text-base font-black tracking-tight text-black uppercase truncate">
-                                Hoàn Trả & Tra Cứu Thiết Bị
-                            </h1>
-                            <p className="text-xs font-bold text-slate-600 truncate">
-                                Báo trả tại kho & tra cứu qua số điện thoại
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        {user ? (
-                            <Link
-                                to="/"
-                                aria-label="Về Dashboard EventFlow"
-                                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black text-black bg-white hover:bg-violet-50 border-2 border-black rounded-xl shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-all"
-                            >
-                                <LayoutDashboard size={15} strokeWidth={2.5} className="text-violet-700" aria-hidden="true" />
-                                <span className="hidden sm:inline">Về Dashboard</span>
-                            </Link>
-                        ) : (
-                            <Link
-                                to="/login"
-                                title="Đăng nhập để tự điền thông tin và xem lịch sử"
-                                aria-label="Đăng nhập để tự điền thông tin và xem lịch sử"
-                                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black text-slate-700 hover:text-black bg-white hover:bg-slate-50 border-2 border-slate-300 hover:border-black rounded-xl transition-all shadow-[1px_1px_0_#000]"
-                            >
-                                <LogIn size={14} strokeWidth={2.5} aria-hidden="true" />
-                                <span className="hidden sm:inline">Đăng nhập</span>
-                            </Link>
-                        )}
-                    </div>
-                </div>
-            </header>
+            <BorrowPortalHeader
+                title="Hoàn Trả & Tra Cứu Thiết Bị"
+                subtitle="Báo trả tại kho & tra cứu qua số điện thoại"
+                badge={null}
+                backTo="/borrow"
+                backLabel="Quay lại trang chủ mượn thiết bị"
+            />
 
             <main className="max-w-2xl mx-auto px-4 pt-5 space-y-6">
                 {lookedUpInfo && (

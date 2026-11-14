@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, ArrowRight, Loader2, AlertTriangle, Package, Search } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
+import BorrowPortalHeader from './BorrowPortalHeader';
 
 function extractFragmentCode() {
     if (typeof window === 'undefined') return '';
@@ -63,8 +64,16 @@ export default function BorrowManage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
-            <div className="relative w-full max-w-md">
+        <div className="min-h-screen bg-[#fafafa] flex flex-col">
+            <BorrowPortalHeader
+                title="Quản Lý Phiếu Mượn"
+                subtitle="Xác thực liên kết truy cập"
+                badge={null}
+                backTo="/borrow"
+                backLabel="Quay lại trang chủ mượn thiết bị"
+            />
+            <div className="flex-1 flex items-center justify-center p-4">
+                <div className="relative w-full max-w-md">
                 <div className="bg-white border-[3px] border-black rounded-2xl p-6 sm:p-8 text-center space-y-5 shadow-[6px_6px_0_#000]">
                     {status === 'checking' && (
                         <div className="py-6 space-y-3">
@@ -157,5 +166,6 @@ export default function BorrowManage() {
                 </div>
             </div>
         </div>
+    </div>
     );
 }

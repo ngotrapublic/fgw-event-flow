@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { CheckCircle2, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
 import { borrowApi } from '../../api/borrow';
 import { borrowTokenStore } from '../../lib/borrow-token-store';
+import BorrowPortalHeader from './BorrowPortalHeader';
 
 // Deduplicate concurrent verify calls per token (protects React 18 StrictMode double-mount)
 const inFlightVerifications = new Map();
@@ -109,9 +110,17 @@ export default function BorrowVerify() {
     }, [token]);
 
     return (
-        <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
-            {/* Multi-layer Neo shadow container */}
-            <div className="relative w-full max-w-md">
+        <div className="min-h-screen bg-[#fafafa] flex flex-col">
+            <BorrowPortalHeader
+                title="Xác Nhận Yêu Cầu Mượn"
+                subtitle="Xác thực email người mượn"
+                badge={null}
+                backTo="/borrow"
+                backLabel="Quay lại trang chủ mượn thiết bị"
+            />
+            <div className="flex-1 flex items-center justify-center p-4">
+                {/* Multi-layer Neo shadow container */}
+                <div className="relative w-full max-w-md">
                 <div
                     className="absolute inset-0 rounded-2xl"
                     style={{ background: '#ec4899', transform: 'translate(8px, 8px)' }}
@@ -222,5 +231,6 @@ export default function BorrowVerify() {
                 </div>
             </div>
         </div>
+    </div>
     );
 }
