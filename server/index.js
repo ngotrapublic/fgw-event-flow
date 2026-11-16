@@ -1,6 +1,24 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const { loadEnv } = require('./config/load-env');
+
+// Load .env.<NODE_ENV> / .env deterministically BEFORE security validation or Firebase init
+loadEnv();
+
+const {
+    validateProductionSecurityConfig,
+    enforceHttpsMiddleware
+} = require('./config/borrow-security');
+
+// Validate security invariants immediately at startup (fail-fast in production)
+let securityConfig;
+try {
+    securityConfig = validateProductionSecurityConfig();
+} catch (secErr) {
+    console.error(`[SECURITY FATAL] ${secErr.message}`);
+    process.exit(1);
+}
 
 // Routes
 const eventsRouter = require('./routes/events');
@@ -18,23 +36,19 @@ const reminderJob = require('./jobs/reminderJob');
 const emailQueueWorker = require('./jobs/emailQueueWorker');
 const notificationCleanupJob = require('./jobs/notificationCleanupJob');
 const exportJob = require('./jobs/exportJob'); // ✅ NEW
+const borrowReminderJob = require('./jobs/borrow-reminder-job');
 
 // Services (for /api/notify endpoint)
 const retentionService = require('./services/retentionService');
 const emailService = require('./services/emailService');
-const path = require('path'); // ✅ NEW
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Initialize Schedulers
-retentionService.startScheduler();
-exportJob.start(); // ✅ NEW
+app.set('trust proxy', securityConfig.trustProxy); // configurable trusted reverse-proxy hop/subnet
 
-// CORS — only allow configured origins
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:5173', 'http://localhost:3000', 'https://event.greenwich-it.com'];
+// CORS — must be mounted BEFORE enforceHttpsMiddleware so preflight OPTIONS
+// and error responses carry proper Access-Control-Allow-* headers to the browser.
+const allowedOrigins = securityConfig.allowedOrigins;
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -46,15 +60,43 @@ app.use(cors({
     credentials: true
 }));
 
+app.use(enforceHttpsMiddleware);
+
+if (!process.env.APP_PUBLIC_URL) {
+    console.warn('[BORROW] APP_PUBLIC_URL is not set. Borrow email links may not function properly.');
+}
+const PORT = process.env.PORT || 5000;
+
+// Initialize Schedulers
+retentionService.startScheduler();
+exportJob.start(); // ✅ NEW
+
 // Body parsers — 10mb is sufficient for PDF generation
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+const distDir = process.env.FRONTEND_DIST_DIR
+    ? path.resolve(process.env.FRONTEND_DIST_DIR)
+    : path.join(__dirname, 'public', 'dist');
+
+const isBorrowUiPath = (reqPath) => reqPath === '/borrow' || reqPath.startsWith('/borrow/');
+
+// Apply Borrow privacy headers BEFORE express.static so static matches under /borrow cannot bypass them (MEDIUM-POST-02)
+app.use((req, res, next) => {
+    if (isBorrowUiPath(req.path)) {
+        res.set({
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer'
+        });
+    }
+    next();
+});
 
 // Serve static exports folder
 app.use('/exports', express.static(path.join(__dirname, 'public', 'exports')));
 
 // Serve React frontend (Phase 4 Deployment Patch)
-app.use(express.static(path.join(__dirname, 'public', 'dist')));
+app.use(express.static(distDir, { redirect: false }));
 
 // Health check endpoint (Phase 4 Deployment)
 app.get('/health', (req, res) => {
@@ -71,6 +113,7 @@ app.use('/api/pdf', pdfRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/users', require('./routes/users'));
 app.use('/api/resources', require('./routes/resources'));
+app.use('/api/borrow', require('./routes/borrow'));
 app.use('/api/audit-logs', require('./routes/auditLogs')); // ✅ NEW: Audit Logs API
 app.use('/api/backup', require('./routes/backup')); // ✅ NEW: Backup & Restore API
 app.use('/api/import', require('./routes/importRoutes')); // ✅ NEW: Excel Import API
@@ -101,7 +144,13 @@ app.post('/api/notify', verifyToken, async (req, res, next) => {
 
 // React Router Fallback (Phase 4 Deployment Patch)
 app.get(/^(?!\/api).+/, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
+    if (isBorrowUiPath(req.path)) {
+        res.set({
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer'
+        });
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
 });
 
 // Error handling (must be last)
@@ -109,6 +158,7 @@ app.use(errorHandler);
 
 // Start reminder job
 reminderJob.start();
+borrowReminderJob.start();
 
 // Start email queue worker
 emailQueueWorker.start();
@@ -118,21 +168,24 @@ notificationCleanupJob.start();
 
 // Start server
 const server = app.listen(PORT, () => {
+    const addr = server.address();
+    const actualPort = typeof addr === 'object' && addr ? addr.port : PORT;
     console.log(`🔥 Firebase Firestore Backend - REFACTORED`);
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${actualPort}`);
 });
 
 // Graceful Shutdown (Phase 4 Deployment Security & Reliability)
 const gracefulShutdown = (signal) => {
     console.log(`\n⚠️  Received ${signal}. Initiating graceful shutdown...`);
     
-    // Stop receiving new HTTP requests
+    // Stop receiving new HTTP requests and close idle keep-alive sockets immediately
     server.close(async () => {
         console.log('✓ HTTP server closed.');
 
         // Stop background jobs and schedulers
         try {
             reminderJob.stop();
+            borrowReminderJob.stop();
             emailQueueWorker.stop();
             notificationCleanupJob.stop();
             exportJob.stop();
@@ -150,12 +203,15 @@ const gracefulShutdown = (signal) => {
         console.log('✓ Graceful shutdown complete. Exiting.');
         process.exit(0);
     });
+    if (typeof server.closeIdleConnections === 'function') {
+        server.closeIdleConnections();
+    }
 
     // Force exit if shutdown hangs longer than 10 seconds
     setTimeout(() => {
         console.error('✗ Forced shutdown due to timeout.');
         process.exit(1);
-    }, 10000);
+    }, 10000).unref();
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

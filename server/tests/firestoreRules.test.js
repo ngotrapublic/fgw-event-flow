@@ -12,15 +12,18 @@ const rulesPath = path.resolve(__dirname, '../../firestore.rules');
 const rules = fs.readFileSync(rulesPath, 'utf8');
 
 describe('firestore.rules — security posture', () => {
+    // Replaced strict /allow\s+read\s*,\s*write\s*:/ because borrow collections explicitly use
+    // "allow read, write: if false;" to deny all client access. We still strictly forbid
+    // any permissive catch-all like "allow read, write: if true" or "if request.auth != null".
     test('no permissive read+write catch-all remains', () => {
-        expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:/);
+        expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s+(true|request\.auth)/);
     });
 
-    test('catch-all is read-only (explicit write deny)', () => {
+    test('catch-all denies all client access', () => {
         const catchAll = rules.match(/match\s*\/?\{document=\*\*\}\s*\{([\s\S]*?)\}\s*\n?\s*\}/);
         expect(catchAll).not.toBeNull();
-        expect(catchAll[1]).toMatch(/allow\s+read\s*:/);
-        expect(catchAll[1]).toMatch(/allow\s+write\s*:\s*if\s*false/);
+        expect(catchAll[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+        expect(catchAll[1]).not.toMatch(/request\.auth|if\s+true/);
     });
 
     test('events write still requires admin or manager', () => {
@@ -41,5 +44,35 @@ describe('firestore.rules — security posture', () => {
         expect(notifs[1]).toMatch(/resource\.data\.userId\s*==\s*request\.auth\.uid/);
         // owner may only flip isRead — cannot reassign userId or rewrite content
         expect(notifs[1]).toMatch(/affectedKeys\(\)\.hasOnly\(\['isRead'\]\)/);
+    });
+
+    test('borrow data collections are strictly closed to client SDK (Admin SDK only)', () => {
+        const borrowRequests = rules.match(/match\s*\/borrow_requests\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowRequests).not.toBeNull();
+        expect(borrowRequests[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowOtps = rules.match(/match\s*\/borrow_otps\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowOtps).not.toBeNull();
+        expect(borrowOtps[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowSessions = rules.match(/match\s*\/borrow_sessions\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowSessions).not.toBeNull();
+        expect(borrowSessions[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowLinkCodes = rules.match(/match\s*\/borrow_link_codes\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowLinkCodes).not.toBeNull();
+        expect(borrowLinkCodes[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowQuotas = rules.match(/match\s*\/borrow_quotas\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowQuotas).not.toBeNull();
+        expect(borrowQuotas[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowOutbox = rules.match(/match\s*\/borrow_reminder_outbox\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowOutbox).not.toBeNull();
+        expect(borrowOutbox[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+
+        const borrowIdempotency = rules.match(/match\s*\/borrow_idempotency\/\{docId\}\s*\{([\s\S]*?)\}/);
+        expect(borrowIdempotency).not.toBeNull();
+        expect(borrowIdempotency[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
     });
 });

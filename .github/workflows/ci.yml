@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+jobs:
+  backend-unit:
+    name: Backend Unit Tests (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Run full backend Jest test suite
+        working-directory: server
+        run: npm test -- --runInBand
+
+  backend-emulator:
+    name: Backend Firestore Emulator Integration Tests (Node 22 + JDK 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Setup JDK 21 for Firebase Emulator Suite
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install server dependencies (pinned firebase-tools)
+        working-directory: server
+        run: npm ci
+
+      - name: Run Firestore Emulator integration tests
+        working-directory: server
+        run: npm run test:emulator
+
+  frontend-check:
+    name: Frontend Test, Lint & Build (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Run frontend unit & a11y tests
+        working-directory: client
+        run: npm test
+
+      - name: Run ESLint
+        working-directory: client
+        run: npm run lint
+
+      - name: Build frontend bundle
+        working-directory: client
+        run: npm run build
+

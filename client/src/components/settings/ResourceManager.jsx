@@ -79,7 +79,7 @@ const ResourceManager = () => {
             setItemToDelete(null); // Close modal on success
         } catch (error) {
             console.error("Delete failed", error);
-            showError('Failed to delete resource');
+            showError(error.response?.data?.error || 'Failed to delete resource');
         } finally {
             setIsDeleting(false);
         }
@@ -103,7 +103,7 @@ const ResourceManager = () => {
             setNewItem({ label: '', category: '', quantity: 0, icon: 'Box' });
         } catch (error) {
             console.error("Save failed", error);
-            showError('Failed to save resource');
+            showError(error.response?.data?.error || 'Failed to save resource');
         }
     };
 
@@ -269,7 +269,7 @@ const ResourceManager = () => {
 
                                 <div className="flex items-center justify-between pt-3 border-t-2 border-dashed border-slate-200">
                                     <div className="text-sm font-bold text-slate-500">
-                                        In Stock: <span className="text-black font-black text-xl">{item.quantity}</span>
+                                        Còn: <span className="text-black font-black text-xl">{item.availableQty ?? item.quantity}</span> / {item.quantity}
                                     </div>
                                     <div className="text-xs font-black px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                                         Available

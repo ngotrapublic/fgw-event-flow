@@ -45,8 +45,7 @@
                 { "fieldPath": "location", "arrayConfig": "CONTAINS" },
                 { "fieldPath": "eventDate", "order": "DESCENDING" }
             ]
-        }
-        ,
+        },
         {
             "collectionGroup": "events",
             "queryScope": "COLLECTION",
@@ -64,6 +63,46 @@
                 { "fieldPath": "department", "order": "ASCENDING" },
                 { "fieldPath": "location", "order": "ASCENDING" },
                 { "fieldPath": "eventDate", "order": "ASCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "borrow_requests",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "status", "order": "ASCENDING" },
+                { "fieldPath": "createdAt", "order": "DESCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "borrow_requests",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "status", "order": "ASCENDING" },
+                { "fieldPath": "dueAt", "order": "ASCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "borrow_requests",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "borrower.phone", "order": "ASCENDING" },
+                { "fieldPath": "isOpen", "order": "ASCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "borrow_requests",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "borrower.email", "order": "ASCENDING" },
+                { "fieldPath": "isOpen", "order": "ASCENDING" }
+            ]
+        },
+        {
+            "collectionGroup": "borrow_requests",
+            "queryScope": "COLLECTION",
+            "fields": [
+                { "fieldPath": "borrower.uid", "order": "ASCENDING" },
+                { "fieldPath": "createdAt", "order": "DESCENDING" }
             ]
         }
     ],

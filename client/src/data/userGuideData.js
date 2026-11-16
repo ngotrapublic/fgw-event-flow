@@ -3,15 +3,14 @@ import {
     Users,
     Settings,
     Calendar,
-    FileText,
     Shield,
     Key,
     Truck,
     MapPin,
     Bell,
-    Database,
     Printer,
-    HardDrive
+    Package,
+    ClipboardList
 } from 'lucide-react';
 
 export const USER_GUIDE_DATA = {
@@ -57,6 +56,13 @@ export const USER_GUIDE_DATA = {
             icon: Printer,
             color: 'text-purple-600',
             bg: 'bg-purple-50'
+        },
+        {
+            title: '6. Quản lý Mượn trả Thiết bị (Borrow)',
+            description: 'Vận hành kho thiết bị tại "Quản lý mượn trả" (/equipment-loans): Duyệt phiếu, Bàn giao thiết bị, Xác nhận hoàn trả, và In mã QR đặt tại trạm. Khi cần tự mượn thiết bị cá nhân, truy cập "Mượn thiết bị của tôi" (/borrow).',
+            icon: ClipboardList,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50'
         }
     ],
     manager: [
@@ -80,6 +86,13 @@ export const USER_GUIDE_DATA = {
             icon: Truck,
             color: 'text-orange-600',
             bg: 'bg-orange-50'
+        },
+        {
+            title: 'Quản lý Mượn trả Thiết bị',
+            description: 'Truy cập "Quản lý mượn trả" (/equipment-loans) để xử lý phiếu mượn của sinh viên/cán bộ: Duyệt, Giao thiết bị, Xác nhận thu hồi và In Poster QR trạm. Khi cần tự mượn thiết bị, sử dụng "Mượn thiết bị của tôi" (/borrow).',
+            icon: ClipboardList,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50'
         }
     ],
     user: [
@@ -103,6 +116,13 @@ export const USER_GUIDE_DATA = {
             icon: Bell,
             color: 'text-amber-600',
             bg: 'bg-amber-50'
+        },
+        {
+            title: 'Mượn Thiết bị của tôi',
+            description: 'Truy cập "Mượn thiết bị của tôi" (/borrow) để đăng ký mượn loa, mic, máy chiếu... Phiếu mượn sẽ tự động gắn với tài khoản của bạn để dễ dàng theo dõi tiến độ và báo hoàn trả tại kho.',
+            icon: Package,
+            color: 'text-indigo-600',
+            bg: 'bg-indigo-50'
         }
     ]
 };

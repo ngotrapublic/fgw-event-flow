@@ -22,13 +22,16 @@ const NotificationDropdown = () => {
         }
     };
 
-    const handleItemClick = (notif) => {
-        markAsRead(notif.id);
+    const handleItemClick = async (notif) => {
+        await markAsRead(notif.id);
         setIsOpen(false);
 
-        // Navigate if eventId exists
-        if (notif.data && notif.data.eventId) {
+        if (notif.data?.eventId) {
             navigate(`/?eventId=${notif.data.eventId}`);
+        } else if (notif.data?.borrowRequestId) {
+            navigate(
+                `/equipment-loans?requestId=${encodeURIComponent(notif.data.borrowRequestId)}`
+            );
         }
     };
 

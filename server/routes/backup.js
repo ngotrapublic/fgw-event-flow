@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const backupController = require('../controllers/backupController');
-const { verifyToken } = require('../middleware/authMiddleware');
+const { verifyToken, requireRole } = require('../middleware/authMiddleware');
 
-// Protect all backup routes
-router.use(verifyToken);
+// Protect all backup routes - admin only
+router.use(verifyToken, requireRole(['admin']));
 
 // GET /api/backup - Download full system backup
 router.get('/', backupController.fullSystemBackup);

@@ -23,6 +23,17 @@ if [ -z "$EMAIL_USER" ] || [ -z "$EMAIL_PASS" ]; then
   echo "WARNING: EMAIL_USER or EMAIL_PASS is not set. Email notifications will fail."
 fi
 
+# Borrow security invariants in production
+if [ "$NODE_ENV" = "production" ]; then
+  if [ -z "$BORROW_HMAC_SECRET" ]; then
+    echo "ERROR: BORROW_HMAC_SECRET is missing in production. Server startup will fail fast."
+  fi
+  case "$APP_PUBLIC_URL" in
+    https://*) ;;
+    *) echo "ERROR: APP_PUBLIC_URL must start with https:// in production. Server startup will fail fast." ;;
+  esac
+fi
+
 # Ensure exports directory has correct permissions at runtime
 # (Though we chown in Dockerfile, mounted volumes might have different permissions)
 # Note: As a non-root user, we might not have permission to chown, so we just check writability.

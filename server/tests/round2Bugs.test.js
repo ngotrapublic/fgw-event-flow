@@ -36,6 +36,9 @@ jest.mock("../services/emailQueue", () => ({
 
 const mockFirebase = require("../config/firebase");
 
+const futureDate = (daysAhead) =>
+  new Date(Date.now() + daysAhead * 86400e3).toISOString().slice(0, 10);
+
 const mockRes = () => {
   const res = {};
   res.status = jest.fn().mockReturnValue(res);
@@ -80,7 +83,7 @@ describe("Round 2 Bug Fixes (N2, N4, N5, N6, N7, N8, N9)", () => {
           groupId: "victim-series-group-999",
           createdBy: "admin-uid",
           eventName: "Attacker Single Event",
-          eventDate: "2026-11-20",
+          eventDate: futureDate(5),
           startTime: "09:00",
           endTime: "11:00",
           location: ["Hội trường Tầng 3"],
@@ -122,7 +125,7 @@ describe("Round 2 Bug Fixes (N2, N4, N5, N6, N7, N8, N9)", () => {
         eventName: "Victim Series Day 1",
         groupId: sharedGroupId,
         createdBy: "victim-user-456",
-        eventDate: "2026-11-20",
+        eventDate: futureDate(5),
       });
 
       // Create attacker doc in same group
@@ -130,7 +133,7 @@ describe("Round 2 Bug Fixes (N2, N4, N5, N6, N7, N8, N9)", () => {
         eventName: "Victim Series Day 2",
         groupId: sharedGroupId,
         createdBy: "attacker-123",
-        eventDate: "2026-11-21",
+        eventDate: futureDate(6),
       });
 
       const req = {
@@ -171,7 +174,7 @@ describe("Round 2 Bug Fixes (N2, N4, N5, N6, N7, N8, N9)", () => {
         .doc(docId)
         .set({
           eventName: "Original Event",
-          eventDate: "2026-11-25",
+          eventDate: futureDate(7),
           startTime: "08:00",
           endTime: "10:00",
           location: ["Sảnh Tầng 1"],
@@ -377,9 +380,9 @@ describe("Round 2 Bug Fixes (N2, N4, N5, N6, N7, N8, N9)", () => {
   // ─────────────────────────────────────────────────────────────
   describe("Bug N9: Pagination Fallback When Cursor Anchor Is Missing", () => {
     test("falls back to page offset calculation when lastDocId is not found", async () => {
-      // Seed 10 events
+      // Seed 10 upcoming events using relative dates so `dateFilter: 'upcoming'` remains valid on any date
       for (let i = 1; i <= 10; i++) {
-        const dateStr = `2026-11-${String(i).padStart(2, "0")}`;
+        const dateStr = futureDate(i);
         await mockFirebase.db
           .collection("events")
           .doc(`evt-${i}`)
