@@ -67,11 +67,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Default catch-all: read-only for authenticated users.
-    // All server-side writes use the Admin SDK which bypasses rules.
+    // Default catch-all: deny client access. Every collection exposed to the
+    // Firebase client SDK must be allow-listed above. Server-side access uses
+    // the Admin SDK and bypasses these rules.
     match /{document=**} {
-      allow read: if request.auth != null;
-      allow write: if false;
+      allow read, write: if false;
     }
   }
 }
