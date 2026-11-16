@@ -19,11 +19,11 @@ describe('firestore.rules — security posture', () => {
         expect(rules).not.toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s+(true|request\.auth)/);
     });
 
-    test('catch-all is read-only (explicit write deny)', () => {
+    test('catch-all denies all client access', () => {
         const catchAll = rules.match(/match\s*\/?\{document=\*\*\}\s*\{([\s\S]*?)\}\s*\n?\s*\}/);
         expect(catchAll).not.toBeNull();
-        expect(catchAll[1]).toMatch(/allow\s+read\s*:/);
-        expect(catchAll[1]).toMatch(/allow\s+write\s*:\s*if\s*false/);
+        expect(catchAll[1]).toMatch(/allow\s+read\s*,\s*write\s*:\s*if\s*false/);
+        expect(catchAll[1]).not.toMatch(/request\.auth|if\s+true/);
     });
 
     test('events write still requires admin or manager', () => {
