@@ -42,8 +42,8 @@ function toEpochMs(val) {
     return isNaN(parsed) ? null : parsed;
 }
 
-function getOtpDocId(normalizedPhone) {
-    return hmacKey(`otp:${normalizedPhone}`);
+function getOtpDocId(normalizedPhone, normalizedEmail) {
+    return hmacKey(`otp:${normalizedPhone}:${normalizedEmail}`);
 }
 
 class DeliveryStateError extends Error {
@@ -1053,10 +1053,39 @@ async function getMyRequests(req, res, next) {
 
             if (staleIds.length > 0) {
                 await pruneSessionRequestIds(session.sessionHash, staleIds);
-                if (staleIds.length === session.requestIds.length) {
+                if (
+                    staleIds.length === session.requestIds.length &&
+                    (!Array.isArray(session.historyRequestIds) ||
+                        session.historyRequestIds.length === 0)
+                ) {
                     clearSessionCookie(req, res);
                 }
             }
+        }
+
+        // OTP history scope: read-only access to closed requests only.
+        // Never merge these IDs into session.requestIds (write authorization).
+        if (session && Array.isArray(session.historyRequestIds)) {
+            const historyIds = session.historyRequestIds.slice(0, LIMITS.MAX_SESSION_REQUESTS);
+            const historySnaps = await Promise.all(
+                historyIds.map((id) => borrowRequestsCollection.doc(id).get())
+            );
+
+            historySnaps.forEach((doc) => {
+                if (!doc.exists) return;
+
+                const data = doc.data();
+
+                // A history grant must never become an open-request grant.
+                // Status is authoritative even when isOpen is inconsistent.
+                if (OPEN_STATUSES.includes(data.status)) return;
+
+                // Preserve the cross-account boundary.
+                if (req.user?.uid && data.borrower?.uid &&
+                    data.borrower.uid !== req.user.uid) return;
+
+                matchedDocs.set(doc.id, data);
+            });
         }
 
         // If authenticated, also fetch by borrower.uid
@@ -1086,22 +1115,30 @@ async function getMyRequests(req, res, next) {
 async function requestOtp(req, res, next) {
     try {
         const phone = borrowValidation.validatePhone(req.body.phone);
+        const email = String(req.body.email || '').trim().toLowerCase();
         borrowEmailService.assertEmailEnabled();
 
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+            throw new HttpError(400, 'Email không hợp lệ');
+        }
+
         const standardResponse = {
-            message: 'Nếu số điện thoại có phiếu đang mở, mã xác thực đã được gửi tới email đã đăng ký'
+            message: 'Nếu thông tin khớp với phiếu đã đăng ký, mã xác thực sẽ được gửi tới email'
         };
 
         const snap = await borrowRequestsCollection
             .where('borrower.phone', '==', phone)
-            .where('isOpen', '==', true)
             .get();
 
-        if (snap.empty) {
+        const matchingDocs = snap.docs.filter((doc) =>
+            String(doc.data().borrower?.email || '').trim().toLowerCase() === email
+        );
+
+        if (matchingDocs.length === 0) {
             return res.status(200).json(standardResponse);
         }
 
-        const otpDocId = getOtpDocId(phone);
+        const otpDocId = getOtpDocId(phone, email);
         const otpRef = borrowOtpsCollection.doc(otpDocId);
 
         const otpTx = await db.runTransaction(async (tx) => {
@@ -1153,27 +1190,16 @@ async function requestOtp(req, res, next) {
             return res.status(200).json(standardResponse);
         }
 
-        // Send OTP to distinct emails associated with this phone (non-blocking to prevent timing attacks)
-        const distinctEmails = [
-            ...new Set(
-                snap.docs
-                    .map((d) => d.data().borrower?.email)
-                    .filter((e) => typeof e === 'string' && e.trim())
-                    .map((e) => e.trim().toLowerCase())
-            )
-        ];
+        // Send only to the email bound to this phone; keep response generic.
         res.status(200).json(standardResponse);
 
-        Promise.allSettled(distinctEmails.map((e) => borrowEmailService.sendOtp(e, otpTx.code)))
-            .then((rs) => {
-                rs.forEach((r, idx) => {
-                    if (r.status === 'rejected') {
-                        console.error(
-                            `[BORROW] Error sending OTP email to ${maskEmail(distinctEmails[idx])}:`,
-                            r.reason?.message
-                        );
-                    }
-                });
+        Promise.resolve()
+            .then(() => borrowEmailService.sendOtp(email, otpTx.code))
+            .catch((err) => {
+                console.error(
+                    `[BORROW] Error sending OTP email to ${maskEmail(email)}:`,
+                    err?.message
+                );
             });
     } catch (err) {
         next(err);
@@ -1187,14 +1213,19 @@ async function requestOtp(req, res, next) {
 async function verifyOtp(req, res, next) {
     try {
         applySensitiveHeaders(res);
-        const { phone, code } = req.body || {};
+        const { phone, email, code } = req.body || {};
         const cleanCode = code !== undefined && code !== null ? String(code).replace(/\s+/g, '') : '';
-        if (!phone || !cleanCode) {
+        if (!phone || !email || !cleanCode) {
             throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
         }
 
         const normalizedPhone = borrowValidation.normalizePhone(phone);
-        const otpDocId = getOtpDocId(normalizedPhone);
+        const normalizedEmail = String(email).trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) ||
+            normalizedEmail.length > 254) {
+            throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
+        }
+        const otpDocId = getOtpDocId(normalizedPhone, normalizedEmail);
         const otpRef = borrowOtpsCollection.doc(otpDocId);
 
         const result = await db.runTransaction(async (tx) => {
@@ -1224,28 +1255,43 @@ async function verifyOtp(req, res, next) {
             throw new HttpError(400, 'Mã không đúng hoặc đã hết hạn');
         }
 
-        // Retrieve all open requests for this phone, revoke prior sessions & link codes, issue a fresh session
+        // Bind recovery strictly to the verified phone + email pair.
         const snap = await borrowRequestsCollection
             .where('borrower.phone', '==', normalizedPhone)
-            .where('isOpen', '==', true)
             .get();
 
-        const openIds = snap.docs.map((doc) => doc.id);
-        const nowIso = new Date().toISOString();
-        const requests = [];
+        const matchingDocs = snap.docs
+            .filter((doc) =>
+                String(doc.data().borrower?.email || '').trim().toLowerCase() === normalizedEmail
+            )
+            .slice(0, LIMITS.MAX_SESSION_REQUESTS);
 
-        for (const doc of snap.docs) {
+        const openDocs = matchingDocs.filter((doc) => {
             const d = doc.data();
+            return OPEN_STATUSES.includes(d.status) && d.isOpen !== false;
+        });
+        const closedDocs = matchingDocs.filter((doc) => {
+            const d = doc.data();
+            return !OPEN_STATUSES.includes(d.status) || d.isOpen === false;
+        });
+
+        const openIds = openDocs.map((doc) => doc.id);
+        const historyIds = closedDocs.map((doc) => doc.id);
+        const nowIso = new Date().toISOString();
+
+        // Only open requests may have access tokens rotated.
+        for (const doc of openDocs) {
             await doc.ref.update({
                 accessTokenHash: null,
                 accessTokenHashes: [],
                 verifiedTokenHash: null,
                 updatedAt: nowIso
             });
-            requests.push(toPublicView({ ...d }));
         }
 
-        await replaceSessionAfterOtp(req, res, openIds);
+        await replaceSessionAfterOtp(req, res, openIds, historyIds);
+
+        const requests = matchingDocs.map((doc) => toPublicView(doc.data()));
 
         res.status(200).json({ requests });
     } catch (err) {

@@ -15,7 +15,7 @@ export const borrowApi = {
     logoutSession: () => api.post(`${BASE}/session/logout`),
     resendVerification: (id) => api.post(`${BASE}/requests/${id}/resend-verification`, {}),
     getMy: () => api.get(`${BASE}/my`),
-    lookupOtp: (phone) => api.post(`${BASE}/lookup/otp`, { phone }),
-    lookupVerify: (phone, code) => api.post(`${BASE}/lookup/verify`, { phone, code }),
+    lookupOtp: (phone, email) => api.post(`${BASE}/lookup/otp`, { phone, email }),
+    lookupVerify: (phone, email, code) => api.post(`${BASE}/lookup/verify`, { phone, email, code }),
     returnRequest: (id) => api.post(`${BASE}/requests/${id}/return`, {})
 };

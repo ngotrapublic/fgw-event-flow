@@ -94,6 +94,9 @@ async function resolveSession(req) {
         sessionId,
         sessionHash,
         requestIds: Array.isArray(data.requestIds) ? data.requestIds : [],
+        historyRequestIds: Array.isArray(data.historyRequestIds)
+            ? data.historyRequestIds.slice(0, LIMITS.MAX_SESSION_REQUESTS)
+            : [],
         expiresAt: data.expiresAt,
         createdAt: data.createdAt
     };
@@ -180,7 +183,9 @@ async function revokeSessionsForRequestIds(requestIds = []) {
             const nextIds = (Array.isArray(cur.requestIds) ? cur.requestIds : []).filter(
                 (id) => !removeSet.has(id)
             );
-            if (nextIds.length === 0) {
+            const hasHistory = Array.isArray(cur.historyRequestIds) &&
+                cur.historyRequestIds.length > 0;
+            if (nextIds.length === 0 && !hasHistory) {
                 tx.update(ref, { requestIds: [], revokedAt: now, updatedAt: now });
             } else {
                 tx.update(ref, { requestIds: nextIds, updatedAt: now });
@@ -209,7 +214,9 @@ async function pruneSessionRequestIds(sessionHash, removeIds = []) {
         const nextIds = (Array.isArray(cur.requestIds) ? cur.requestIds : []).filter(
             (id) => !removeSet.has(id)
         );
-        if (nextIds.length === 0) {
+        const hasHistory = Array.isArray(cur.historyRequestIds) &&
+            cur.historyRequestIds.length > 0;
+        if (nextIds.length === 0 && !hasHistory) {
             tx.update(ref, { requestIds: [], revokedAt: now, updatedAt: now });
         } else {
             tx.update(ref, { requestIds: nextIds, updatedAt: now });
@@ -222,11 +229,16 @@ async function pruneSessionRequestIds(sessionHash, removeIds = []) {
  * revokes all previous sessions and unconsumed link codes for the recovered request IDs,
  * and rotates to a brand-new HttpOnly session cookie.
  */
-async function replaceSessionAfterOtp(req, res, requestIds = []) {
+async function replaceSessionAfterOtp(req, res, requestIds = [], historyRequestIds = []) {
     const cleanIds = Array.from(new Set((requestIds || []).filter(Boolean))).slice(
         0,
         LIMITS.MAX_SESSION_REQUESTS
     );
+    const cleanHistoryIds = Array.from(
+        new Set((historyRequestIds || []).filter(
+            (id) => typeof id === 'string' && id && !cleanIds.includes(id)
+        ))
+    ).slice(0, LIMITS.MAX_SESSION_REQUESTS);
 
     if (cleanIds.length > 0) {
         await Promise.all([
@@ -240,7 +252,7 @@ async function replaceSessionAfterOtp(req, res, requestIds = []) {
         await revokeSessionById(oldSid);
     }
 
-    if (cleanIds.length === 0) {
+    if (cleanIds.length === 0 && cleanHistoryIds.length === 0) {
         clearSessionCookie(req, res);
         return null;
     }
@@ -252,6 +264,7 @@ async function replaceSessionAfterOtp(req, res, requestIds = []) {
 
     await borrowSessionsCollection.doc(newHash).set({
         requestIds: cleanIds,
+        historyRequestIds: cleanHistoryIds,
         createdAt: now,
         updatedAt: now,
         expiresAt,
@@ -259,7 +272,12 @@ async function replaceSessionAfterOtp(req, res, requestIds = []) {
     });
 
     setSessionCookie(req, res, newSid, LIMITS.SESSION_TTL_MS);
-    return { sessionId: newSid, sessionHash: newHash, requestIds: cleanIds };
+    return {
+        sessionId: newSid,
+        sessionHash: newHash,
+        requestIds: cleanIds,
+        historyRequestIds: cleanHistoryIds
+    };
 }
 
 async function revokeSessionById(sessionId) {

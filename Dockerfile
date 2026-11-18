@@ -1,7 +1,7 @@
 # ==========================================
 # Builder Stage: Frontend (React + Vite)
 # ==========================================
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app/client
 
@@ -14,12 +14,12 @@ COPY client/ ./
 
 # Build the frontend. 
 # Inject VITE_API_URL=/api so Axios uses relative paths, ensuring Docker portability.
-RUN VITE_API_URL=/api npm run build
+RUN --mount=type=secret,id=eventflow_client_env,target=/app/client/.env.production,required=true VITE_API_URL=/api npm run build
 
 # ==========================================
 # Runtime Stage: Backend (Node + Express + Puppeteer)
 # ==========================================
-FROM node:18-bullseye-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 # Set environment variables for Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \

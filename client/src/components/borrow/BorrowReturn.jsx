@@ -39,13 +39,15 @@ export default function BorrowReturn() {
     } = useBorrowRequests({
         userUid: user?.uid,
         authLoading,
-        onError: showError
+        onError: showError,
+        ignore401: !user?.uid
     });
 
     const [selectedRequestToReturn, setSelectedRequestToReturn] = useState(null);
     const [submittingReturn, setSubmittingReturn] = useState(false);
 
     const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
     const [otpSent, setOtpSent] = useState(false);
     const [otpCooldown, setOtpCooldown] = useState(0);
@@ -102,20 +104,26 @@ export default function BorrowReturn() {
         setLookupError(null);
 
         const cleanPhone = normalizePhoneInput(phone);
+        const cleanEmail = email.trim().toLowerCase();
         if (!isValidVnPhone(phone)) {
             setLookupError('Số điện thoại không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng số 0).');
             return;
         }
 
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            setLookupError('Vui lòng nhập email đăng ký hợp lệ.');
+            return;
+        }
         setPhone(cleanPhone);
+        setEmail(cleanEmail);
         setSendingOtp(true);
         try {
-            const res = await borrowApi.lookupOtp(cleanPhone);
+            const res = await borrowApi.lookupOtp(cleanPhone, cleanEmail);
             setOtpSent(true);
             setOtpCooldown(60);
             showSuccess(
                 res.data?.message ||
-                    'Nếu số điện thoại có phiếu đang mở, mã xác thực đã được gửi tới email đã đăng ký.'
+                    'Nếu thông tin khớp với phiếu mượn, mã OTP sẽ được gửi đến email đăng ký.'
             );
         } catch (err) {
             console.error('[BORROW RETURN] Lookup OTP error:', err);
@@ -132,6 +140,7 @@ export default function BorrowReturn() {
         setLookupError(null);
 
         const cleanPhone = normalizePhoneInput(phone);
+        const cleanEmail = email.trim().toLowerCase();
         const cleanCode = otpCode.replace(/\s+/g, '');
 
         if (cleanCode.length !== 6) {
@@ -141,7 +150,7 @@ export default function BorrowReturn() {
 
         setVerifyingOtp(true);
         try {
-            const res = await borrowApi.lookupVerify(cleanPhone, cleanCode);
+            const res = await borrowApi.lookupVerify(cleanPhone, cleanEmail, cleanCode);
             const lookedUpRequests = res.data?.requests || [];
 
             if (lookedUpRequests.length > 0) {
@@ -162,10 +171,11 @@ export default function BorrowReturn() {
                 setOtpCode('');
                 setOtpCooldown(0);
                 setPhone('');
+                setEmail('');
                 setShowLookupBox(false);
             } else {
                 setLookedUpInfo({ phone: cleanPhone, total: 0, readyCount: 0 });
-                showSuccess('Xác thực thành công nhưng hiện không có phiếu mượn nào đang mở với SĐT này.');
+                showSuccess('Xác thực thành công nhưng không tìm thấy phiếu mượn phù hợp.');
                 setOtpSent(false);
                 setOtpCode('');
                 setOtpCooldown(0);
@@ -184,7 +194,7 @@ export default function BorrowReturn() {
         <div className="min-h-screen bg-[#fafafa] text-slate-900 pb-20 relative overflow-x-hidden">
             <BorrowPortalHeader
                 title="Hoàn Trả & Tra Cứu Thiết Bị"
-                subtitle="Báo trả tại kho & tra cứu qua số điện thoại"
+                subtitle="Báo trả tại kho & tra cứu bằng số điện thoại và email"
                 badge={null}
                 backTo="/borrow"
                 backLabel="Quay lại trang chủ mượn thiết bị"
@@ -197,12 +207,12 @@ export default function BorrowReturn() {
                             <CheckCircle2 size={20} className="text-emerald-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
                             <div>
                                 <h2 className="text-xs font-black text-black uppercase tracking-wider">
-                                    Kết Quả Tra Cứu SĐT: {lookedUpInfo.phone}
+                                    Kết Quả Tra Cứu: {lookedUpInfo.phone}
                                 </h2>
                                 <p className="text-xs font-medium text-emerald-950 mt-0.5">
                                     {lookedUpInfo.total > 0
-                                        ? `Tìm thấy ${lookedUpInfo.total} phiếu mượn đang mở (${lookedUpInfo.readyCount} phiếu đang mượn có thể báo trả).`
-                                        : 'Không có phiếu mượn nào đang mở với số điện thoại này.'}
+                                        ? `Tìm thấy ${lookedUpInfo.total} phiếu mượn (${lookedUpInfo.readyCount} phiếu đang mượn có thể báo trả).`
+                                        : 'Không tìm thấy phiếu mượn phù hợp.'}
                                 </p>
                             </div>
                         </div>
@@ -214,10 +224,11 @@ export default function BorrowReturn() {
                                 setOtpCode('');
                                 setOtpCooldown(0);
                                 setPhone('');
+                                setEmail('');
                             }}
                             className="min-h-[44px] px-3.5 py-2 bg-white border-2 border-black rounded-xl text-xs font-black shadow-[2px_2px_0_#000] hover:bg-slate-50 transition-all flex-shrink-0 self-start sm:self-center"
                         >
-                            Tra cứu SĐT khác
+                            Tra cứu thông tin khác
                         </button>
                     </div>
                 )}
@@ -306,8 +317,8 @@ export default function BorrowReturn() {
                             </h3>
                             <p className="text-xs text-slate-600 max-w-sm mx-auto font-medium">
                                 {closedRequestsCount > 0
-                                    ? `Bạn có ${closedRequestsCount} phiếu đã hoàn tất (Đã trả / Đã huỷ / Từ chối). Nếu muốn tra cứu phiếu đang mở đăng ký trên thiết bị khác, hãy dùng mục Số Điện Thoại bên dưới.`
-                                    : 'Nếu bạn đăng ký trên điện thoại hoặc máy khác, hãy dùng chức năng tra cứu bằng Số Điện Thoại bên dưới để tìm lại phiếu đang mở nhé!'}
+                                    ? `Bạn có ${closedRequestsCount} phiếu đã hoàn tất (Đã trả / Đã huỷ / Từ chối). Nếu muốn tra cứu phiếu khác đăng ký trên thiết bị khác, hãy dùng mục Số Điện Thoại bên dưới.`
+                                    : 'Nếu bạn đăng ký trên điện thoại hoặc máy khác, hãy dùng chức năng tra cứu bằng Số Điện Thoại bên dưới để tìm lại phiếu mượn nhé!'}
                             </p>
                             {closedRequestsCount > 0 && (
                                 <button
@@ -362,6 +373,19 @@ export default function BorrowReturn() {
                     </section>
                 )}
 
+                {!loading && closedRequests.length > 0 && (!fetchError || lookedUpInfo?.total > 0) && (
+                    <section aria-labelledby="section-closed-history-title" className="space-y-3.5">
+                        <h2 id="section-closed-history-title" className="text-sm font-black text-black uppercase tracking-wider">
+                            Lịch Sử Phiếu Mượn ({closedRequests.length})
+                        </h2>
+                        <div className="space-y-4">
+                            {closedRequests.map((req) => (
+                                <BorrowRequestCard key={req.id} request={req} />
+                            ))}
+                        </div>
+                    </section>
+                )}
+
                 <OtpLookupSection
                     hasOpenRequests={handedOverRequests.length > 0 || otherOpenRequests.length > 0}
                     showLookupBox={showLookupBox}
@@ -373,6 +397,8 @@ export default function BorrowReturn() {
                     otpSent={otpSent}
                     phone={phone}
                     onChangePhone={setPhone}
+                    email={email}
+                    onChangeEmail={setEmail}
                     otpCode={otpCode}
                     onChangeOtpCode={setOtpCode}
                     otpCooldown={otpCooldown}

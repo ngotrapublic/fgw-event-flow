@@ -13,6 +13,8 @@ export default function OtpLookupSection({
     otpSent,
     phone,
     onChangePhone,
+    email,
+    onChangeEmail,
     otpCode,
     onChangeOtpCode,
     otpCooldown,
@@ -39,7 +41,7 @@ export default function OtpLookupSection({
                         <Search size={13} strokeWidth={3} />
                     </span>
                     <h2 id="section-otp-lookup-title" className="text-sm font-black text-black uppercase tracking-wider">
-                        Tra Cứu Phiếu Bằng Số Điện Thoại
+                        Tra Cứu Phiếu Bằng Số Điện Thoại & Email
                     </h2>
                 </div>
                 {hasOpenRequests && (
@@ -57,9 +59,8 @@ export default function OtpLookupSection({
             {isExpanded && (
                 <div className="space-y-4 pt-1">
                     <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                        Nhập số điện thoại gắn với <strong>phiếu đang mở</strong> (chờ duyệt, đã duyệt,
-                        đang mượn hoặc chờ kiểm tra). Hệ thống sẽ gửi mã OTP 6 số đến email đăng ký của
-                        phiếu đó.
+                        Nhập số điện thoại và email đã đăng ký trên phiếu mượn. Có thể tra cứu phiếu đang mở
+                        và lịch sử phiếu đã trả, đã huỷ hoặc bị từ chối.
                     </p>
 
                     {lookupError && (
@@ -95,6 +96,25 @@ export default function OtpLookupSection({
                                 describedByExtra={lookupError ? 'return-lookup-error' : undefined}
                             />
 
+                            <div className="space-y-1.5">
+                                <label htmlFor="return-lookup-email" className="block text-xs font-black text-slate-800">
+                                    Email đăng ký phiếu mượn
+                                </label>
+                                <input
+                                    id="return-lookup-email"
+                                    type="email"
+                                    autoComplete="email"
+                                    inputMode="email"
+                                    value={email}
+                                    onChange={(e) => {
+                                        onChangeEmail(e.target.value);
+                                        onClearError();
+                                    }}
+                                    placeholder="Nhập email đăng ký"
+                                    className="w-full min-h-[48px] px-3 border-2 border-black rounded-xl bg-white text-sm"
+                                />
+                            </div>
+
                             <motion.button
                                 whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
                                 type="submit"
@@ -121,12 +141,12 @@ export default function OtpLookupSection({
                                     <Mail size={15} aria-hidden="true" /> Kiểm tra email để lấy mã OTP
                                 </p>
                                 <p className="font-medium text-xs leading-relaxed">
-                                    Nếu SĐT <strong>{phone}</strong> có <strong>phiếu đang mở</strong>,
+                                    Nếu số điện thoại <strong>{phone}</strong> và email đăng ký khớp với phiếu mượn,
                                     mã 6 số đã được gửi tới email đã đăng ký phiếu đó. Vui lòng kiểm tra
                                     cả thư mục <strong>Spam / Thư rác</strong>.
                                 </p>
                                 <ul className="font-medium text-xs text-amber-900 list-disc pl-4 space-y-0.5">
-                                    <li>Phiếu đã trả / đã huỷ / bị từ chối sẽ không phát sinh OTP.</li>
+                                    <li>Có thể tra cứu lịch sử phiếu đã trả, đã huỷ và bị từ chối.</li>
                                     <li>Phiếu lập bằng tài khoản nội bộ không có hộp thư thật (vd: @fgw-event.com) sẽ không nhận được email.</li>
                                     <li>Giới hạn gửi OTP: tối đa 1 lần / 60 giây và 3 lần / giờ.</li>
                                 </ul>
@@ -147,7 +167,7 @@ export default function OtpLookupSection({
                                     onClick={onResetPhoneStep}
                                     className="min-h-[44px] px-2 font-black text-slate-700 hover:text-black underline"
                                 >
-                                    ← Đổi số điện thoại khác
+                                    ← Đổi thông tin tra cứu
                                 </button>
 
                                 <button
